@@ -1,0 +1,17 @@
+fastapi[all]
+sqlalchemy[asyncio]
+aiomysql
+pydantic-settings
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+structlog
+colorama
+langchain==1.2.15
+langchain-openai
+langchain-community==0.4.1
+pymilvus==2.6.12
+dashscope
+httpx
+sentence-transformers
+volcenginesdkarkruntime
