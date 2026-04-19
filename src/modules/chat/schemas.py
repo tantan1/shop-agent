@@ -45,7 +45,7 @@ class FileUploadMetadata(BaseModel):
 # =============================================================================
 
 class HospitalChatRequest(BaseModel):
-    """医院客服聊天请求"""
+    """通用Agent聊天请求"""
     message: str = Field(
         ...,
         min_length=1,
@@ -54,10 +54,11 @@ class HospitalChatRequest(BaseModel):
     )
     conversation_id: Optional[str] = Field(default=None, description="对话ID，用于多轮对话")
     stream: bool = Field(default=True, description="是否启用流式输出")
+    domain: str = Field(default="medical", description="业务领域: medical/ecommerce/customer_service/general")
 
 
 class HospitalChatResponse(BaseModel):
-    """医院客服聊天响应"""
+    """通用Agent聊天响应"""
     message: str = Field(..., description="回复消息")
     conversation_id: str = Field(..., description="对话ID")
     steps: List[Dict[str, Any]] = Field(default_factory=list, description="处理步骤详情")
@@ -65,10 +66,11 @@ class HospitalChatResponse(BaseModel):
     safety_passed: bool = Field(default=True, description="安全审查是否通过")
     stream_available: bool = Field(default=True, description="是否支持流式输出")
     cache_hit: bool = Field(default=False, description="是否命中缓存")
+    domain: str = Field(default="medical", description="处理的业务领域")
 
 
 class HospitalAgentConfig(BaseModel):
-    """医院客服 Agent 配置"""
+    """Agent通用配置"""
     model_name: str = Field(default="doubao-pro-251215", description="模型名称")
     temperature: float = Field(default=0.3, description="温度参数")
     max_retries: int = Field(default=3, description="最大重试次数")
@@ -76,6 +78,7 @@ class HospitalAgentConfig(BaseModel):
     top_k: int = Field(default=5, description="检索返回的文档数量")
     enable_history: bool = Field(default=True, description="是否启用对话历史")
     max_history_turns: int = Field(default=5, description="最大历史对话轮次")
+    domain: str = Field(default="medical", description="业务领域")
 
 
 __all__ = [

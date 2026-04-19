@@ -132,16 +132,30 @@ class ChatAgentService:
             from datetime import datetime
             current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
             
-            # 构建带系统提示词的完整 prompt
-            prompt = chat_config.system_prompt.format(
-                rag_context=context,
-                user_question=query,
-                current_time=current_time
-            )
+            # 从 prompts 模块获取默认模板
+            from src.modules.chat.agent.prompts import PromptTemplateManager
+            template = PromptTemplateManager.get("medical", "medical_step4_generate")
+            
+            # 构建 prompt
+            if template:
+                prompt_content = template.format(
+                    rag_context=context,
+                    user_question=query,
+                    current_time=current_time,
+                    safety_check_result="风险等级: low",
+                    safety_reminder="",
+                    chat_history="",
+                    product_info=context,
+                    knowledge_base=context,
+                    context=context,
+                    category=""
+                )
+            else:
+                prompt_content = f"基于以下信息回答用户问题。\n\n知识库：\n{context}\n\n问题：{query}\n\n回答："
 
             # 使用 LLM 服务调用通义千问
             response = await self.llm.chat_qwen_with_prompt(
-                prompt=prompt,
+                prompt=prompt_content,
                 system_prompt="你是一个医疗客服助手"
             )
             return response
@@ -388,39 +402,35 @@ class ChatAgentService:
         self, 
         request: HospitalChatRequest
     ) -> HospitalChatResponse:
-        """使用医院客服 Agent 进行多步骤对话"""
+        """使用通用 Agent 进行多步骤对话"""
         try:
             await self._initialize()
             
             # 延迟导入避免循环依赖
-            from src.modules.chat.agent.executor import HospitalAgentExecutor
+            from src.modules.chat.agent.executor import GeneralAgentExecutor
             from src.modules.chat.agent.schemas import HospitalAgentConfig
             
-            # 创建 Agent 配置
-            config = HospitalAgentConfig(
-                model_name=chat_config.chat_model,
-                temperature=0.3,
-                top_k=5,
-                enable_history=True,
-                max_history_turns=5
-            )
+            # 获取领域配置
+            domain = getattr(request, 'domain', 'medical')
             
-            # 创建 Agent 执行器
-            executor = HospitalAgentExecutor(
+            # 创建 Agent 执行器（传入domain自动加载对应配置）
+            executor = GeneralAgentExecutor(
+                domain=domain,
                 llm_service=self._llm_service,
                 embedding_service=self._embedding_service,
                 milvus_service=self._milvus_service,
                 redis_cache_service=self._redis_cache_service,
-                config=config
             )
             
             # 执行 Agent
             response = await executor.execute(request)
+            response.domain = domain  # 设置响应领域
             
             # 记录业务事件
             logger.log_business_event(
-                "医院客服Agent对话",
+                f"{executor.agent_name}对话",
                 success=True,
+                domain=domain,
                 conversation_id=response.conversation_id,
                 message_length=len(request.message),
                 response_length=len(response.message),
@@ -439,42 +449,3 @@ class ChatAgentService:
                 message_length=len(request.message)
             )
             raise ValidationException("医院客服对话失败", str(e))
-
-    async def chat_with_hospital_agent_stream(
-        self, 
-        request: HospitalChatRequest
-    ):
-        """使用医院客服 Agent 进行流式对话"""
-        try:
-            await self._initialize()
-            
-            # 延迟导入避免循环依赖
-            from src.modules.chat.agent.executor import HospitalAgentExecutor
-            from src.modules.chat.agent.schemas import HospitalAgentConfig
-            
-            # 创建 Agent 配置
-            config = HospitalAgentConfig(
-                model_name=chat_config.chat_model,
-                temperature=0.3,
-                top_k=5,
-                enable_history=True,
-                max_history_turns=5
-            )
-            
-            # 创建 Agent 执行器
-            executor = HospitalAgentExecutor(
-                llm_service=self._llm_service,
-                embedding_service=self._embedding_service,
-                milvus_service=self._milvus_service,
-                redis_cache_service=self._redis_cache_service,
-                config=config
-            )
-            
-            # 执行流式 Agent
-            async for chunk in executor.execute_stream(request):
-                yield f"data: {chunk}\n\n"
-            
-        except Exception as e:
-            logger.error(f"医院客服 Agent 流式执行失败: {str(e)}")
-            import json
-            yield f"data: {json.dumps({'event': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"

@@ -167,26 +167,33 @@ async def health_check(
             "milvus": "connected"
         })
     except Exception as e:
+        error_msg = str(e)
         return success_response(data={
             "status": "unhealthy",
-            "error": str(e[:200]) if len(str(e)) > 200 else str(e)
+            "error": error_msg[:200] if len(error_msg) > 200 else error_msg
         }, code=503)
 
 
-@router.post("/hospital/chat", summary="医院客服Agent对话")
+@router.post("/hospital/chat", summary="通用Agent对话")
 async def hospital_chat(
     request: HospitalChatRequest,
     _: None = Depends(verify_api_key),
     chatagent_service: ChatAgentService = Depends(get_chatagent_service)
 ):
     """
-    使用医院客服 Agent 进行多步骤对话
+    使用通用 Agent 进行多步骤对话
 
     Agent 流程：
-    1. 问题重写 - 将用户问题改写为更适合检索的查询
-    2. 安全审查 - 检查问题是否涉及医疗建议、处方、诊断等敏感内容
-    3. 知识检索 - 使用现有的 RAG 组件从医疗知识库检索相关内容
-    4. 答案生成 - 基于检索结果生成安全、准确的回复
+    1. 问题理解/改写 - 将用户问题改写为更适合检索的查询
+    2. 内容审查/安全检查 - 检查问题是否涉及敏感内容（取决于领域配置）
+    3. 知识检索 - 使用 RAG 组件从知识库检索相关内容
+    4. 答案生成 - 基于检索结果生成回答
+
+    支持的领域 (domain 参数):
+    - medical: 医疗客服（默认）
+    - ecommerce: 电商客服
+    - customer_service: 通用客服
+    - general: 通用助手
 
     HTTP 请求示例:
     ```bash
@@ -195,7 +202,8 @@ async def hospital_chat(
       -H 'Content-Type: application/json' \\
       -d '{
         "message": "我想咨询一下，心脏病患者可以做胃镜检查吗？",
-        "stream": false
+        "stream": false,
+        "domain": "medical"
       }'
     ```
 
@@ -210,57 +218,11 @@ async def hospital_chat(
         "steps": [...],
         "documents_used": [...],
         "safety_passed": true,
-        "stream_available": true
+        "stream_available": true,
+        "domain": "medical"
       }
     }
     ```
     """
     response = await chatagent_service.chat_with_hospital_agent(request)
     return success_response(data=response.model_dump())
-
-
-@router.post("/hospital/chat/stream", summary="医院客服Agent流式对话")
-async def hospital_chat_stream(
-    request: HospitalChatRequest,
-    _: None = Depends(verify_api_key),
-    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
-):
-    """
-    使用医院客服 Agent 进行流式对话
-
-    返回 SSE (Server-Sent Events) 流式响应
-
-    HTTP 请求示例:
-    ```bash
-    curl -X POST 'http://localhost:8000/api/chatagent/hospital/chat/stream' \\
-      -H 'X-API-Key: your-api-key' \\
-      -H 'Content-Type: application/json' \\
-      -d '{
-        "message": "我想咨询一下，心脏病患者可以做胃镜检查吗？",
-        "stream": true
-      }'
-    ```
-
-    SSE 事件格式:
-    - step_start: 步骤开始
-    - step_complete: 步骤完成
-    - content: 内容块
-    - done: 完成
-    - error: 错误
-    """
-    from fastapi.responses import StreamingResponse
-
-    async def event_generator():
-        async for chunk in chatagent_service.chat_with_hospital_agent_stream(request):
-            yield chunk
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
