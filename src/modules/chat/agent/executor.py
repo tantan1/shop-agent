@@ -5,14 +5,17 @@
 
 import json
 import time
+import asyncio
 from typing import AsyncGenerator, Optional, List, Dict, Any
+
+from src.modules.chat.core.llm_service import LLMService
+from src.modules.chat.core.embedding_service import EmbeddingService
+from src.modules.chat.core.milvus_service import MilvusService
+from src.modules.chat.core.redis_cache_service import RedisCacheService
+
 from datetime import datetime, timedelta
 
 from langchain_core.messages import HumanMessage, AIMessage
-
-from src.modules.chat.core.embedding_service import EmbeddingService
-from src.modules.chat.core.milvus_service import MilvusService
-from src.modules.chat.core.llm_service import LLMService
 from src.modules.chat.agent.prompts import (
     QUESTION_REWRITING_PROMPT,
     SAFETY_CHECK_PROMPT,
@@ -37,6 +40,12 @@ from src.shared.logger import APILogger
 logger = APILogger("hospital_agent_executor")
 
 
+# 类常量定义
+_MAX_HISTORY_MESSAGES_FOR_ANSWER = 10  # 答案生成时使用的历史消息数
+_MAX_RETRIEVAL_QUERIES = 3  # 最多使用的检索查询数
+_CLEANUP_INTERVAL = 10  # 每N次调用清理一次过期历史
+
+
 class HospitalAgentExecutor:
     """
     医院客服 Agent 执行器
@@ -48,20 +57,29 @@ class HospitalAgentExecutor:
     4. 答案生成 - 基于检索结果生成安全、准确的回复
     """
     
+    # 类变量：所有实例共享会话历史（使用 asyncio.Lock 保护）
+    _history: Dict[str, List[Dict[str, str]]] = {}  # conversation_id -> history
+    _last_access: Dict[str, datetime] = {}  # 追踪最后访问时间
+    _cleanup_counter: int = 0  # 清理计数器
+    _history_lock: asyncio.Lock = None  # 异步锁，用于保护历史记录操作
+    
     def __init__(
         self,
         config: Optional[HospitalAgentConfig] = None,
-        llm_service = None,
-        embedding_service = None,
-        milvus_service = None,
+        llm_service: Optional[LLMService] = None,
+        embedding_service: Optional[EmbeddingService] = None,
+        milvus_service: Optional[MilvusService] = None,
+        redis_cache_service: Optional[RedisCacheService] = None,
     ):
         self.llm_service = llm_service
         self.embedding_service = embedding_service
         self.milvus_service = milvus_service
+        self.redis_cache_service = redis_cache_service
         self.config = config or HospitalAgentConfig()
-        self._history: Dict[str, List[Dict[str, str]]] = {}  # conversation_id -> history
-        self._last_access: Dict[str, datetime] = {}  # 追踪最后访问时间
         self._history_max_age = timedelta(hours=24)  # 历史记录过期时间
+        # 每个实例维护自己的锁，确保异步安全
+        if HospitalAgentExecutor._history_lock is None:
+            HospitalAgentExecutor._history_lock = asyncio.Lock()
 
     def _cleanup_old_history(self):
         """清理过期的对话历史，防止内存泄漏"""
@@ -76,58 +94,29 @@ class HospitalAgentExecutor:
         if expired:
             logger.info(f"已清理 {len(expired)} 条过期对话历史")
 
-    def _get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
-        """获取对话历史"""
-        if conversation_id not in self._history:
-            self._history[conversation_id] = []
-        # 更新最后访问时间
-        self._last_access[conversation_id] = datetime.now()
-        # 定期清理过期历史
-        self._cleanup_old_history()
-        return self._history[conversation_id]
+    async def _get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
+        """获取对话历史（异步安全）"""
+        async with self._history_lock:
+            if conversation_id not in self._history:
+                self._history[conversation_id] = []
+            # 更新最后访问时间
+            self._last_access[conversation_id] = datetime.now()
+            # 定期清理过期历史（每N次调用清理一次）
+            self._cleanup_counter += 1
+            if self._cleanup_counter >= _CLEANUP_INTERVAL:
+                self._cleanup_old_history()
+                self._cleanup_counter = 0
+            return self._history[conversation_id].copy()  # 返回副本避免外部修改
 
-    def _add_to_history(self, conversation_id: str, role: str, content: str):
-        """添加对话历史"""
-        history = self._get_conversation_history(conversation_id)
-        history.append({"role": role, "content": content})
-        # 保持最大历史轮次
-        if len(history) > self.config.max_history_turns * 2:
-            self._history[conversation_id] = history[-self.config.max_history_turns * 2:]
-    
-    async def _call_doubao(
-        self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        stream: bool = False
-    ) -> Any:
-        """
-        调用 Doubao 模型
-        
-        Args:
-            messages: 消息列表
-            temperature: 温度参数
-            stream: 是否流式输出
-            
-        Returns:
-            模型响应
-        """
-        try:
-            temperature = temperature or self.config.temperature
-            if stream:
-                return self.llm_service.chat_doubao(
-                    messages=messages,
-                    temperature=temperature,
-                    stream=True
-                )
-            else:
-                return await self.llm_service.chat_doubao_async(
-                    messages=messages,
-                    temperature=temperature
-                )
-                
-        except Exception as e:
-            logger.error(f"Doubao API 调用失败: {str(e)}")
-            raise
+    async def _add_to_history(self, conversation_id: str, role: str, content: str):
+        """添加对话历史（异步安全）"""
+        async with self._history_lock:
+            history = self._history.get(conversation_id, [])
+            history.append({"role": role, "content": content})
+            # 保持最大历史轮次
+            if len(history) > self.config.max_history_turns * 2:
+                history = history[-self.config.max_history_turns * 2:]
+            self._history[conversation_id] = history
     
     async def step1_rewrite_question(
         self, 
@@ -138,17 +127,23 @@ class HospitalAgentExecutor:
         步骤1：问题重写
         
         将用户问题改写为更适合检索的查询
+        结合对话历史进行上下文理解
         """
         start_time = time.time()
         
         try:
+            # 获取对话历史用于上下文理解
+            history = await self._get_conversation_history(conversation_id)
             # 使用 invoke 获取格式化后的消息
             prompt_obj = QUESTION_REWRITING_PROMPT.invoke({"user_question": user_question})
-            messages = [{"role": "system", "content": prompt_obj.messages[0].content}]
-            messages.append({"role": "user", "content": f"用户问题：{user_question}"})
+            # 构建消息列表（使用模板自动生成的变量替换）
+            messages = [
+                {"role": "system", "content": prompt_obj.messages[0].content},
+                {"role": "user", "content": prompt_obj.messages[1].content}
+            ]
             
             # 调用模型
-            response = await self._call_doubao(messages)
+            response = await self.llm_service.chat_qwen(messages)
             
             # 解析结果
             rewritten_queries = [q.strip() for q in response.split('\n') if q.strip()]
@@ -193,8 +188,7 @@ class HospitalAgentExecutor:
     
     async def step2_safety_check(
         self, 
-        user_question: str,
-        conversation_id: str
+        user_question: str
     ) -> tuple[AgentStepResult, SafetyCheckResult]:
         """
         步骤2：安全审查
@@ -206,11 +200,14 @@ class HospitalAgentExecutor:
         try:
             # 使用 invoke 获取格式化后的消息
             prompt_obj = SAFETY_CHECK_PROMPT.invoke({"user_question": user_question})
-            messages = [{"role": "system", "content": prompt_obj.messages[0].content}]
-            messages.append({"role": "user", "content": f"用户问题：{user_question}"})
+            # 构建消息列表（使用模板自动生成的变量替换）
+            messages = [
+                {"role": "system", "content": prompt_obj.messages[0].content},
+                {"role": "user", "content": prompt_obj.messages[1].content}
+            ]
             
             # 调用模型
-            response = await self._call_doubao(messages)
+            response = await self.llm_service.chat_qwen(messages)
             
             # 解析 JSON 结果
             try:
@@ -276,13 +273,13 @@ class HospitalAgentExecutor:
             duration = int((time.time() - start_time) * 1000)
             logger.error(f"安全审查失败: {str(e)}")
             
-            # 默认不阻止，但记录错误
+            # 保守策略：异常时默认高风险，需人工确认
             safety_result = SafetyCheckResult(
-                is_safe=True,
-                risk_level="low",
-                risk_categories=[],
-                warning_message="安全审查服务暂时不可用",
-                can_proceed=True
+                is_safe=False,
+                risk_level="high",
+                risk_categories=["安全审查服务异常"],
+                warning_message="安全审查服务暂时不可用，建议咨询专业医生",
+                can_proceed=False
             )
             
             step_result = AgentStepResult(
@@ -299,8 +296,7 @@ class HospitalAgentExecutor:
     async def step3_knowledge_retrieval(
         self, 
         rewritten_queries: List[str],
-        top_k: int,
-        conversation_id: str
+        top_k: int
     ) -> tuple[AgentStepResult, List[Dict[str, Any]]]:
         """
         步骤3：知识检索
@@ -312,10 +308,10 @@ class HospitalAgentExecutor:
         retrieval_results = []
         
         try:
-            for query in rewritten_queries[:3]:  # 最多使用3个查询
+            for query in rewritten_queries[:_MAX_RETRIEVAL_QUERIES]:  # 最多使用3个查询
                 # 使用嵌入服务和 Milvus 服务检索
                 query_embedding = await self.embedding_service.embed_query(query)
-                docs = self.milvus.search_similar(
+                docs = self.milvus_service.search_similar(
                     query_embedding=query_embedding,
                     top_k=top_k // 3 + 1  # 每个查询返回部分结果
                 )
@@ -385,74 +381,77 @@ class HospitalAgentExecutor:
         rag_context: str,
         safety_result: SafetyCheckResult,
         conversation_id: str
-    ) -> tuple[AgentStepResult, str]:
+    ) -> tuple[AgentStepResult, str, Dict[str, Any]]:
         """
-        步骤4：答案生成
-        
+        步骤4：答案生成（含质量评估）
+
         基于检索结果生成安全、准确的回复
+        同时基于规则快速评估答案质量，返回评估结果
+
+        Returns:
+            tuple: (步骤结果, 回答内容, 质量评估信息)
         """
         start_time = time.time()
-        
+
         try:
             # 获取当前时间
             current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-            
-            # 构建安全提醒
-            if not safety_result.is_safe:
-                safety_reminder = SAFETY_WARNING_TEMPLATE.format(
-                    risk_categories=", ".join(safety_result.risk_categories),
-                    warning_message=safety_result.warning_message or "请咨询专业医生"
-                )
-            else:
-                safety_reminder = "问题已通过安全审查，可以正常回答。"
-            
-            # 构建安全审查结果描述
-            safety_check_result = f"风险等级: {safety_result.risk_level}"
-            if safety_result.risk_categories:
-                safety_check_result += f"\n涉及内容: {', '.join(safety_result.risk_categories)}"
-            
+
+            # 构建安全提醒（使用私有方法）
+            safety_reminder = self._build_safety_reminder(safety_result)
+            safety_check_result = self._build_safety_check_result(safety_result)
+
             # 获取对话历史
-            history = self._get_conversation_history(conversation_id)
+            history = await self._get_conversation_history(conversation_id)
             chat_history = []
-            for msg in history[-10:]:  # 只使用最近10条
+            for msg in history[-_MAX_HISTORY_MESSAGES_FOR_ANSWER:]:  # 只使用最近10条
                 if msg["role"] == "user":
                     chat_history.append(HumanMessage(content=msg["content"]))
                 else:
                     chat_history.append(AIMessage(content=msg["content"]))
-            
+
             # 构建提示
-            prompt_content = ANSWER_GENERATION_PROMPT.format(
-                current_time=current_time,
-                rag_context=rag_context,
-                user_question=user_question,
-                safety_check_result=safety_check_result,
-                safety_reminder=safety_reminder,
-                chat_history=chat_history
-            )
-            
+            prompt_content = ANSWER_GENERATION_PROMPT.invoke({
+                "current_time": current_time,
+                "rag_context": rag_context,
+                "user_question": user_question,
+                "safety_check_result": safety_check_result,
+                "safety_reminder": safety_reminder,
+                "chat_history": chat_history
+            })
+
             # 构建消息
             def _convert_message_type(msg_type: str) -> str:
                 """将 LangChain 消息类型转换为 API 期望的角色"""
                 mapping = {"human": "user", "ai": "assistant", "system": "system"}
                 return mapping.get(msg_type, msg_type)
-            
+
             messages = [{"role": _convert_message_type(msg.type), "content": msg.content} for msg in prompt_content.messages]
-            
+
             # 调用模型
-            response = await self._call_doubao(messages)
-            
+            response = await self.llm_service.chat_qwen(messages)
+
+            # 基于规则快速评估答案质量（避免额外 LLM 调用）
+            quality_evaluation = self._quick_evaluate_answer_quality(
+                user_question=user_question,
+                response=response,
+                rag_context=rag_context
+            )
+
             duration = int((time.time() - start_time) * 1000)
-            
+
             # 更新对话历史
-            self._add_to_history(conversation_id, "user", user_question)
-            self._add_to_history(conversation_id, "assistant", response)
-            
+            await self._add_to_history(conversation_id, "user", user_question)
+            await self._add_to_history(conversation_id, "assistant", response)
+
             logger.info(
                 f"答案生成完成",
                 response_length=len(response),
-                duration_ms=duration
+                duration_ms=duration,
+                quality_score=quality_evaluation.get("quality_score"),
+                is_solved=quality_evaluation.get("is_solved")
             )
-            
+
             return AgentStepResult(
                 step_name="answer_generation",
                 step_order=4,
@@ -461,28 +460,143 @@ class HospitalAgentExecutor:
                     "context_length": len(rag_context),
                     "safety_passed": safety_result.is_safe
                 },
-                output_data={"response": response},
+                output_data={
+                    "response": response,
+                    **quality_evaluation  # 包含质量评估信息
+                },
                 status="success",
                 duration_ms=duration
-            ), response
-            
+            ), response, quality_evaluation
+
         except Exception as e:
             duration = int((time.time() - start_time) * 1000)
             logger.error(f"答案生成失败: {str(e)}")
-            
+
+            # 失败时返回默认低质量评估
+            default_evaluation = {
+                "is_solved": False,
+                "quality_score": 0,
+                "eval_reason": f"生成失败: {str(e)}"
+            }
+
             return AgentStepResult(
                 step_name="answer_generation",
                 step_order=4,
                 status="failed",
                 error_message=str(e),
                 duration_ms=duration
-            ), "抱歉，服务暂时繁忙，请稍后重试。"
+            ), "抱歉，服务暂时繁忙，请稍后重试。", default_evaluation
     
+    def _build_safety_reminder(self, safety_result: SafetyCheckResult) -> str:
+        """构建安全提醒文本"""
+        if not safety_result.is_safe:
+            return SAFETY_WARNING_TEMPLATE.format(
+                risk_categories=", ".join(safety_result.risk_categories),
+                warning_message=safety_result.warning_message or "请咨询专业医生"
+            )
+        return "问题已通过安全审查，可以正常回答。"
+    
+    def _build_safety_check_result(self, safety_result: SafetyCheckResult) -> str:
+        """构建安全审查结果描述"""
+        result = f"风险等级: {safety_result.risk_level}"
+        if safety_result.risk_categories:
+            result += f"\n涉及内容: {', '.join(safety_result.risk_categories)}"
+        return result
+    
+    def _quick_evaluate_answer_quality(
+        self,
+        user_question: str,
+        response: str,
+        rag_context: str
+    ) -> Dict[str, Any]:
+        """
+        基于规则快速评估答案质量（无需额外 LLM 调用）
+
+        Returns:
+            包含 is_solved, quality_score, eval_reason 的字典
+        """
+        reasons = []
+        quality_score = 5  # 默认中等分数
+        is_solved = False
+
+        # 条件1: 检查是否有 RAG 检索结果支撑
+        has_rag_context = rag_context and rag_context != "暂无相关检索结果"
+        if has_rag_context:
+            reasons.append("有RAG检索结果支撑")
+            quality_score += 1
+        else:
+            reasons.append("无RAG检索结果")
+            quality_score -= 2
+
+        # 条件2: 检查答案长度是否合理 (50-2000字符)
+        response_len = len(response)
+        if response_len >= 50:
+            reasons.append(f"长度适中({response_len}字)")
+            quality_score += 1
+        elif response_len >= 20:
+            reasons.append(f"长度偏短({response_len}字)")
+            quality_score -= 1
+        else:
+            reasons.append(f"答案过短({response_len}字)")
+            quality_score -= 2
+
+        if response_len > 2000:
+            reasons.append("长度较长")
+
+        # 条件3: 检查是否包含低质量模式
+        low_quality_patterns = [
+            ("暂无相关检索结果", "包含'暂无相关检索结果'"),
+            ("抱歉，服务暂时繁忙", "包含服务繁忙提示"),
+            ("我无法回答", "包含'无法回答'"),
+            ("无法提供", "包含'无法提供'"),
+            ("未查询到", "表示未查到信息"),
+        ]
+
+        has_low_quality = False
+        for pattern, desc in low_quality_patterns:
+            if pattern in response:
+                reasons.append(desc)
+                has_low_quality = True
+                quality_score -= 2
+                break
+
+        # 条件4: 检查内容充实度（非标点字符占比）
+        if response_len > 0:
+            char_ratio = sum(c.isalnum() for c in response) / response_len
+            if char_ratio > 0.5:
+                reasons.append("内容充实")
+                quality_score += 0.5
+            elif char_ratio < 0.3:
+                reasons.append("内容可能不够充实")
+                quality_score -= 1
+
+        # 条件5: 检查是否引用了 RAG 上下文的关键词（如果有）
+        if has_rag_context and response_len > 0:
+            # 提取 RAG 上下文中的一些关键词（取前50字）
+            rag_keywords = set(rag_context[:500].split())
+            response_keywords = set(response.split())
+            overlap = rag_keywords & response_keywords
+            # 如果有重叠关键词，说明答案引用了 RAG 内容
+            if len(overlap) > 5:
+                reasons.append("引用了检索内容")
+                quality_score += 0.5
+
+        # 限制分数范围
+        quality_score = max(0, min(10, quality_score))
+
+        # 判断是否解决问题：分数 >= 6 且不是低质量回复
+        is_solved = quality_score >= 6 and not has_low_quality
+
+        return {
+            "is_solved": is_solved,
+            "quality_score": round(quality_score, 1),
+            "eval_reason": "; ".join(reasons) if reasons else "未提供具体原因"
+        }
+
     async def _generate_fallback_response(
         self,
         user_question: str,
-        safety_result: SafetyCheckResult,
-        conversation_id: str
+        safety_result: SafetyCheckResult
     ) -> str:
         """生成兜底响应"""
         if not safety_result.is_safe:
@@ -490,8 +604,80 @@ class HospitalAgentExecutor:
                 risk_categories=", ".join(safety_result.risk_categories) or "医疗敏感内容",
                 warning_message=safety_result.warning_message or "建议咨询专业医生"
             )
-        
+
         return GENERAL_GUIDANCE_TEMPLATE.format(user_question=user_question)
+
+    async def _try_get_cached_response(
+        self,
+        request: HospitalChatRequest,
+        conversation_id: str,
+        question_embedding: Optional[List[float]] = None
+    ) -> Optional[HospitalChatResponse]:
+        """尝试从缓存获取响应"""
+        if not self.redis_cache_service or not self.redis_cache_service.is_available:
+            return None
+        
+        try:
+            # 使用预计算向量或按需生成
+            if question_embedding is None:
+                question_embedding = await self.embedding_service.embed_query(request.message)
+            
+            # 查找相似问题
+            cached_response = await self.redis_cache_service.get_cached_response(
+                question=request.message,
+                question_embedding=question_embedding,
+                threshold=chat_config.redis_vector_threshold
+            )
+            
+            if cached_response:
+                # 命中缓存，直接返回
+                logger.info(f"命中缓存: question={request.message[:30]}...")
+                
+                return HospitalChatResponse(
+                    message=cached_response,
+                    conversation_id=conversation_id,
+                    steps=[{
+                        "step_name": "cache_hit",
+                        "step_order": 0,
+                        "status": "success",
+                        "note": "来自缓存的相似问题回答"
+                    }],
+                    documents_used=[],
+                    safety_passed=True,
+                    stream_available=True,
+                    cache_hit=True
+                )
+        except Exception as e:
+            logger.warning(f"缓存检查失败，继续正常流程: {str(e)}")
+        
+        return None
+    
+    async def _store_to_cache(
+        self,
+        request: HospitalChatRequest,
+        response: str,
+        conversation_id: str,
+        question_embedding: Optional[List[float]] = None
+    ) -> None:
+        """将对话存储到 Redis 缓存"""
+        if not self.redis_cache_service or not self.redis_cache_service.is_available:
+            return
+        
+        try:
+            # 使用预计算向量或按需生成
+            if question_embedding is None:
+                question_embedding = await self.embedding_service.embed_query(request.message)
+            
+            # 异步存储（不阻塞返回）
+            await self.redis_cache_service.store_conversation(
+                conversation_id=conversation_id,
+                question=request.message,
+                answer=response,
+                embedding=question_embedding
+            )
+            logger.info(f"对话已缓存: conversation_id={conversation_id}")
+        except Exception as e:
+            logger.warning(f"存储缓存失败: {str(e)}")
     
     async def execute(
         self, 
@@ -507,10 +693,21 @@ class HospitalAgentExecutor:
             HospitalChatResponse: Agent 执行结果
         """
         conversation_id = request.conversation_id or f"conv_{int(time.time())}"
-        steps = []
-        documents_used = []
+        steps: List[Dict[str, Any]] = []
+        documents_used: List[str] = []
+        cache_hit = False
+        question_embedding: Optional[List[float]] = None
         
         try:
+            # 0. 预计算问题向量（用于缓存检查和存储，避免重复计算）
+            if self.embedding_service and self.redis_cache_service and self.redis_cache_service.is_available:
+                question_embedding = await self.embedding_service.embed_query(request.message)
+            
+            # 0. 检查 Redis 缓存（问题去重）
+            cached_response = await self._try_get_cached_response(request, conversation_id, question_embedding)
+            if cached_response:
+                return cached_response
+            
             # 步骤1：问题重写
             step1_result = await self.step1_rewrite_question(
                 request.message, 
@@ -521,8 +718,7 @@ class HospitalAgentExecutor:
             
             # 步骤2：安全审查
             step2_result, safety_result = await self.step2_safety_check(
-                request.message,
-                conversation_id
+                request.message
             )
             steps.append(step2_result.model_dump())
             
@@ -530,8 +726,7 @@ class HospitalAgentExecutor:
             if not safety_result.can_proceed:
                 warning_response = await self._generate_fallback_response(
                     request.message,
-                    safety_result,
-                    conversation_id
+                    safety_result
                 )
                 
                 return HospitalChatResponse(
@@ -546,8 +741,7 @@ class HospitalAgentExecutor:
             # 步骤3：知识检索
             step3_result, documents = await self.step3_knowledge_retrieval(
                 rewritten_queries,
-                self.config.top_k,
-                conversation_id
+                self.config.top_k
             )
             steps.append(step3_result.model_dump())
             documents_used = [doc["content"] for doc in documents[:5]]
@@ -557,15 +751,15 @@ class HospitalAgentExecutor:
                 doc["content"] for doc in documents[:5]
             ]) or "暂无相关检索结果"
             
-            # 步骤4：答案生成
-            step4_result, response = await self.step4_generate_answer(
+            # 步骤4：答案生成（含质量评估）
+            step4_result, response, quality_evaluation = await self.step4_generate_answer(
                 request.message,
                 rag_context,
                 safety_result,
                 conversation_id
             )
             steps.append(step4_result.model_dump())
-            
+
             # 记录业务事件
             logger.log_business_event(
                 "医院客服对话",
@@ -573,16 +767,33 @@ class HospitalAgentExecutor:
                 conversation_id=conversation_id,
                 message_length=len(request.message),
                 response_length=len(response),
-                steps_count=len(steps)
+                steps_count=len(steps),
+                cache_hit=cache_hit,
+                quality_score=quality_evaluation.get("quality_score"),
+                is_solved=quality_evaluation.get("is_solved")
             )
-            
+
+            # 使用 step4 返回的质量评估结果决定是否缓存
+            if step4_result.status == "success":
+                # is_solved 已经是最终判断结果（分数 >= 6 且非低质量模式）
+                if quality_evaluation.get("is_solved"):
+                    logger.info(
+                        f"答案通过质量评估，可缓存: score={quality_evaluation.get('quality_score')}, reason={quality_evaluation.get('eval_reason')}"
+                    )
+                    await self._store_to_cache(request, response, conversation_id, question_embedding)
+                else:
+                    logger.info(
+                        f"答案未通过质量评估，不缓存: reason={quality_evaluation.get('eval_reason')}"
+                    )
+
             return HospitalChatResponse(
                 message=response,
                 conversation_id=conversation_id,
                 steps=steps,
                 documents_used=documents_used,
                 safety_passed=safety_result.is_safe,
-                stream_available=True
+                stream_available=True,
+                cache_hit=cache_hit
             )
             
         except Exception as e:
@@ -657,9 +868,8 @@ class HospitalAgentExecutor:
                 "message": "正在进行安全审查..."
             }, ensure_ascii=False) + "\n"
             
-            step2_result, safety_result = await self.step2_safety_check(
-                request.message,
-                conversation_id
+            _, safety_result = await self.step2_safety_check(
+                request.message
             )
             
             yield json.dumps({
@@ -672,8 +882,7 @@ class HospitalAgentExecutor:
             if not safety_result.can_proceed:
                 warning_response = await self._generate_fallback_response(
                     request.message,
-                    safety_result,
-                    conversation_id
+                    safety_result
                 )
                 yield json.dumps({
                     "event": "content",
@@ -689,10 +898,9 @@ class HospitalAgentExecutor:
                 "message": "正在检索相关知识..."
             }, ensure_ascii=False) + "\n"
             
-            step3_result, documents = await self.step3_knowledge_retrieval(
+            _, documents = await self.step3_knowledge_retrieval(
                 rewritten_queries,
-                self.config.top_k,
-                conversation_id
+                self.config.top_k
             )
             
             yield json.dumps({
@@ -718,90 +926,55 @@ class HospitalAgentExecutor:
             # 获取当前时间
             current_time = datetime.now().strftime("%Y年%m月%d日 %H:%M")
             
-            # 构建安全提醒
-            if not safety_result.is_safe:
-                safety_reminder = SAFETY_WARNING_TEMPLATE.format(
-                    risk_categories=", ".join(safety_result.risk_categories),
-                    warning_message=safety_result.warning_message or "请咨询专业医生"
-                )
-            else:
-                safety_reminder = "问题已通过安全审查，可以正常回答。"
-            
-            safety_check_result = f"风险等级: {safety_result.risk_level}"
-            if safety_result.risk_categories:
-                safety_check_result += f"\n涉及内容: {', '.join(safety_result.risk_categories)}"
-            
-            # 构建提示
-            system_prompt = f"""# Role
-你是「医院智能客服助手」，负责为患者提供**准确、安全、合规**的就医咨询服务。
-
-# 核心原则（必须遵守）
-1. **优先使用 RAG 检索到的知识**
-   - 所有回答必须以 <context> 标签内的内容为主要依据。
-   - 若 <context> 中存在与患者问题直接相关的内容，必须直接使用，不得忽略或改写事实。
-
-2. **禁止凭空编造**
-   - 严禁基于通用知识"脑补"医院政策、科室设置、医生排班、费用、医保规则等。
-   - 若 <context> 中没有相关信息，必须明确告知"暂未查询到相关信息"。
-
-3. **区分事实与通用建议**
-   - <context> 内：视为医院官方事实，可明确表述。
-   - <context> 外：仅可作为非诊疗性健康科普，并明确说明"仅供参考，请以医生为准"。
-
-4. **安全与合规**
-   - 不做诊断、不开处方、不下确定性预后结论。
-   - 涉及急危重症时，必须提示立即就医或拨打急救电话。
-
-# 当前时间
-{current_time}
-
-# 检索到的知识
-<context>
-{rag_context}
-</context>
-
-# 用户问题
-{request.message}
-
-# 安全审查结果
-{safety_check_result}
-
-# 重要提醒：
-{safety_reminder}"""
+            # 构建安全提醒（使用私有方法）
+            safety_reminder = self._build_safety_reminder(safety_result)
+            safety_check_result = self._build_safety_check_result(safety_result)
             
             # 获取对话历史
-            history = self._get_conversation_history(conversation_id)
+            history = await self._get_conversation_history(conversation_id)
             
-            # 构建消息
-            messages = [{"role": "system", "content": system_prompt}]
-            for msg in history[-10:]:
-                messages.append({"role": msg["role"], "content": msg["content"]})
-            messages.append({"role": "user", "content": "请基于以上信息生成回答。"})
+            # 构建消息（使用统一的提示词模板）
+            chat_history = []
+            for msg in history[-_MAX_HISTORY_MESSAGES_FOR_ANSWER:]:
+                if msg["role"] == "user":
+                    chat_history.append(HumanMessage(content=msg["content"]))
+                else:
+                    chat_history.append(AIMessage(content=msg["content"]))
             
-            # 流式调用
+            # 构建提示
+            prompt_content = ANSWER_GENERATION_PROMPT.invoke({
+                "current_time": current_time,
+                "rag_context": rag_context,
+                "user_question": request.message,
+                "safety_check_result": safety_check_result,
+                "safety_reminder": safety_reminder,
+                "chat_history": chat_history
+            })
+            
+            # 转换消息格式
+            def _convert_message_type(msg_type: str) -> str:
+                mapping = {"human": "user", "ai": "assistant", "system": "system"}
+                return mapping.get(msg_type, msg_type)
+            
+            messages = [{"role": _convert_message_type(msg.type), "content": msg.content} for msg in prompt_content.messages]
+            
+            # 流式调用通义千问
             full_response = ""
-            stream = self.llm_service.ark_client.chat.completions.create(
-                model=chat_config.chat_model,
-                messages=messages,
-                temperature=self.config.temperature,
-                max_tokens=4096,
-                stream=True,
-            )
+            stream = self.llm_service.qwen_llm.stream(messages)
             
             for chunk in stream:
-                if hasattr(chunk, 'choices') and chunk.choices:
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        full_response += delta
-                        yield json.dumps({
-                            "event": "content",
-                            "content": delta,
-                            "is_final": False
-                        }, ensure_ascii=False) + "\n"
+                if hasattr(chunk, 'content') and chunk.content:
+                    delta = chunk.content
+                    full_response += delta
+                    yield json.dumps({
+                        "event": "content",
+                        "content": delta,
+                        "is_final": False
+                    }, ensure_ascii=False) + "\n"
             
             # 更新对话历史
-            self._add_to_history(conversation_id, "user", request.message)
-            self._add_to_history(conversation_id, "assistant", full_response)
+            await self._add_to_history(conversation_id, "user", request.message)
+            await self._add_to_history(conversation_id, "assistant", full_response)
             
             # 发送完成事件
             yield json.dumps({

@@ -117,67 +117,6 @@ class LLMService:
         messages.append({"role": "user", "content": prompt})
         return await self.chat_qwen(messages, temperature)
     
-    def chat_doubao(
-        self,
-        messages: List[Dict[str, str]],
-        model: str = None,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
-        stream: bool = False
-    ) -> Any:
-        """
-        使用火山引擎 Doubao 模型聊天
-        
-        Args:
-            messages: 消息列表
-            model: 模型名称，默认使用配置中的模型
-            temperature: 温度参数
-            max_tokens: 最大 token 数
-            stream: 是否流式输出
-            
-        Returns:
-            非流式: str 回复内容
-            流式: 生成器
-        """
-        try:
-            model = model or chat_config.chat_model
-            if stream:
-                return self.ark_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True,
-                )
-            else:
-                response = self.ark_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Doubao API 调用失败: {str(e)}")
-            raise
-    
-    async def chat_doubao_async(
-        self,
-        messages: List[Dict[str, str]],
-        model: str = None,
-        temperature: float = 0.3,
-        max_tokens: int = 4096
-    ) -> str:
-        """异步调用 Doubao 模型"""
-        import asyncio
-        return await asyncio.to_thread(
-            self.chat_doubao,
-            messages=messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=False
-        )
     
     def close(self):
         """关闭服务"""

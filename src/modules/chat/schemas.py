@@ -64,6 +64,7 @@ class HospitalChatResponse(BaseModel):
     documents_used: List[str] = Field(default_factory=list, description="使用的参考文档")
     safety_passed: bool = Field(default=True, description="安全审查是否通过")
     stream_available: bool = Field(default=True, description="是否支持流式输出")
+    cache_hit: bool = Field(default=False, description="是否命中缓存")
 
 
 class HospitalAgentConfig(BaseModel):

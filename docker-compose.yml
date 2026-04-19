@@ -63,12 +63,13 @@ services:
 
   redis:
     container_name: hospital-redis
-    image: redis:7-alpine
+    image: redis/redis-stack-server:7.2.0-v14
     ports:
       - "6379:6379"
+      - "8001:8001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/redis:/data
-    command: redis-server --appendonly yes
+    command: redis-stack-server 
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s

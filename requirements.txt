@@ -14,4 +14,6 @@ pymilvus==2.6.12
 dashscope
 httpx
 sentence-transformers
-volcenginesdkarkruntime
+volcengine-python-sdk[ark]
+redis>=4.5.0
+numpy>=1.21.0

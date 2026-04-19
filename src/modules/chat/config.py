@@ -17,6 +17,13 @@ class ChatConfig:
     milvus_collection_name: str = "chat_embeddings"
     embedding_dimension: int = 2048  # Doubao-embedding 维度
     
+    # Redis 缓存配置
+    redis_vector_enabled: bool = True
+    redis_vector_threshold: float = 0.85  # 相似度阈值
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    cache_expire_days: int = 7  # 缓存过期天数
+    
     # 火山引擎配置
     volcengine_api_key: str = config.VOLCENGINE_API_KEY
     volcengine_embedding_endpoint: str = config.VOLCENGINE_EMBEDDING_ENDPOINT

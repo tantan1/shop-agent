@@ -110,6 +110,10 @@ class APILogger:
         """记录警告日志"""
         self.logger.warning(msg, **kwargs)
     
+    def debug(self, msg: str, **kwargs):
+        """记录调试日志"""
+        self.logger.debug(msg, **kwargs)
+    
     def log_api_call(self, api_key: str, endpoint: str, success: bool, **kwargs):
         """记录API调用"""
         self.logger.info(

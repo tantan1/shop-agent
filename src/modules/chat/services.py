@@ -13,6 +13,7 @@ from src.modules.chat.schemas import (
 from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.llm_service import LLMService
+from src.modules.chat.core.redis_cache_service import get_redis_cache_service
 from src.shared.exceptions import NotFoundException, ValidationException
 from src.shared.logger import APILogger
 from src.modules.chat.config import chat_config
@@ -28,6 +29,7 @@ class ChatAgentService:
         self._embedding_service = None
         self._milvus_service = None
         self._llm_service = None
+        self._redis_cache_service = None
         self._initialized = False
 
     @property
@@ -62,6 +64,8 @@ class ChatAgentService:
             self._milvus_service.close()
         if self._llm_service:
             self._llm_service.close()
+        if self._redis_cache_service:
+            self._redis_cache_service.close()
         self._initialized = False
 
     async def _initialize(self):
@@ -83,6 +87,14 @@ class ChatAgentService:
             # 初始化 Milvus 服务（单例）
             self._milvus_service = MilvusService.get_instance()
             self._milvus_service.initialize()
+
+            # 初始化 Redis 缓存服务（单例）
+            if chat_config.redis_vector_enabled:
+                self._redis_cache_service = get_redis_cache_service()
+                if self._redis_cache_service.is_available:
+                    logger.info("Redis 缓存服务初始化成功")
+                else:
+                    logger.warning("Redis 缓存服务不可用，将禁用问题去重功能")
 
             self._initialized = True
             logger.info("ChatAgentService initialization completed")
@@ -398,6 +410,7 @@ class ChatAgentService:
                 llm_service=self._llm_service,
                 embedding_service=self._embedding_service,
                 milvus_service=self._milvus_service,
+                redis_cache_service=self._redis_cache_service,
                 config=config
             )
             
@@ -453,6 +466,7 @@ class ChatAgentService:
                 llm_service=self._llm_service,
                 embedding_service=self._embedding_service,
                 milvus_service=self._milvus_service,
+                redis_cache_service=self._redis_cache_service,
                 config=config
             )
             
