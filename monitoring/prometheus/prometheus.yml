@@ -1,0 +1,81 @@
+# Prometheus 配置文件
+# 用于监控 shop-agent 应用
+
+global:
+  # 默认抓取间隔
+  scrape_interval: 15s
+  # 评估规则间隔
+  evaluation_interval: 15s
+  # 外部标签，用于标识此 Prometheus 实例
+  external_labels:
+    monitor: 'shop-agent-monitor'
+    environment: '${ENVIRONMENT:-development}'
+
+# 告警规则文件 (可选，后续可添加)
+rule_files:
+  - "rules/*.yml"
+  # - "alerts.yml"
+
+# 抓取配置
+scrape_configs:
+  # ============ Shop Agent 应用指标 ============
+  - job_name: 'shop-agent'
+    # 抓取间隔覆盖
+    scrape_interval: 10s
+    # 超时时间
+    scrape_timeout: 10s
+    # 指标路径
+    metrics_path: '/api/v1/monitoring/metrics'
+    # 静态配置 - 使用宿主机网络访问
+    # 注意：确保 shop-agent 应用已启动并在 8000 端口监听
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+        labels:
+          service: 'shop-agent'
+          env: '${ENVIRONMENT:-development}'
+    
+    # 如果需要认证，可以配置 bearer_token 或 basic_auth
+    # bearer_token_file: /run/secrets/prometheus_bearer_token
+    
+    # 健康检查
+    # metrics_path: /health
+    
+    # 重试配置
+    relabel_configs:
+      # 保留所有标签
+      - action: labelmap
+        regex: __meta_(.+)
+
+  # ============ Prometheus 自身监控 ============
+  - job_name: 'prometheus'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ============ Grafana 监控 (可选) ============
+  # - job_name: 'grafana'
+  #   scrape_interval: 30s
+  #   static_configs:
+  #     - targets: ['grafana:3000']
+  #   metrics_path: /metrics
+
+# 远程写入配置 (可选，用于长期存储)
+# remote_write:
+#   - url: http://long-term-storage:9090/api/v1/write
+#     # 队列配置
+#     queue_config:
+#       capacity: 10000
+#       max_shards: 10
+#       min_shards: 1
+#       max_samples_per_send: 2000
+#       batch_send_deadline: 5s
+#       min_backoff: 30ms
+#       max_backoff: 5s
+#     # 元数据配置
+#     metadata_config:
+#       send: true
+#       send_interval: 1m
+
+# 远程读取配置 (可选)
+# remote_read:
+#   - url: http://long-term-storage:9090/api/v1/read

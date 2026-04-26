@@ -1,0 +1,41 @@
+# Grafana 数据源配置 (自动配置 Prometheus 数据源)
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # 访问模式: proxy (通过 Grafana 后端访问) 或 direct (浏览器直接访问)
+    access: proxy
+    # Prometheus 服务地址 (Docker 网络内部地址)
+    url: http://prometheus:9090
+    # 是否设置为默认数据源
+    isDefault: true
+    # 是否可编辑
+    editable: true
+    # 数据源版本
+    version: 1
+    # 组织 ID (默认组织)
+    orgId: 1
+    
+    # JSON Data 配置
+    jsonData:
+      # 时间范围限制 (可选)
+      timeInterval: "10s"
+      # 查询超时
+      queryTimeout: "30s"
+      # 保留标签大小写
+      keepCookies: []
+      # 自定义查询变量
+      customQueryParameters: ""
+      # 是否启用 Prometheus 的 `/api/v1/series` 接口
+      seriesAgg: ""
+      # HTTP 方法 (POST 或 GET)
+      httpMethod: "POST"
+    
+    # 安全配置 (如需要认证，取消注释)
+    # secureJsonData:
+    #   basicAuthPassword: ""
+    #   basicAuthUser: ""
+    #   tlsCACert: ""
+    #   tlsClientCert: ""
+    #   tlsClientKey: ""

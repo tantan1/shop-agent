@@ -1,0 +1,25 @@
+# Grafana 仪表盘自动发现配置
+# 此配置告诉 Grafana 从哪里加载预定义的仪表盘 JSON 文件
+apiVersion: 1
+
+providers:
+  # ============ Shop Agent 仪表盘 ============
+  - name: 'Shop Agent Dashboards'
+    # 组织 ID
+    orgId: 1
+    # 仪表盘文件夹名称
+    folder: 'Shop Agent'
+    # 是否可编辑
+    editable: true
+    # 是否禁用
+    disableDeletion: false
+    # 更新时是否覆盖
+    updateIntervalSeconds: 30
+    # 允许的仪表盘 JSON 文件扩展名
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      # 是否递归搜索子目录
+      recursive: false
+      # 只加载指定扩展名的文件
+      extensions:
+        - json

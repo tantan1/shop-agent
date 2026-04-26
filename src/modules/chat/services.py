@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -8,7 +8,12 @@ from src.modules.chat.schemas import (
     ChatQueryResponse,
     InsertDocumentRequest,
     HospitalChatRequest,
-    HospitalChatResponse
+    HospitalChatResponse,
+    BatchItemEmbedRequest,
+    ItemEmbedResponse,
+    ItemSearchRequest,
+    ItemSearchResponse,
+    ItemSearchResult,
 )
 from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
@@ -19,6 +24,11 @@ from src.shared.logger import APILogger
 from src.modules.chat.config import chat_config
 
 logger = APILogger("chatagent_service")
+
+# 嵌入 API 批次大小（Ark API 限制）
+API_BATCH_SIZE = 25
+# Milvus 每次插入的最大条数
+MILVUS_BATCH_SIZE = 500
 
 
 class ChatAgentService:
@@ -318,6 +328,68 @@ class ChatAgentService:
             )
             raise ValidationException("批量文档插入失败", str(e))
 
+    async def search_items(
+        self,
+        query: str,
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        混合检索商品（Dense + Sparse BM25），按 item_id 去重
+        
+        检索流程：
+        1. 对查询进行向量嵌入
+        2. 调用 Milvus 原生混合检索（稠密向量 + 稀疏BM25）
+        3. 按 metadata.item_id 去重，保留分数最高的分片分数
+        4. 按分数降序排序，返回商品列表
+        
+        Args:
+            query: 用户查询
+            top_k: 返回商品数量
+            
+        Returns:
+            商品列表，每项包含 item_id、content、score、metadata
+        """
+        try:
+            await self._initialize()
+            
+            # 1. 生成查询嵌入
+            query_embedding = await self.embeddings.aembed_query(query)
+            
+            # 2. Milvus 混合检索（多拿一些，给去重留空间）
+            docs = self.milvus.hybrid_search(
+                query_embedding=query_embedding,
+                query_text=query,
+                top_k=max(top_k * 3, 30)
+            )
+            
+            # 3. 按 item_id 去重，保留最高分
+            item_map: Dict[str, Dict[str, Any]] = {}
+            
+            for doc in docs:
+                item_id = doc.metadata.get("item_id", "")
+                score = doc.metadata.get("distance", 0.0)
+                
+                if not item_id:
+                    continue
+                
+                if item_id not in item_map or score > item_map[item_id]["score"]:
+                    item_map[item_id] = {
+                        "item_id": item_id,
+                        "content": doc.page_content,
+                        "score": score,
+                        "metadata": doc.metadata
+                    }
+            
+            # 4. 按分数排序，返回 top_k
+            results = sorted(item_map.values(), key=lambda x: x["score"], reverse=True)
+            
+            logger.info(f"商品检索完成: query={query}, 命中日杂数={len(item_map)}, 返回={min(top_k, len(results))}")
+            return results[:top_k]
+        
+        except Exception as e:
+            logger.error(f"商品检索失败: {str(e)}")
+            raise
+
     @staticmethod
     def parse_text_file(file_content: bytes, file_name: str) -> str:
         """解析纯文本文件内容"""
@@ -449,3 +521,259 @@ class ChatAgentService:
                 message_length=len(request.message)
             )
             raise ValidationException("医院客服对话失败", str(e))
+
+    # =========================================================================
+    # 商品嵌入相关方法
+    # =========================================================================
+
+    async def embed_items(
+        self,
+        items: List[Dict[str, str]],
+        batch_id: str = None
+    ) -> Dict[str, Any]:
+        """
+        批量嵌入商品数据并存入 Milvus
+        
+        每个商品会作为一个独立的文档插入，使用 Milvus 2.6+ 原生混合检索支持。
+        
+        Args:
+            items: 商品列表，每项包含 'item_id' 和 'title'
+            batch_id: 批次ID（可选）
+            
+        Returns:
+            嵌入结果统计
+        """
+        try:
+            await self._initialize()
+            
+            if not items:
+                return {
+                    "status": "success",
+                    "message": "没有商品数据需要处理",
+                    "items_processed": 0,
+                    "items_inserted": 0,
+                    "failed_items": []
+                }
+            
+            # 准备数据
+            texts = []
+            item_ids = []
+            failed_items = []
+            
+            for item in items:
+                item_id = item.get("item_id", "").strip()
+                title = item.get("title", "").strip()
+                
+                if not item_id or not title:
+                    failed_items.append(item_id or "unknown")
+                    logger.warning(f"跳过无效商品: item_id={item_id}, title={title[:50]}")
+                    continue
+                
+                texts.append(title)
+                item_ids.append(item_id)
+            
+            if not texts:
+                return {
+                    "status": "error",
+                    "message": "没有有效的商品数据",
+                    "items_processed": 0,
+                    "items_inserted": 0,
+                    "failed_items": failed_items
+                }
+            
+            # 批量嵌入
+            all_embeddings = []
+            total = len(texts)
+            
+            for batch_start in range(0, total, API_BATCH_SIZE):
+                batch_end = min(batch_start + API_BATCH_SIZE, total)
+                batch_texts = texts[batch_start:batch_end]
+                
+                try:
+                    batch_embeddings = await self.embeddings.aembed_documents(batch_texts)
+                    all_embeddings.extend(batch_embeddings)
+                    logger.info(f"嵌入进度: {batch_end}/{total}")
+                except Exception as e:
+                    logger.error(f"嵌入失败（批次 {batch_start}-{batch_end}）: {str(e)}")
+                    failed_items.extend(item_ids[batch_start:batch_end])
+                    continue
+            
+            if not all_embeddings:
+                return {
+                    "status": "error",
+                    "message": "所有商品嵌入失败",
+                    "items_processed": total,
+                    "items_inserted": 0,
+                    "failed_items": failed_items
+                }
+            
+            # 分批插入 Milvus
+            inserted_count = 0
+            embeddings_count = len(all_embeddings)
+            
+            for batch_start in range(0, embeddings_count, MILVUS_BATCH_SIZE):
+                batch_end = min(batch_start + MILVUS_BATCH_SIZE, embeddings_count)
+                
+                batch_texts = texts[batch_start:batch_end]
+                batch_embeddings = all_embeddings[batch_start:batch_end]
+                batch_metadata = [
+                    {
+                        "item_id": item_ids[batch_start + i],
+                        "source": "item_title",
+                        "batch_id": batch_id
+                    }
+                    for i in range(batch_end - batch_start)
+                ]
+                
+                try:
+                    self.milvus.insert_documents(
+                        texts=batch_texts,
+                        embeddings=batch_embeddings,
+                        metadata_list=batch_metadata
+                    )
+                    inserted_count += (batch_end - batch_start)
+                    logger.info(f"插入进度: {batch_end}/{embeddings_count}")
+                except Exception as e:
+                    logger.error(f"插入失败（批次 {batch_start}-{batch_end}）: {str(e)}")
+                    failed_items.extend(item_ids[batch_start:batch_end])
+            
+            # 刷新 Milvus
+            self.milvus.flush()
+            
+            logger.log_business_event(
+                "商品嵌入",
+                success=True,
+                items_count=total,
+                inserted_count=inserted_count,
+                failed_count=len(failed_items),
+                batch_id=batch_id
+            )
+            
+            return {
+                "status": "success",
+                "message": f"成功嵌入 {inserted_count} 个商品",
+                "items_processed": total,
+                "items_inserted": inserted_count,
+                "failed_items": failed_items
+            }
+            
+        except Exception as e:
+            logger.error(f"商品嵌入失败: {str(e)}")
+            logger.log_business_event(
+                "商品嵌入",
+                success=False,
+                error=str(e)
+            )
+            raise ValidationException("商品嵌入失败", str(e))
+
+    async def embed_items_from_file(
+        self,
+        file_content: bytes,
+        file_name: str,
+        batch_id: str = None
+    ) -> Dict[str, Any]:
+        """
+        从文件解析并嵌入商品数据
+        
+        支持的文件格式：
+        - .txt / .tsv: 每行格式为 "ID\\t商品标题"
+        - .csv: CSV 格式，需包含 item_id 和 title 列
+        
+        Args:
+            file_content: 文件内容（字节）
+            file_name: 文件名
+            batch_id: 批次ID（可选）
+            
+        Returns:
+            嵌入结果统计
+        """
+        try:
+            await self._initialize()
+            
+            # 解析文件内容
+            text_content = self.parse_text_file(file_content, file_name)
+            
+            if not text_content.strip():
+                raise ValidationException("文件内容为空", "请上传非空的文件")
+            
+            # 解析商品数据
+            items = []
+            lines = text_content.strip().split("\n")
+            
+            for line_no, line in enumerate(lines, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 支持 TSV 格式（ID\t标题）
+                if "\t" in line:
+                    parts = line.split("\t", 1)
+                    if len(parts) >= 2:
+                        items.append({
+                            "item_id": parts[0].strip(),
+                            "title": parts[1].strip()
+                        })
+                    else:
+                        logger.warning(f"跳过格式错误行 {line_no}: {line[:50]}")
+                else:
+                    # 如果没有制表符，整行作为标题，使用行号作为 ID
+                    items.append({
+                        "item_id": f"line_{line_no}",
+                        "title": line
+                    })
+            
+            if not items:
+                raise ValidationException("文件中没有有效的商品数据", "请检查文件格式")
+            
+            logger.info(f"从文件 {file_name} 解析到 {len(items)} 条商品数据")
+            
+            # 调用批量嵌入
+            result = await self.embed_items(items, batch_id)
+            result["file_name"] = file_name
+            result["items_parsed"] = len(items)
+            
+            return result
+            
+        except ValidationException:
+            raise
+        except Exception as e:
+            logger.error(f"从文件嵌入商品失败: {str(e)}")
+            raise ValidationException("从文件嵌入商品失败", str(e))
+
+    async def search_items_api(
+        self,
+        query: str,
+        top_k: int = 10
+    ) -> ItemSearchResponse:
+        """
+        商品搜索 API 方法（返回结构化响应）
+        
+        Args:
+            query: 搜索查询
+            top_k: 返回商品数量
+            
+        Returns:
+            ItemSearchResponse 对象
+        """
+        try:
+            results = await self.search_items(query, top_k)
+            
+            items = [
+                ItemSearchResult(
+                    item_id=result["item_id"],
+                    content=result["content"],
+                    score=result["score"],
+                    metadata=result.get("metadata", {})
+                )
+                for result in results
+            ]
+            
+            return ItemSearchResponse(
+                query=query,
+                total=len(items),
+                items=items
+            )
+            
+        except Exception as e:
+            logger.error(f"商品搜索 API 失败: {str(e)}")
+            raise ValidationException("商品搜索失败", str(e))

@@ -5,10 +5,15 @@ from src.shared.database import get_db
 from src.modules.auth.dependencies import verify_api_key
 from src.modules.chat.services import ChatAgentService
 from src.modules.chat.schemas import (
-    ChatQueryRequest, 
-    InsertDocumentRequest, 
+    ChatQueryRequest,
+    InsertDocumentRequest,
     BatchInsertRequest,
     HospitalChatRequest,
+    ItemEmbedRequest,
+    BatchItemEmbedRequest,
+    ItemEmbedResponse,
+    ItemSearchRequest,
+    ItemSearchResponse,
 )
 from src.shared.responses import success_response
 
@@ -226,3 +231,158 @@ async def hospital_chat(
     """
     response = await chatagent_service.chat_with_hospital_agent(request)
     return success_response(data=response.model_dump())
+
+
+# =============================================================================
+# 商品嵌入与搜索 API
+# =============================================================================
+
+@router.post("/items/embed", summary="嵌入单个商品", response_model=ItemEmbedResponse)
+async def embed_item(
+    item: ItemEmbedRequest,
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    """
+    嵌入单个商品并存入 Milvus
+    
+    请求示例:
+    ```json
+    {
+        "item_id": "12345",
+        "title": "Apple iPhone 15 Pro Max 256GB 原色钛金属"
+    }
+    ```
+    
+    响应示例:
+    ```json
+    {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "status": "success",
+            "items_processed": 1,
+            "items_inserted": 1,
+            "failed_items": []
+        }
+    }
+    ```
+    """
+    result = await chatagent_service.embed_items(
+        items=[{"item_id": item.item_id, "title": item.title}]
+    )
+    # 将 dict 转换为 Pydantic 模型，确保响应格式一致
+    response_data = ItemEmbedResponse(**result)
+    return success_response(data=response_data.model_dump())
+
+
+@router.post("/items/embed/batch", summary="批量嵌入商品", response_model=ItemEmbedResponse)
+async def batch_embed_items(
+    request: BatchItemEmbedRequest,
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    """
+    批量嵌入商品并存入 Milvus
+    
+    请求示例:
+    ```json
+    {
+        "items": [
+            {"item_id": "12345", "title": "Apple iPhone 15 Pro Max"},
+            {"item_id": "12346", "title": "Samsung Galaxy S24 Ultra"}
+        ],
+        "batch_id": "batch_001"
+    }
+    ```
+    """
+    items = [{"item_id": item.item_id, "title": item.title} for item in request.items]
+    result = await chatagent_service.embed_items(
+        items=items,
+        batch_id=request.batch_id
+    )
+    # 将 dict 转换为 Pydantic 模型，确保响应格式一致
+    response_data = ItemEmbedResponse(**result)
+    return success_response(data=response_data.model_dump())
+
+
+@router.post("/items/embed/file", summary="上传文件并嵌入商品")
+async def upload_items_file(
+    file: UploadFile = File(..., description="商品数据文件（支持 .txt/.tsv/.csv）"),
+    batch_id: Optional[str] = Form(default=None, description="批次ID"),
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    """
+    上传商品数据文件并自动嵌入
+    
+    支持的文件格式：
+    - .txt / .tsv: 每行格式为 "ID\\t商品标题"
+    - .csv: CSV 格式，需包含 item_id 和 title 列
+    
+    HTTP 请求示例 (curl):
+    ```bash
+    curl -X POST 'http://localhost:8000/api/chatagent/items/embed/file' \\
+      -H 'X-API-Key: your-api-key' \\
+      -F 'file=@/path/to/items.tsv' \\
+      -F 'batch_id=batch_001'
+    ```
+    """
+    # 读取文件内容
+    file_content = await file.read()
+    
+    # 嵌入商品
+    result = await chatagent_service.embed_items_from_file(
+        file_content=file_content,
+        file_name=file.filename,
+        batch_id=batch_id
+    )
+    
+    return success_response(data=result)
+
+
+@router.post("/items/search", summary="搜索商品", response_model=ItemSearchResponse)
+async def search_items(
+    request: ItemSearchRequest,
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    """
+    混合检索商品（Dense + Sparse BM25）
+    
+    使用 Milvus 2.6+ 原生混合检索，按 item_id 去重。
+    
+    请求示例:
+    ```json
+    {
+        "query": "苹果手机",
+        "top_k": 10
+    }
+    ```
+    
+    响应示例:
+    ```json
+    {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "query": "苹果手机",
+            "total": 5,
+            "items": [
+                {
+                    "item_id": "12345",
+                    "content": "Apple iPhone 15 Pro Max 256GB",
+                    "score": 0.95,
+                    "metadata": {...}
+                }
+            ]
+        }
+    }
+    ```
+    """
+    result = await chatagent_service.search_items_api(
+        query=request.query,
+        top_k=request.top_k
+    )
+    # result 已经是 ItemSearchResponse 对象，直接转换为 dict
+    return success_response(data=result.model_dump())

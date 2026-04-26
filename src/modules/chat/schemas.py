@@ -81,6 +81,61 @@ class HospitalAgentConfig(BaseModel):
     domain: str = Field(default="medical", description="业务领域")
 
 
+# =============================================================================
+# 商品嵌入与搜索相关 Schema
+# =============================================================================
+
+class ItemEmbedRequest(BaseModel):
+    """商品嵌入请求（单个）"""
+    item_id: str = Field(..., description="商品ID")
+    title: str = Field(..., description="商品标题/文本内容")
+
+
+class BatchItemEmbedRequest(BaseModel):
+    """批量商品嵌入请求"""
+    items: List[ItemEmbedRequest] = Field(
+        ...,
+        description="商品列表",
+        max_length=1000  # 限制最大批量大小
+    )
+    batch_id: Optional[str] = Field(default=None, description="批次ID")
+
+
+class ItemEmbedResponse(BaseModel):
+    """商品嵌入响应"""
+    status: str = Field(..., description="嵌入状态")
+    message: Optional[str] = Field(default=None, description="状态消息或错误信息")
+    items_processed: int = Field(default=0, description="处理的商品数量")
+    items_inserted: int = Field(default=0, description="成功插入的商品数量")
+    failed_items: List[str] = Field(default_factory=list, description="失败的商品ID列表")
+
+
+class ItemSearchRequest(BaseModel):
+    """商品搜索请求"""
+    query: str = Field(
+        ...,
+        description="搜索查询",
+        min_length=1,
+        max_length=500
+    )
+    top_k: int = Field(default=10, description="返回商品数量", ge=1, le=100)
+
+
+class ItemSearchResult(BaseModel):
+    """商品搜索结果项"""
+    item_id: str = Field(..., description="商品ID")
+    content: str = Field(..., description="商品内容")
+    score: float = Field(..., description="相关性分数")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
+
+
+class ItemSearchResponse(BaseModel):
+    """商品搜索响应"""
+    query: str = Field(..., description="原始查询")
+    total: int = Field(..., description="结果总数")
+    items: List[ItemSearchResult] = Field(..., description="商品列表")
+
+
 __all__ = [
     "ChatQueryRequest",
     "ChatQueryResponse",
@@ -92,5 +147,11 @@ __all__ = [
     "HospitalChatRequest",
     "HospitalChatResponse",
     "HospitalAgentConfig",
+    "ItemEmbedRequest",
+    "BatchItemEmbedRequest",
+    "ItemEmbedResponse",
+    "ItemSearchRequest",
+    "ItemSearchResult",
+    "ItemSearchResponse",
 ]
 

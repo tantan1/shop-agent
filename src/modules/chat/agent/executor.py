@@ -1,6 +1,10 @@
 """
 通用Agent执行器
 支持多领域配置，通过domain参数切换不同业务场景
+
+检索说明：
+    - 使用 Milvus 2.6+ 原生混合检索（Dense + Sparse BM25）
+    - 无需手动实现 BM25 和 RRF 融合
 """
 
 import json
@@ -335,7 +339,10 @@ class GeneralAgentExecutor:
         top_k: int
     ) -> tuple[AgentStepResult, List[Dict[str, Any]]]:
         """
-        步骤3：知识检索
+        步骤3：知识检索（Milvus 2.6+ 原生混合检索）
+        
+        使用 Milvus 原生混合检索（Dense向量 + Sparse BM25），
+        无需手动 RRF 融合。
         
         Args:
             queries: 检索查询列表
@@ -358,22 +365,31 @@ class GeneralAgentExecutor:
         all_documents = []
         
         try:
+            seen_content = set()  # 用于 O(1) 去重
+            
             for query in queries[:self.config.max_retrieval_queries]:
                 if self.embedding_service and self.milvus_service:
                     query_embedding = await self.embedding_service.embed_query(query)
-                    docs = self.milvus_service.search_similar(
+                    
+                    # 使用 Milvus 2.6 原生混合检索（Dense + Sparse BM25）
+                    docs = self.milvus_service.hybrid_search(
                         query_embedding=query_embedding,
-                        top_k=top_k // 3 + 1
+                        query_text=query,
+                        top_k=top_k
                     )
                     
                     for doc in docs:
-                        doc_dict = {
-                            "content": doc.page_content,
-                            "metadata": doc.metadata,
-                            "source_query": query
-                        }
-                        if doc_dict not in all_documents:
-                            all_documents.append(doc_dict)
+                        content = doc.page_content
+                        if content not in seen_content:
+                            seen_content.add(content)
+                            # hybrid_search 使用 RRFRanker，distance 即为 RRF 融合分数（越高越相关）
+                            rrf_score = doc.metadata.get('distance', 0)
+                            all_documents.append({
+                                "content": content,
+                                "metadata": doc.metadata,
+                                "source_query": query,
+                                "score": round(rrf_score, 4)
+                            })
             
             rag_context = "\n\n".join([
                 f"[来源: {doc.get('metadata', {}).get('source', '未知')}]\n{doc['content']}"
@@ -381,7 +397,9 @@ class GeneralAgentExecutor:
             ]) or "暂无相关检索结果"
             
             duration = int((time.time() - start_time) * 1000)
-            logger.info(f"[{self.domain}] {step_config.name}完成", document_count=len(all_documents))
+            logger.info(f"[{self.domain}] {step_config.name}完成",
+                        document_count=len(all_documents),
+                        hybrid_search="milvus_native")
             
             step_result = AgentStepResult(
                 step_name=step_config.name,
@@ -389,7 +407,9 @@ class GeneralAgentExecutor:
                 input_data={"queries": queries, "top_k": top_k},
                 output_data={
                     "context": rag_context[:500] + "..." if len(rag_context) > 500 else rag_context,
-                    "documents_found": len(all_documents)
+                    "documents_found": len(all_documents),
+                    "hybrid_search_enabled": True,
+                    "hybrid_search_type": "milvus_native_sparse_bm25"
                 },
                 status="success",
                 duration_ms=duration

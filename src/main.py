@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi import __version__ as fastapi_version
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.core.config import config
 from src.shared.logger import configure_logging, logging_middleware
@@ -16,6 +17,8 @@ from src.shared.responses import success_response
 from src.modules.auth.routers import router as auth_router
 from src.modules.items.routers import router as reports_router
 from src.modules.chat.routers import router as chat_router
+from src.modules.monitoring.router import router as monitoring_router
+from src.modules.monitoring.metrics import app_info
 
 
 @asynccontextmanager
@@ -23,8 +26,22 @@ async def lifespan(app_instance: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     configure_logging()  # 配置日志
+    
+    # 设置应用信息指标
+    app_info.info({
+        'version': '1.0.0',
+        'app_name': 'shop-agent',
+        'python_version': f'{sys.version_info.major}.{sys.version_info.minor}'
+    })
+    
+    # 启动 Prometheus instrumentation
+    instrumentator.instrument(app_instance)
+    
     yield
-    # 关闭时执行（如果需要）
+    
+    # 关闭时清理
+    # 卸载 instrumentation 以避免重复注册
+    instrumentator.uninstrument(app_instance)
 
 
 app = FastAPI(
@@ -45,10 +62,30 @@ app.add_exception_handler(BusinessException, business_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
-# 注册路由
+# ============ Prometheus 监控集成 ============
+# 创建 Instrumentator 实例并配置
+instrumentator = Instrumentator(
+    should_group_status_codes=True,  # 分组状态码 (2xx, 3xx, 4xx, 5xx)
+    should_ignore_untemplated=True,  # 忽略未模板化的端点
+    should_respect_env_var=True,     # 支持环境变量禁用 (ENV VAR: ENABLE_METRICS)
+    excluded_handlers=[             # 排除的端点
+        "/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/v1/monitoring/metrics"
+    ]
+)
+
+# 添加默认指标 (instrument app 已移到 lifespan 中)
+# 注意：instrumentator.instrument(app) 已在 lifespan 事件中调用
+
+# ============ 注册路由 ============
+print(f"[DEBUG] API_V1_PREFIX = {config.API_V1_PREFIX!r}")
 app.include_router(auth_router, prefix=config.API_V1_PREFIX)
 app.include_router(reports_router, prefix=config.API_V1_PREFIX)
 app.include_router(chat_router, prefix=config.API_V1_PREFIX)
+app.include_router(monitoring_router, prefix=config.API_V1_PREFIX)
 
 
 @app.get("/health", include_in_schema=False)

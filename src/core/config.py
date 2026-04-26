@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # 应用配置
     DEBUG_MODE: bool = True
-    API_V1_PREFIX: str = "/api"
+    API_V1_PREFIX: str = "/api/v1"
 
     # 数据库配置
     DB_HOST: str = "localhost"

@@ -3,8 +3,9 @@
 使用火山引擎 Ark SDK 实现文本嵌入
 """
 
-from typing import List
+from typing import List, Optional
 import asyncio
+import aiohttp
 from volcenginesdkarkruntime import Ark
 from langchain_core.embeddings.embeddings import Embeddings
 
@@ -12,6 +13,9 @@ from src.shared.logger import APILogger
 from src.modules.chat.config import chat_config
 
 logger = APILogger("embedding_service")
+
+# API 请求批次大小限制
+BATCH_SIZE = 25
 
 
 class ArkEmbeddings(Embeddings):
@@ -35,15 +39,20 @@ class ArkEmbeddings(Embeddings):
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """批量嵌入文档"""
-        embeddings = []
-        for text in texts:
-            input_data = [{"type": "text", "text": text}]
+        if not texts:
+            return []
+        
+        # 检查 API 是否支持批量输入
+        all_embeddings = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            input_data = [{"type": "text", "text": text} for text in batch]
             response = self.client.multimodal_embeddings.create(
                 model=self.model,
                 input=input_data
             )
-            embeddings.append(response.data.embedding)
-        return embeddings
+            all_embeddings.extend([item.embedding for item in response.data])
+        return all_embeddings
 
     def embed_query(self, text: str) -> List[float]:
         """嵌入单个查询"""
@@ -67,30 +76,71 @@ class ArkEmbeddings(Embeddings):
         return response.data.embedding
 
     async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        """异步批量嵌入文档"""
-        return await asyncio.to_thread(self.embed_documents, texts)
+        """真正的异步批量嵌入文档"""
+        if not texts:
+            return []
+        
+        # 使用 asyncio.gather 并行执行批量嵌入
+        tasks = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            task = self._embed_batch_async(batch)
+            tasks.append(task)
+        
+        results = await asyncio.gather(*tasks)
+        
+        # 扁平化结果
+        embeddings = []
+        for batch_embeddings in results:
+            embeddings.extend(batch_embeddings)
+        return embeddings
+    
+    async def _embed_batch_async(self, batch: List[str]) -> List[List[float]]:
+        """异步嵌入单个批次"""
+        def _sync_call():
+            input_data = [{"type": "text", "text": text} for text in batch]
+            response = self.client.multimodal_embeddings.create(
+                model=self.model,
+                input=input_data
+            )
+            return [item.embedding for item in response.data]
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _sync_call)
 
     async def aembed_query(self, text: str) -> List[float]:
         """异步嵌入单个查询"""
-        return await asyncio.to_thread(self.embed_query, text)
+        def _sync_call():
+            input_data = [{"type": "text", "text": text}]
+            response = self.client.multimodal_embeddings.create(
+                model=self.model,
+                input=input_data
+            )
+            return response.data.embedding
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _sync_call)
 
 
 class EmbeddingService:
     """嵌入服务管理类"""
     
-    _instance = None
-    _embeddings: ArkEmbeddings = None
+    _instance: Optional["EmbeddingService"] = None
+    _embeddings: Optional[ArkEmbeddings] = None
+    _initialized: bool = False
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(self):
+        """初始化嵌入服务"""
+        if EmbeddingService._initialized:
+            raise RuntimeError("请使用 get_instance() 获取 EmbeddingService 实例")
+        EmbeddingService._initialized = True
     
     @classmethod
     def get_instance(cls) -> "EmbeddingService":
         """获取单例实例"""
         if cls._instance is None:
-            cls._instance = cls()
+            cls._instance = cls.__new__(cls)
+            cls._instance.__init__()
         return cls._instance
     
     def get_embeddings(self) -> ArkEmbeddings:
