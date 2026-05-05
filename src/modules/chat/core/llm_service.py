@@ -3,22 +3,25 @@ LLM 服务模块
 支持通义千问和火山引擎 Doubao 模型
 """
 
-from typing import List, Dict, Any, Optional, AsyncGenerator
-from volcenginesdkarkruntime import Ark
+from typing import List, Dict, Optional, Type, TypeVar
+from pydantic import BaseModel
+
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage
 
 from src.shared.logger import APILogger
 from src.modules.chat.config import chat_config
+from src.modules.monitoring.langchain_callback import get_prometheus_callback
 
 logger = APILogger("llm_service")
+
+# 类型变量用于泛型返回
+T = TypeVar("T", bound=BaseModel)
 
 
 class LLMService:
     """大语言模型服务"""
     
     _instance = None
-    _ark_client: Optional[Ark] = None
     _qwen_llm: Optional[ChatOpenAI] = None
     
     def __new__(cls):
@@ -47,23 +50,9 @@ class LLMService:
                 )
                 logger.info(f"通义千问模型初始化成功: {chat_config.chat_model}")
             
-            # 初始化火山引擎 Ark 客户端
-            if chat_config.volcengine_api_key:
-                self._ark_client = Ark(api_key=chat_config.volcengine_api_key)
-                logger.info("火山引擎 Ark 客户端初始化成功")
-                
         except Exception as e:
             logger.error(f"LLM 服务初始化失败: {str(e)}")
             raise
-    
-    @property
-    def ark_client(self) -> Ark:
-        """获取 Ark 客户端"""
-        if self._ark_client is None:
-            if not chat_config.volcengine_api_key:
-                raise ValueError("VOLCENGINE_API_KEY 未配置")
-            self._ark_client = Ark(api_key=chat_config.volcengine_api_key)
-        return self._ark_client
     
     @property
     def qwen_llm(self) -> ChatOpenAI:
@@ -84,6 +73,7 @@ class LLMService:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
+        track_metrics: bool = True,
         **kwargs
     ) -> str:
         """
@@ -92,17 +82,95 @@ class LLMService:
         Args:
             messages: 消息列表 [{"role": "user", "content": "..."}]
             temperature: 温度参数
+            track_metrics: 是否追踪指标（默认开启，LangChain回调会自动统计Token）
             **kwargs: 其他参数
             
         Returns:
             模型回复内容
         """
         try:
-            response = await self.qwen_llm.ainvoke(messages)
+            # 构建配置
+            config = {}
+            if track_metrics:
+                callback = get_prometheus_callback()
+                config["callbacks"] = [callback]
+            
+            response = await self.qwen_llm.ainvoke(messages, config=config)
             return response.content
         except Exception as e:
             logger.error(f"通义千问调用失败: {str(e)}")
             raise
+
+    async def chat_qwen_structured(
+        self,
+        messages: List[Dict[str, str]],
+        output_schema: Type[BaseModel],
+        temperature: float = 0.0,
+        track_metrics: bool = True,
+        max_retries: int = 2,
+        **kwargs
+    ) -> BaseModel:
+        """
+        使用通义千问模型进行结构化输出（带重试和降级）
+        
+        Args:
+            messages: 消息列表 [{"role": "user", "content": "..."}]
+            output_schema: Pydantic Schema，用于结构化输出
+            temperature: 温度参数（结构化输出通常用0）
+            track_metrics: 是否追踪指标
+            max_retries: 最大重试次数（ValidationError 时）
+            **kwargs: 其他参数
+            
+        Returns:
+            结构化对象（Pydantic Model 实例）
+        """
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 构建配置
+                config = {}
+                if track_metrics:
+                    callback = get_prometheus_callback()
+                    config["callbacks"] = [callback]
+                
+                # 使用 with_structured_output 获取支持结构化输出的 LLM
+                structured_llm = self.qwen_llm.with_structured_output(output_schema)
+                
+                response = await structured_llm.ainvoke(messages, config=config)
+                return response
+                
+            except Exception as e:
+                last_error = e
+                error_type = type(e).__name__
+                
+                # ValidationError：模型输出不符合 Schema
+                if "ValidationError" in error_type or "validation" in str(e).lower():
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"结构化输出验证失败（尝试 {attempt + 1}/{max_retries}）: {str(e)[:200]}"
+                        )
+                        continue
+                    else:
+                        logger.error(f"结构化输出重试耗尽: {str(e)[:200]}")
+                
+                logger.error(f"通义千问结构化调用失败: {error_type} - {str(e)[:200]}")
+                raise
+        
+        # 不应该到达这里，但以防万一
+        raise last_error or Exception("结构化输出未知错误")
+
+    def create_structured_llm(self, output_schema: Type[BaseModel]) -> ChatOpenAI:
+        """
+        创建支持结构化输出的 LLM 实例
+        
+        Args:
+            output_schema: Pydantic Schema
+            
+        Returns:
+            配置好的 ChatOpenAI 实例（已绑定 with_structured_output）
+        """
+        return self.qwen_llm.with_structured_output(output_schema)
     
     async def chat_qwen_with_prompt(
         self,
@@ -120,6 +188,5 @@ class LLMService:
     
     def close(self):
         """关闭服务"""
-        self._ark_client = None
         self._qwen_llm = None
         LLMService._instance = None

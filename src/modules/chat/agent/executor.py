@@ -16,6 +16,7 @@ from src.modules.chat.core.llm_service import LLMService
 from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.redis_cache_service import RedisCacheService
+from src.modules.monitoring.langchain_callback import get_prometheus_callback
 
 from datetime import datetime, timedelta
 
@@ -26,6 +27,7 @@ from src.modules.chat.agent.schemas import (
     SafetyCheckResult,
     QuestionRewriteResult,
     RetrievalResult,
+    get_structured_schema,
 )
 from src.modules.chat.schemas import (
     HospitalChatRequest,
@@ -256,8 +258,8 @@ class GeneralAgentExecutor:
         
         start_time = time.time()
         try:
+            # 构建消息
             template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
-            
             if template:
                 from langchain_core.prompts import ChatPromptTemplate
                 prompt = ChatPromptTemplate.from_template(template)
@@ -271,25 +273,47 @@ class GeneralAgentExecutor:
                     {"role": "user", "content": user_question}
                 ]
             
-            response = await self.llm_service.chat_qwen(messages)
-            
-            # 解析JSON结果
-            try:
-                json_str = response
-                if "```json" in response:
-                    json_str = response.split("```json")[1].split("```")[0]
-                elif "```" in response:
-                    json_str = response.split("```")[1].split("```")[0]
-                safety_data = json.loads(json_str)
-            except json.JSONDecodeError:
-                # 保守策略：从配置获取敏感词
-                sensitive_keywords = self.config.sensitive_keywords if hasattr(self.config, 'sensitive_keywords') else ["诊断", "处方", "胸痛"]
-                detected = [kw for kw in sensitive_keywords if kw in user_question]
-                safety_data = {
-                    "is_safe": False if detected else True,
-                    "risk_level": "high" if detected else "low",
-                    "risk_categories": detected or ["解析失败"]
-                }
+            # 根据配置选择输出方式
+            safety_data = None
+            if step_config.output_format == "json" and step_config.response_schema:
+                # 使用结构化输出
+                schema_class = get_structured_schema(step_config.response_schema)
+                if schema_class:
+                    try:
+                        structured_result = await self.llm_service.chat_qwen_structured(
+                            messages, 
+                            schema_class,
+                            temperature=0.0  # 结构化输出用低温
+                        )
+                        # 转换为字典
+                        if hasattr(structured_result, 'model_dump'):
+                            safety_data = structured_result.model_dump()
+                        else:
+                            safety_data = structured_result
+                        logger.info(f"[{self.domain}] {step_config.name}使用结构化输出")
+                    except Exception as e:
+                        logger.warning(
+                            f"[{self.domain}] {step_config.name}结构化输出失败，降级到JSON解析: {str(e)[:100]}"
+                        )
+                        # 降级到手动解析
+            if safety_data is None:
+                response = await self.llm_service.chat_qwen(messages)
+                try:
+                    json_str = response
+                    if "```json" in response:
+                        json_str = response.split("```json")[1].split("```")[0]
+                    elif "```" in response:
+                        json_str = response.split("```")[1].split("```")[0]
+                    safety_data = json.loads(json_str)
+                except json.JSONDecodeError:
+                    # 保守策略：从配置获取敏感词
+                    sensitive_keywords = self.config.sensitive_keywords if hasattr(self.config, 'sensitive_keywords') else ["诊断", "处方", "胸痛"]
+                    detected = [kw for kw in sensitive_keywords if kw in user_question]
+                    safety_data = {
+                        "is_safe": False if detected else True,
+                        "risk_level": "high" if detected else "low",
+                        "risk_categories": detected or ["解析失败"]
+                    }
             
             safety_result = SafetyCheckResult(
                 is_safe=safety_data.get("is_safe", True),
@@ -689,6 +713,10 @@ class GeneralAgentExecutor:
         Returns:
             HospitalChatResponse: Agent执行结果
         """
+        # 获取 Prometheus 回调
+        callback = get_prometheus_callback()
+        executor_start_time = time.time()
+        
         conversation_id = request.conversation_id or f"conv_{int(time.time())}"
         steps: List[Dict[str, Any]] = []
         documents_used: List[str] = []
@@ -761,6 +789,16 @@ class GeneralAgentExecutor:
                 is_solved=quality_evaluation.get("is_solved")
             )
             
+            # 记录执行器级别 Prometheus 指标
+            executor_duration = time.time() - executor_start_time
+            callback.on_chain_end(
+                outputs={"status": "success", "steps": len(steps)},
+                run_id=f"executor_{conversation_id}"
+            )
+            logger.info(f"[{self.domain}] 执行器完成", 
+                        duration_ms=int(executor_duration * 1000),
+                        steps=len(steps))
+            
             # 缓存高质量答案
             if step4_result.status == "success" and quality_evaluation.get("is_solved"):
                 await self._store_to_cache(
@@ -785,6 +823,12 @@ class GeneralAgentExecutor:
                 domain=self.domain,
                 conversation_id=conversation_id,
                 error=str(e)
+            )
+            
+            # 记录执行器失败指标
+            callback.on_chain_error(
+                error=e,
+                run_id=f"executor_{conversation_id}"
             )
             
             return HospitalChatResponse(

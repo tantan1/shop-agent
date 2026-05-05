@@ -79,6 +79,13 @@ embedding_request_duration = Histogram(
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float('inf'))
 )
 
+# Embedding Token 使用量统计
+embedding_token_counter = Counter(
+    'shop_agent_embedding_tokens_total',
+    'Embedding Token 使用总量',
+    ['provider', 'type']  # 提供商, 类型(text/image/total)
+)
+
 # Redis 缓存命中/未命中统计
 redis_cache_counter = Counter(
     'shop_agent_redis_cache_total',
@@ -247,51 +254,6 @@ def track_milvus_search(collection: str = 'default'):
                 duration = time.time() - start_time
                 milvus_search_counter.labels(collection=collection).inc()
                 milvus_search_duration.labels(collection=collection).observe(duration)
-        
-        if inspect.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-    return decorator
-
-
-def track_embedding(provider: str = 'dashscope'):
-    """
-    Embedding 请求追踪装饰器
-    用法: @track_embedding('dashscope')
-    """
-    def decorator(func):
-        @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            start_time = time.time()
-            status = 'success'
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                status = 'error'
-                # 记录异常类型到异常计数器
-                exception_counter.labels(type=type(e).__name__, module=provider).inc()
-                raise
-            finally:
-                duration = time.time() - start_time
-                embedding_request_counter.labels(provider=provider, status=status).inc()
-                embedding_request_duration.labels(provider=provider).observe(duration)
-        
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            start_time = time.time()
-            status = 'success'
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                status = 'error'
-                # 记录异常类型到异常计数器
-                exception_counter.labels(type=type(e).__name__, module=provider).inc()
-                raise
-            finally:
-                duration = time.time() - start_time
-                embedding_request_counter.labels(provider=provider, status=status).inc()
-                embedding_request_duration.labels(provider=provider).observe(duration)
         
         if inspect.iscoroutinefunction(func):
             return async_wrapper

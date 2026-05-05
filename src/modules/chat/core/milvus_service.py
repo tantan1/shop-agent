@@ -311,7 +311,8 @@ class MilvusService:
             results = self.collection.hybrid_search(
                 reqs=[dense_request, sparse_request],
                 rerank=reranker,
-                limit=top_k
+                limit=top_k,
+                output_fields=["text", "metadata"]
             )
             
             documents = []
@@ -353,8 +354,10 @@ class MilvusService:
                 f"metadata_list={len(metadata_list)}"
             )
         
-        # 验证嵌入向量维度
+        # 验证嵌入向量维度，并转换 tuple 为 list
         for i, embedding in enumerate(embeddings):
+            # 转换为 list（处理可能的 tuple 类型）
+            embedding = list(embedding) if isinstance(embedding, tuple) else embedding
             if len(embedding) != chat_config.embedding_dimension:
                 raise ValueError(
                     f"第 {i} 个向量维度不匹配: 期望 {chat_config.embedding_dimension}, "

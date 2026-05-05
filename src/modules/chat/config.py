@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal, Type
+
 from src.core.config import config
 
 
@@ -43,8 +44,13 @@ class AgentStepConfig(BaseModel):
     enabled: bool = True
     name: str = ""
     prompt_template_key: str = ""  # 提示词模板key
+    output_format: Literal["text", "json"] = "text"  # 输出格式：text=普通文本，json=结构化JSON
+    response_schema: Optional[str] = None  # Pydantic Schema 名称（用于结构化输出）
     timeout_ms: int = 30000
     model: Optional[str] = None  # 可指定使用特定模型
+
+    class Config:
+        extra = "allow"  # 允许额外字段
 
 
 class AgentConfig(BaseModel):
@@ -109,12 +115,16 @@ def _create_medical_config() -> AgentConfig:
         step1=AgentStepConfig(
             enabled=True,
             name="问题改写",
-            prompt_template_key="medical_step1_rewrite"
+            prompt_template_key="medical_step1_rewrite",
+            output_format="json",
+            response_schema="QuestionRewriteSchema"
         ),
         step2=AgentStepConfig(
             enabled=True,
             name="安全审查",
-            prompt_template_key="medical_step2_safety"
+            prompt_template_key="medical_step2_safety",
+            output_format="json",  # 启用结构化输出
+            response_schema="SafetyCheckSchema"
         ),
         step3=AgentStepConfig(
             enabled=True,
@@ -153,9 +163,11 @@ def _create_ecommerce_config() -> AgentConfig:
             prompt_template_key="ecommerce_step1_analyze"
         ),
         step2=AgentStepConfig(
-            enabled=False,  # 电商场景可能不需要安全审查
+            enabled=True,
             name="合规检查",
-            prompt_template_key="ecommerce_step2_compliance"
+            prompt_template_key="ecommerce_step2_compliance",
+            output_format="json",
+            response_schema="ComplianceCheckSchema"
         ),
         step3=AgentStepConfig(
             enabled=True,
@@ -189,12 +201,16 @@ def _create_customer_service_config() -> AgentConfig:
         step1=AgentStepConfig(
             enabled=True,
             name="问题分类",
-            prompt_template_key="service_step1_classify"
+            prompt_template_key="service_step1_classify",
+            output_format="json",
+            response_schema="QuestionClassifySchema"
         ),
         step2=AgentStepConfig(
             enabled=True,
             name="敏感检测",
-            prompt_template_key="service_step2_sensitive"
+            prompt_template_key="service_step2_sensitive",
+            output_format="json",
+            response_schema="SafetyCheckSchema"
         ),
         step3=AgentStepConfig(
             enabled=True,
