@@ -8,15 +8,15 @@ from datetime import datetime
 
 # 导入共享的 Schema
 from src.modules.chat.schemas import (
-    HospitalChatRequest,
-    HospitalChatResponse,
-    HospitalAgentConfig,
+    ChatRequest,
+    ChatResponse,
+    AgentConfig,
 )
 
 __all__ = [
-    "HospitalChatRequest",
-    "HospitalChatResponse",
-    "HospitalAgentConfig",
+    "ChatRequest",
+    "ChatResponse",
+    "AgentConfig",
     "AgentStepResult",
     "SafetyCheckResult",
     "QuestionRewriteResult",
@@ -81,7 +81,7 @@ class AgentStreamEvent(BaseModel):
 
 class SafetyCheckSchema(BaseModel):
     """安全审查结果 Schema"""
-    is_safe: bool = Field(..., description="是否安全")
+    is_safe: bool = Field(default=True, description="是否安全")
     risk_level: Literal["low", "medium", "high"] = Field(default="low", description="风险等级")
     risk_categories: List[str] = Field(default_factory=list, description="风险类别列表")
     warning_message: Optional[str] = Field(default=None, description="警告信息")
@@ -89,19 +89,19 @@ class SafetyCheckSchema(BaseModel):
 
 class ComplianceCheckSchema(BaseModel):
     """合规检查结果 Schema"""
-    compliant: bool = Field(..., description="是否合规")
+    compliant: bool = Field(default=True, description="是否合规")
     issue: Optional[str] = Field(default="", description="不合规原因：违禁品/敏感内容/广告等")
 
 
 class QuestionClassifySchema(BaseModel):
     """问题分类结果 Schema"""
-    category: Literal["咨询", "投诉", "建议", "技术支持", "其他"] = Field(..., description="问题类别")
+    category: Literal["咨询", "投诉", "建议", "技术支持", "其他"] = Field(default="咨询", description="问题类别")
     keywords: List[str] = Field(default_factory=list, description="关键词列表")
 
 
 class QuestionRewriteSchema(BaseModel):
     """问题改写结果 Schema（用于关键词提取）"""
-    rewritten_queries: List[str] = Field(..., description="重写后的检索关键词列表")
+    rewritten_queries: List[str] = Field(default_factory=list, description="重写后的检索关键词列表")
 
 
 class AnswerQualitySchema(BaseModel):

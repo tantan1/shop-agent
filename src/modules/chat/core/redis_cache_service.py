@@ -87,10 +87,12 @@ class RedisCacheService:
             # 从配置获取 Redis 连接参数
             redis_host = config.redis_host or "localhost"
             redis_port = config.redis_port or 6379
+            redis_password = getattr(config, "redis_password", "") or None
             
             self._client = redis.Redis(
                 host=redis_host,
                 port=redis_port,
+                password=redis_password,
                 db=0,
                 decode_responses=False,  # 向量数据需要二进制
                 socket_connect_timeout=5,

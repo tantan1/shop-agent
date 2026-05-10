@@ -8,14 +8,27 @@ passlib[bcrypt]
 structlog
 colorama
 langchain==1.2.15
+langchain-experimental>=0.3.0
 langchain-openai
 langchain-community==0.4.1
+langfuse>=4.7.0
+python-dotenv>=1.0.0
+deepagents>=0.6.0
 pymilvus==2.6.12
 dashscope
 httpx
 sentence-transformers
+FlagEmbedding>=1.3.0
 volcengine-python-sdk[ark]
 redis>=4.5.0
 numpy>=1.21.0
+faiss-cpu
 prometheus-fastapi-instrumentator>=7.0.0
 prometheus-client>=0.21.0
+docling==2.92.0
+rapidocr-onnxruntime
+ragas>=0.2.0
+datasets>=3.0.0
+pandas>=2.0.0
+jieba  # 中文分词，用于 RAGAS 评估脚本关键词重叠率计算
+bitsandbytes>=0.43.0  # 本地小模型 4bit 量化（节省约 75% 显存）

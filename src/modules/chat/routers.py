@@ -8,12 +8,13 @@ from src.modules.chat.schemas import (
     ChatQueryRequest,
     InsertDocumentRequest,
     BatchInsertRequest,
-    HospitalChatRequest,
+    ChatRequest,
     ItemEmbedRequest,
     BatchItemEmbedRequest,
     ItemEmbedResponse,
     ItemSearchRequest,
     ItemSearchResponse,
+    RefundConfirmRequest,
 )
 from src.shared.responses import success_response
 
@@ -179,9 +180,9 @@ async def health_check(
         }, code=503)
 
 
-@router.post("/hospital/chat", summary="通用Agent对话")
-async def hospital_chat(
-    request: HospitalChatRequest,
+@router.post("/agent/chat", summary="通用Agent对话")
+async def agent_chat(
+    request: ChatRequest,
     _: None = Depends(verify_api_key),
     chatagent_service: ChatAgentService = Depends(get_chatagent_service)
 ):
@@ -189,26 +190,26 @@ async def hospital_chat(
     使用通用 Agent 进行多步骤对话
 
     Agent 流程：
-    1. 问题理解/改写 - 将用户问题改写为更适合检索的查询
-    2. 内容审查/安全检查 - 检查问题是否涉及敏感内容（取决于领域配置）
-    3. 知识检索 - 使用 RAG 组件从知识库检索相关内容
-    4. 答案生成 - 基于检索结果生成回答
+    1. 需求分析 - 分析用户购物需求，提取关键信息
+    2. 合规检查 - 检查商品信息是否合规
+    3. 商品检索 - 使用 RAG 组件从知识库检索相关商品
+    4. 商品推荐 - 基于检索结果生成推荐回复
 
     支持的领域 (domain 参数):
-    - medical: 医疗客服（默认）
-    - ecommerce: 电商客服
+    - ecommerce: 电商客服（默认）
+    - medical: 医疗客服
     - customer_service: 通用客服
     - general: 通用助手
 
     HTTP 请求示例:
     ```bash
-    curl -X POST 'http://localhost:8000/api/chatagent/hospital/chat' \\
+    curl -X POST 'http://localhost:8000/api/chatagent/agent/chat' \\
       -H 'X-API-Key: your-api-key' \\
       -H 'Content-Type: application/json' \\
       -d '{
-        "message": "我想咨询一下，心脏病患者可以做胃镜检查吗？",
+        "message": "我想买一款续航久的无线耳机",
         "stream": false,
-        "domain": "medical"
+        "domain": "ecommerce"
       }'
     ```
 
@@ -218,18 +219,18 @@ async def hospital_chat(
       "code": 200,
       "message": "success",
       "data": {
-        "message": "关于您的问题...",
+        "message": "根据您的需求，为您推荐...",
         "conversation_id": "conv_1234567890",
         "steps": [...],
         "documents_used": [...],
         "safety_passed": true,
         "stream_available": true,
-        "domain": "medical"
+        "domain": "ecommerce"
       }
     }
     ```
     """
-    response = await chatagent_service.chat_with_hospital_agent(request)
+    response = await chatagent_service.chat_with_agent(request)
     return success_response(data=response.model_dump())
 
 
@@ -386,3 +387,56 @@ async def search_items(
     )
     # result 已经是 ItemSearchResponse 对象，直接转换为 dict
     return success_response(data=result.model_dump())
+
+
+@router.post("/agent/refund/confirm", summary="退款人工确认（人在回路）")
+async def refund_confirm(
+    request: RefundConfirmRequest,
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    """
+    人对回路退款审批 —— 对 pending 的退款申请进行批准或拒绝。
+
+    使用场景：
+    1. 用户发起退款请求 → Agent 自动暂停，返回 status="waiting_for_confirmation"
+    2. 管理员通过本接口审批 → 批准则继续执行退款，拒绝则取消退款
+
+    请求示例:
+    ```json
+    {
+        "conversation_id": "conv_1234567890",
+        "confirm": true,
+        "remark": "已核实，同意退款"
+    }
+    ```
+
+    响应示例:
+    ```json
+    {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "message": "已为您提交退货申请...",
+            "conversation_id": "conv_1234567890",
+            "status": "completed",
+            ...
+        }
+    }
+    ```
+    """
+    response = await chatagent_service.confirm_refund(request)
+    return success_response(data=response.model_dump())
+
+
+
+
+@router.post("/agent/test", summary="test")
+async def agent_test(
+    request: ChatRequest,
+    _: None = Depends(verify_api_key),
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+):
+    
+    response = await chatagent_service.test_agent(request)
+    return success_response(data=response.model_dump())

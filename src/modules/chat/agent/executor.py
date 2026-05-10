@@ -16,11 +16,12 @@ from src.modules.chat.core.llm_service import LLMService
 from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.redis_cache_service import RedisCacheService
+from src.modules.chat.core.reranker_service import RerankerService
 from src.modules.monitoring.langchain_callback import get_prometheus_callback
+from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
 from datetime import datetime, timedelta
 
-from langchain_core.messages import HumanMessage, AIMessage
 from src.modules.chat.agent.prompts import PromptTemplateManager
 from src.modules.chat.agent.schemas import (
     AgentStepResult,
@@ -30,8 +31,8 @@ from src.modules.chat.agent.schemas import (
     get_structured_schema,
 )
 from src.modules.chat.schemas import (
-    HospitalChatRequest,
-    HospitalChatResponse,
+    ChatRequest,
+    ChatResponse,
 )
 from src.modules.chat.config import AgentConfig, get_agent_config
 from src.shared.logger import APILogger
@@ -41,6 +42,7 @@ logger = APILogger("general_agent_executor")
 
 # 类常量定义
 _CLEANUP_INTERVAL = 10  # 每N次调用清理一次过期历史
+_MAX_DOC_CHARS = 800  # 每篇文档最大字符数（截断以减少 LLM 输入 token，加快推理）
 
 
 class GeneralAgentExecutor:
@@ -59,7 +61,7 @@ class GeneralAgentExecutor:
     
     def __init__(
         self,
-        domain: str = "medical",
+        domain: str = "ecommerce",
         agent_config: Optional[AgentConfig] = None,
         llm_service: Optional[LLMService] = None,
         embedding_service: Optional[EmbeddingService] = None,
@@ -180,20 +182,15 @@ class GeneralAgentExecutor:
             history = await self._get_conversation_history(conversation_id)
             template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
             
-            if template:
-                from langchain_core.prompts import ChatPromptTemplate
-                prompt = ChatPromptTemplate.from_template(template)
-                prompt_obj = prompt.invoke({"user_question": user_question})
-                messages = [{"role": "system", "content": prompt_obj.messages[0].content}]
-                if len(prompt_obj.messages) > 1:
-                    messages.append({"role": "user", "content": prompt_obj.messages[1].content})
-            else:
-                messages = [
-                    {"role": "system", "content": "请理解用户问题并提取关键信息。"},
-                    {"role": "user", "content": user_question}
-                ]
+            messages = [
+                {"role": "system", "content": template},
+                {"role": "user", "content": f"用户问题：{user_question}"}
+            ]
             
-            response = await self.llm_service.chat_qwen(messages)
+            response = await self.llm_service.chat_qwen(
+                messages, 
+                langfuse_handler=getattr(self, '_langfuse_handler', None)
+            )
             queries = [q.strip() for q in response.split('\n') if q.strip()]
             
             result = QuestionRewriteResult(
@@ -260,18 +257,10 @@ class GeneralAgentExecutor:
         try:
             # 构建消息
             template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
-            if template:
-                from langchain_core.prompts import ChatPromptTemplate
-                prompt = ChatPromptTemplate.from_template(template)
-                prompt_obj = prompt.invoke({"user_question": user_question})
-                messages = [{"role": "system", "content": prompt_obj.messages[0].content}]
-                if len(prompt_obj.messages) > 1:
-                    messages.append({"role": "user", "content": prompt_obj.messages[1].content})
-            else:
-                messages = [
-                    {"role": "system", "content": "请检查以下内容是否合规安全。"},
-                    {"role": "user", "content": user_question}
-                ]
+            messages = [
+                {"role": "system", "content": template},
+                {"role": "user", "content": f"用户问题：{user_question}"}
+            ]
             
             # 根据配置选择输出方式
             safety_data = None
@@ -283,7 +272,8 @@ class GeneralAgentExecutor:
                         structured_result = await self.llm_service.chat_qwen_structured(
                             messages, 
                             schema_class,
-                            temperature=0.0  # 结构化输出用低温
+                            temperature=0.0,  # 结构化输出用低温
+                            langfuse_handler=getattr(self, '_langfuse_handler', None)
                         )
                         # 转换为字典
                         if hasattr(structured_result, 'model_dump'):
@@ -297,7 +287,10 @@ class GeneralAgentExecutor:
                         )
                         # 降级到手动解析
             if safety_data is None:
-                response = await self.llm_service.chat_qwen(messages)
+                response = await self.llm_service.chat_qwen(
+                messages, 
+                langfuse_handler=getattr(self, '_langfuse_handler', None)
+            )
                 try:
                     json_str = response
                     if "```json" in response:
@@ -360,7 +353,9 @@ class GeneralAgentExecutor:
     async def step3_retrieve(
         self,
         queries: List[str],
-        top_k: int
+        top_k: int,
+        user_question: str = "",
+        precomputed_embedding: Optional[List[float]] = None
     ) -> tuple[AgentStepResult, List[Dict[str, Any]]]:
         """
         步骤3：知识检索（Milvus 2.6+ 原生混合检索）
@@ -390,30 +385,107 @@ class GeneralAgentExecutor:
         
         try:
             seen_content = set()  # 用于 O(1) 去重
+            rerank_enabled = getattr(self.config, 'rerank_enabled', False)
+            # Rerank 开启时从 Milvus 多拿几条供 Reranker 筛选
+            milvus_top_k = getattr(self.config, 'rerank_initial_top_k', top_k * 4) if rerank_enabled else top_k
             
-            for query in queries[:self.config.max_retrieval_queries]:
+            for i, query in enumerate(queries[:self.config.max_retrieval_queries]):
                 if self.embedding_service and self.milvus_service:
-                    query_embedding = await self.embedding_service.embed_query(query)
+                    # 如果预计算向量可用且是第一条查询，直接复用，省一次 API 调用
+                    if i == 0 and precomputed_embedding is not None:
+                        query_embedding = precomputed_embedding
+                    else:
+                        query_embedding = await self.embedding_service.embed_query(query)
                     
                     # 使用 Milvus 2.6 原生混合检索（Dense + Sparse BM25）
                     docs = self.milvus_service.hybrid_search(
                         query_embedding=query_embedding,
                         query_text=query,
-                        top_k=top_k
+                        top_k=milvus_top_k,
+                        rrf_k=getattr(self.config, 'rrf_k', 60)
                     )
                     
+                    score_threshold = getattr(self.config, 'retrieval_score_threshold', 0.0)
                     for doc in docs:
                         content = doc.page_content
                         if content not in seen_content:
-                            seen_content.add(content)
                             # hybrid_search 使用 RRFRanker，distance 即为 RRF 融合分数（越高越相关）
                             rrf_score = doc.metadata.get('distance', 0)
+                            # 按配置的阈值过滤低分文档
+                            if rrf_score < score_threshold:
+                                continue
+                            seen_content.add(content)
                             all_documents.append({
                                 "content": content,
                                 "metadata": doc.metadata,
                                 "source_query": query,
                                 "score": round(rrf_score, 4)
                             })
+            
+            # ============================================================
+            # BGE-Reranker 重排序 + 低相关截断
+            # ============================================================
+            if rerank_enabled and all_documents:
+                try:
+                    rerank_threshold = getattr(self.config, 'rerank_threshold', 0.3)
+                    rerank_top_k = getattr(self.config, 'rerank_top_k', top_k)
+                    
+                    doc_contents = [doc["content"] for doc in all_documents]
+                    reranker = RerankerService.get_instance()
+                    # 将同步 CPU 推理放入线程池，避免阻塞 asyncio 事件循环
+                    loop = asyncio.get_event_loop()
+                    ranked = await loop.run_in_executor(
+                        None,
+                        lambda: reranker.rerank(
+                            query=user_question,
+                            documents=doc_contents,
+                            top_k=rerank_top_k,
+                            threshold=rerank_threshold
+                        )
+                    )
+                    
+                    original_count = len(all_documents)
+                    # 重建文档列表（保留元数据，更新分数）
+                    all_documents = [
+                        {
+                            **all_documents[idx],
+                            "score": round(score, 4)  # Reranker 分数覆盖 RRF 分数
+                        }
+                        for idx, score, _ in ranked
+                    ]
+                    
+                    discarded = original_count - len(all_documents)
+                    if discarded > 0:
+                        logger.info(
+                            f"[{self.domain}] Rerank 移除了 {discarded} 条低相关文档",
+                            before=original_count, after=len(all_documents),
+                            threshold=rerank_threshold
+                        )
+                    if not all_documents:
+                        logger.warning(
+                            f"[{self.domain}] Rerank 后无文档通过阈值",
+                            threshold=rerank_threshold, original_count=original_count
+                        )
+                except Exception as e:
+                    logger.warning(f"[{self.domain}] Rerank 失败，保留原始结果: {str(e)[:150]}")
+            
+            # LLM 相关性过滤：过滤语义不相关的检索结果
+            if getattr(self.config, 'relevance_filter_enabled', True) and all_documents:
+                original_count = len(all_documents)
+                all_documents = await self._filter_documents_by_relevance(
+                    user_question, all_documents
+                )
+                removed_count = original_count - len(all_documents)
+                if removed_count > 0:
+                    logger.info(
+                        f"[{self.domain}] 相关性过滤移除了 {removed_count} 条不相关文档",
+                        remaining=len(all_documents)
+                    )
+                if not all_documents:
+                    logger.warning(
+                        f"[{self.domain}] 相关性过滤后无相关文档，将使用空上下文",
+                        original_count=original_count
+                    )
             
             rag_context = "\n\n".join([
                 f"[来源: {doc.get('metadata', {}).get('source', '未知')}]\n{doc['content']}"
@@ -433,7 +505,9 @@ class GeneralAgentExecutor:
                     "context": rag_context[:500] + "..." if len(rag_context) > 500 else rag_context,
                     "documents_found": len(all_documents),
                     "hybrid_search_enabled": True,
-                    "hybrid_search_type": "milvus_native_sparse_bm25"
+                    "hybrid_search_type": "milvus_native_sparse_bm25",
+                    "rerank_enabled": rerank_enabled,
+                    "rerank_model": "BAAI/bge-reranker-base" if rerank_enabled else None,
                 },
                 status="success",
                 duration_ms=duration
@@ -453,6 +527,95 @@ class GeneralAgentExecutor:
                 error_message=str(e),
                 duration_ms=duration
             ), []
+    
+    async def _filter_documents_by_relevance(
+        self,
+        user_question: str,
+        documents: List[Dict[str, Any]],
+        max_docs: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        使用 LLM 过滤语义不相关的检索文档
+        
+        Args:
+            user_question: 原始用户问题
+            documents: 检索到的文档列表
+            max_docs: 最多传给 LLM 判断的文档数（节省 token）
+            
+        Returns:
+            过滤后的相关文档列表
+        """
+        if not documents:
+            return []
+        
+        # 控制传给 LLM 的文档数量
+        docs_to_check = documents[:max_docs]
+        if len(documents) <= 1:
+            return documents  # 只有1条就不过滤了
+        
+        # 构建判断提示
+        doc_list = "\n---\n".join([
+            f"[文档{i}] {doc['content'][:300]}"
+            for i, doc in enumerate(docs_to_check)
+        ])
+        
+        prompt = f"""你是信息相关性判断助手。请判断以下文档是否与用户问题相关。
+
+用户问题：{user_question}
+
+判断标准：
+- 相关：文档内容能直接帮助回答问题
+- 不相关：文档内容是无关领域（如公司请假制度 vs 电商咨询）、或与问题完全无关
+
+检索到的文档：
+{doc_list}
+
+请严格按JSON格式输出，只输出不相关文档的编号列表：
+```json
+{{"irrelevant_ids": [1, 3]}}
+```
+如果没有不相关文档，输出：
+```json
+{{"irrelevant_ids": []}}
+```"""
+        
+        try:
+            response = await self.llm_service.chat_qwen(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                langfuse_handler=getattr(self, '_langfuse_handler', None)
+            )
+            
+            # 解析 JSON
+            json_str = response
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0]
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0]
+            
+            result = json.loads(json_str.strip())
+            irrelevant_ids = set(result.get("irrelevant_ids", []))
+            
+            if not irrelevant_ids:
+                return documents
+            
+            # 过滤掉不相关的文档
+            filtered = [
+                doc for i, doc in enumerate(documents)
+                if i not in irrelevant_ids
+            ]
+            
+            logger.info(
+                f"[{self.domain}] LLM 相关性过滤完成",
+                before=len(documents),
+                after=len(filtered),
+                removed_ids=list(irrelevant_ids)[:5]
+            )
+            return filtered
+            
+        except Exception as e:
+            logger.warning(f"[{self.domain}] 相关性过滤失败，保留所有文档: {str(e)[:100]}")
+            return documents  # 失败时保守策略：不过滤
     
     def _build_safety_reminder(self, safety_result: SafetyCheckResult) -> str:
         """构建安全提醒"""
@@ -549,51 +712,45 @@ class GeneralAgentExecutor:
             safety_reminder = self._build_safety_reminder(safety_result)
             safety_check_result = self._build_safety_check_result(safety_result)
             
+            # 获取提示词模板（提前获取以判断是否需要 chat_history）
+            template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
+            needs_chat_history = "{chat_history}" in template
+            
             history = await self._get_conversation_history(conversation_id)
-            chat_history = []
-            for msg in history[-self.config.max_history_turns:]:
-                if msg["role"] == "user":
-                    chat_history.append(HumanMessage(content=msg["content"]))
-                else:
-                    chat_history.append(AIMessage(content=msg["content"]))
+            chat_history_str = ""
+            if needs_chat_history and history:
+                # 限制历史条数 + 每条截断到 300 字，减少不必要 token
+                recent = history[-self.config.max_history_turns:]
+                parts = []
+                for msg in recent:
+                    role = "用户" if msg["role"] == "user" else "助手"
+                    content = msg["content"][:300]
+                    if len(msg["content"]) > 300:
+                        content += "..."
+                    parts.append(f"{role}: {content}")
+                chat_history_str = "\n".join(parts)
             
             # 构建提示
-            template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
-            if template and "{current_time}" in template:
-                prompt_content = template.format(
+            prompt_content = template.format(
                     current_time=current_time,
                     rag_context=rag_context,
                     user_question=user_question,
                     safety_check_result=safety_check_result,
                     safety_reminder=safety_reminder,
-                    chat_history="\n".join([f"{msg.type}: {msg.content}" for msg in chat_history]),
+                    chat_history=chat_history_str,
                     product_info=rag_context,
                     knowledge_base=rag_context,
                     context=rag_context,
                     category=""
                 )
-                messages = [{"role": "system", "content": prompt_content}]
-            else:
-                # 使用通用格式
-                from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-                from src.modules.chat.agent.prompts import ANSWER_GENERATION_PROMPT
-                
-                prompt_obj = ANSWER_GENERATION_PROMPT.invoke({
-                    "current_time": current_time,
-                    "rag_context": rag_context,
-                    "user_question": user_question,
-                    "safety_check_result": safety_check_result,
-                    "safety_reminder": safety_reminder,
-                    "chat_history": chat_history
-                })
-                
-                def convert_type(msg_type):
-                    mapping = {"human": "user", "ai": "assistant", "system": "system"}
-                    return mapping.get(msg_type, msg_type)
-                
-                messages = [{"role": convert_type(msg.type), "content": msg.content} for msg in prompt_obj.messages]
+            messages = [{"role": "system", "content": prompt_content}]
             
-            response = await self.llm_service.chat_qwen(messages)
+            # 回答生成用较低 temperature，减少随机采样开销，输出更稳定
+            response = await self.llm_service.chat_qwen(
+                messages, 
+                temperature=0.3,
+                langfuse_handler=getattr(self, '_langfuse_handler', None)
+            )
             
             quality_evaluation = self._quick_evaluate_answer_quality(response, rag_context)
             
@@ -702,45 +859,65 @@ class GeneralAgentExecutor:
     
     async def execute(
         self,
-        request: HospitalChatRequest
-    ) -> HospitalChatResponse:
+        request: ChatRequest,
+        langfuse_handler=None,
+    ) -> ChatResponse:
         """
         执行完整的Agent流程
         
         Args:
             request: 聊天请求
+            langfuse_handler: 外部 Langfuse CallbackHandler（由上层编排器传入）
             
         Returns:
-            HospitalChatResponse: Agent执行结果
+            ChatResponse: Agent执行结果
         """
         # 获取 Prometheus 回调
         callback = get_prometheus_callback()
         executor_start_time = time.time()
         
-        conversation_id = request.conversation_id or f"conv_{int(time.time())}"
+        # Langfuse v4.x: 外部传入 handler 时复用，否则内部创建
+        if langfuse_handler is None:
+            conversation_id = request.conversation_id or f"conv_{int(time.time())}"
+            result = create_langfuse_handler(
+                session_id=conversation_id,
+                tags=[request.domain, "agent-chat"],
+                trace_name=f"{request.domain}-agent-chat",
+                metadata={"domain": request.domain},
+            )
+            if result:
+                self._langfuse_handler, self._langfuse_ctx = result
+                self._langfuse_ctx.__enter__()
+            else:
+                self._langfuse_handler = None
+                self._langfuse_ctx = None
+        else:
+            self._langfuse_handler = langfuse_handler
+            self._langfuse_ctx = None
+        
         steps: List[Dict[str, Any]] = []
         documents_used: List[str] = []
         question_embedding: Optional[List[float]] = None
         
         try:
-            # 预计算向量
-            if self.embedding_service and self.redis_cache_service and self.redis_cache_service.is_available:
+            # 预计算向量（供 step3 复用，避免重复调 embedding API）
+            if self.embedding_service:
                 question_embedding = await self.embedding_service.embed_query(request.message)
             
             # 检查缓存
-            cached_response = await self._try_get_cached_response(
-                request.message, conversation_id, question_embedding
-            )
-            if cached_response:
-                return HospitalChatResponse(
-                    message=cached_response,
-                    conversation_id=conversation_id,
-                    steps=[{"step_name": "cache_hit", "step_order": 0, "status": "success"}],
-                    documents_used=[],
-                    safety_passed=True,
-                    stream_available=True,
-                    cache_hit=True
-                )
+            # cached_response = await self._try_get_cached_response(
+            #     request.message, conversation_id, question_embedding
+            # )
+            # if cached_response:
+            #     return ChatResponse(
+            #         message=cached_response,
+            #         conversation_id=conversation_id,
+            #         steps=[{"step_name": "cache_hit", "step_order": 0, "status": "success"}],
+            #         documents_used=[],
+            #         safety_passed=True,
+            #         stream_available=True,
+            #         cache_hit=True
+            #     )
             
             # 步骤1
             step1_result = await self.step1_understand(request.message, conversation_id)
@@ -755,7 +932,7 @@ class GeneralAgentExecutor:
                 warning_response = await self._generate_fallback_response(
                     request.message, safety_result
                 )
-                return HospitalChatResponse(
+                return ChatResponse(
                     message=warning_response,
                     conversation_id=conversation_id,
                     steps=steps,
@@ -764,12 +941,16 @@ class GeneralAgentExecutor:
                     stream_available=True
                 )
             
-            # 步骤3
+            # 步骤3 - 传入预计算向量，避免重复调 embedding API
             step3_result, documents = await self.step3_retrieve(
-                queries, self.config.top_k
+                queries, self.config.top_k, request.message,
+                precomputed_embedding=question_embedding
             )
             steps.append(step3_result.model_dump())
-            documents_used = [doc["content"] for doc in documents[:5]]
+            # 截断每篇文档到 _MAX_DOC_CHARS，减少 LLM 输入 token 数
+            documents_used = [
+                doc["content"][:_MAX_DOC_CHARS] for doc in documents[:5]
+            ]
             
             rag_context = "\n\n".join(documents_used) or "暂无相关检索结果"
             
@@ -805,7 +986,7 @@ class GeneralAgentExecutor:
                     request.message, response, conversation_id, question_embedding
                 )
             
-            return HospitalChatResponse(
+            return ChatResponse(
                 message=response,
                 conversation_id=conversation_id,
                 steps=steps,
@@ -831,7 +1012,7 @@ class GeneralAgentExecutor:
                 run_id=f"executor_{conversation_id}"
             )
             
-            return HospitalChatResponse(
+            return ChatResponse(
                 message="抱歉，服务暂时繁忙，请稍后重试。",
                 conversation_id=conversation_id,
                 steps=steps,
@@ -839,6 +1020,10 @@ class GeneralAgentExecutor:
                 safety_passed=True,
                 stream_available=True
             )
+        finally:
+            # Langfuse v4.x: 退出 propagate_attributes 上下文
+            if self._langfuse_ctx:
+                self._langfuse_ctx.__exit__(None, None, None)
 
 
 # =============================================================================

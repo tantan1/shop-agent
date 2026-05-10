@@ -266,7 +266,8 @@ class MilvusService:
         self,
         query_embedding: List[float],
         query_text: str,
-        top_k: int = DEFAULT_TOP_K
+        top_k: int = DEFAULT_TOP_K,
+        rrf_k: int = 60
     ) -> List[Document]:
         """
         混合检索（Dense向量 + Sparse BM25）
@@ -277,6 +278,7 @@ class MilvusService:
             query_embedding: 查询向量（稠密）
             query_text: 查询文本（用于稀疏BM25检索）
             top_k: 返回数量
+            rrf_k: RRFRanker k 参数（越小高分权重越大，推荐 10~100，默认 60）
             
         Returns:
             相似文档列表（已按 RRF 融合排序）
@@ -307,7 +309,7 @@ class MilvusService:
             )
             
             # 执行混合搜索（内置 RRF 融合）
-            reranker = RRFRanker(k=60)
+            reranker = RRFRanker(k=rrf_k)
             results = self.collection.hybrid_search(
                 reqs=[dense_request, sparse_request],
                 rerank=reranker,

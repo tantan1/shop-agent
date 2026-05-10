@@ -23,6 +23,7 @@ class LLMService:
     
     _instance = None
     _qwen_llm: Optional[ChatOpenAI] = None
+    _tool_selector_llm: Optional[ChatOpenAI] = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -68,12 +69,36 @@ class LLMService:
                 extra_body={"enable_thinking": False}
             )
         return self._qwen_llm
+
+    @property
+    def tool_selector_llm(self) -> ChatOpenAI:
+        """获取工具选择器专用轻量 LLM（更快、更便宜）。
+
+        P1 工具选择任务极其简单（从 3-5 个工具名选一个），
+        不需要主 Agent 的大模型，用小模型可降低延迟 50%+ 且不牺牲准确率。
+        """
+        if self._tool_selector_llm is None:
+            if not chat_config.tongyi_api_key:
+                return self.qwen_llm  # 降级到主模型
+            model = getattr(chat_config, "tool_selector_model", None)
+            if model is None:
+                return self.qwen_llm  # 未配置则回退主模型
+            self._tool_selector_llm = ChatOpenAI(
+                model=model,
+                api_key=chat_config.tongyi_api_key,
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                temperature=0.0,  # 工具选择不需要创造性
+                extra_body={"enable_thinking": False}
+            )
+            logger.info(f"工具选择器模型初始化成功: {model}")
+        return self._tool_selector_llm
     
     async def chat_qwen(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         track_metrics: bool = True,
+        langfuse_handler = None,
         **kwargs
     ) -> str:
         """
@@ -83,6 +108,7 @@ class LLMService:
             messages: 消息列表 [{"role": "user", "content": "..."}]
             temperature: 温度参数
             track_metrics: 是否追踪指标（默认开启，LangChain回调会自动统计Token）
+            langfuse_handler: 可选的 Langfuse CallbackHandler（由调用方传入，携带 session_id/user_id/tags）
             **kwargs: 其他参数
             
         Returns:
@@ -92,8 +118,10 @@ class LLMService:
             # 构建配置
             config = {}
             if track_metrics:
-                callback = get_prometheus_callback()
-                config["callbacks"] = [callback]
+                callbacks = [get_prometheus_callback()]
+                if langfuse_handler:
+                    callbacks.append(langfuse_handler)
+                config["callbacks"] = callbacks
             
             response = await self.qwen_llm.ainvoke(messages, config=config)
             return response.content
@@ -108,6 +136,7 @@ class LLMService:
         temperature: float = 0.0,
         track_metrics: bool = True,
         max_retries: int = 2,
+        langfuse_handler = None,
         **kwargs
     ) -> BaseModel:
         """
@@ -119,6 +148,7 @@ class LLMService:
             temperature: 温度参数（结构化输出通常用0）
             track_metrics: 是否追踪指标
             max_retries: 最大重试次数（ValidationError 时）
+            langfuse_handler: 可选的 Langfuse CallbackHandler
             **kwargs: 其他参数
             
         Returns:
@@ -131,8 +161,10 @@ class LLMService:
                 # 构建配置
                 config = {}
                 if track_metrics:
-                    callback = get_prometheus_callback()
-                    config["callbacks"] = [callback]
+                    callbacks = [get_prometheus_callback()]
+                    if langfuse_handler:
+                        callbacks.append(langfuse_handler)
+                    config["callbacks"] = callbacks
                 
                 # 使用 with_structured_output 获取支持结构化输出的 LLM
                 structured_llm = self.qwen_llm.with_structured_output(output_schema)
@@ -176,17 +208,19 @@ class LLMService:
         self,
         prompt: str,
         system_prompt: str = None,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        langfuse_handler=None,
     ) -> str:
         """使用 prompt 字符串调用通义千问"""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        return await self.chat_qwen(messages, temperature)
+        return await self.chat_qwen(messages, temperature, langfuse_handler=langfuse_handler)
     
     
     def close(self):
         """关闭服务"""
         self._qwen_llm = None
+        self._tool_selector_llm = None
         LLMService._instance = None

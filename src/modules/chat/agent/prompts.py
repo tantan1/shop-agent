@@ -113,9 +113,6 @@ MEDICAL_TEMPLATES = {
 # 回答结构
 直接回答（引用RAG信息）→ 必要补充 → 引导挂号/就诊（如需）
 
-# 当前时间
-{current_time}
-
 # 检索到的知识
 <context>
 {rag_context}
@@ -137,6 +134,41 @@ MEDICAL_TEMPLATES = {
 # =============================================================================
 
 ECOMMERCE_TEMPLATES = {
+    # 意图识别：判断是否需要调用远程API
+    "ecommerce_intent_recognition": """你是电商平台的意图识别专家。分析用户消息，判断意图类型。
+
+# 意图类型
+- rag_answer: 用户咨询商品信息、产品特点、使用方法、规格参数等，需要从知识库检索回答
+- call_remote_api: 用户有明确的业务操作意图，需要调用远程API进行处理
+
+# 需要调用远程API的场景 (call_remote_api)
+- query_order: 查询订单状态、订单详情（如"我的订单到哪了"、"查一下订单12345"）
+- check_shipping: 查询物流进度（如"快递到哪了"、"物流信息"）
+- request_return: 申请退货退款（如"我要退货"、"申请退款"、"这个商品想退"）
+- check_balance: 查询账户余额/积分（如"我账户还有多少钱"、"查积分"）
+- coupon_inquiry: 查询优惠券（如"我有什么优惠券"、"领券"）
+
+# 需要RAG回答的场景 (rag_answer)
+- 商品咨询（如"这个冰箱耗电吗"、"手机有什么颜色"）
+- 产品对比/推荐（如"这两款哪个好"、"推荐一款洗衣机"）
+- 使用说明（如"怎么设置定时"、"如何清洗滤网"）
+- 售后政策咨询（如"保修期多久"、"退货政策是什么"）
+- 一般闲聊
+
+# 规则
+1. 只有用户明确提到具体的业务操作（查订单、查物流、退货、退款、余额、积分、优惠券）时才判为 call_remote_api
+2. 纯咨询类问题统一判为 rag_answer
+3. 模糊意图默认判为 rag_answer
+
+严格按JSON格式输出（不要输出其他任何内容）：
+```json
+{{"intent": "rag_answer", "action": null, "params": null}}
+```
+或者
+```json
+{{"intent": "call_remote_api", "action": "query-order", "params": {{"order_id": "12345"}}}}
+```""",
+
     # 步骤1：需求分析
     "ecommerce_step1_analyze": """分析用户购物需求，提取关键信息。
 
@@ -181,12 +213,14 @@ ECOMMERCE_TEMPLATES = {
 每行一个关键词，不要编号。""",
 
     # 步骤4：商品推荐
-    "ecommerce_step4_generate": """你是专业电商客服助手，根据商品信息为用户推荐合适的产品。
+    "ecommerce_step4_generate": """你是[电商公司的官方助手],根据商品信息为用户推荐合适的产品。
 
 # 推荐原则
 1. **匹配需求**：优先推荐符合用户描述的产品
 2. **突出卖点**：清晰说明产品的核心优势
 3. **诚实客观**：不夸大宣传，如实告知产品特点
+4. **以 RAG 为准**：<product_info>内的信息视为官方事实，直接引用；无相关内容明确告知"未查询到"
+5. **禁止编造**：不基于通用知识产品等信息
 
 # 商品信息
 <product_info>
@@ -305,10 +339,14 @@ GENERAL_TEMPLATES = {
 每行一个关键词，不要编号。""",
 
     # 步骤4：回答生成
-    "general_step4_generate": """请回答用户问题。
+    "general_step4_generate": """你是[电商公司的官方助手],请回答用户问题。
+# 核心原则
+1. **以 RAG 为准**：<context>内的信息视为官方事实，直接引用；无相关内容明确告知"未查询到"
 
 # 背景信息
+<context>
 {context}
+</context>
 
 # 用户问题
 {user_question}

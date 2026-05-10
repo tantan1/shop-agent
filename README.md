@@ -1,137 +1,151 @@
 # Shop-Agent 智能客服系统
 
-基于 **RAG（检索增强生成）** 与 **多步骤 Agent 编排** 构建的智能客服平台，提供 AI 对话服务。
-
-## 设计理念
-
-> **能用工程手段替代 LLM 调用的，就不要用 LLM。** 通过分层架构实现模块内高内聚、模块间低耦合，每个组件的引入必须解决一个明确的、可验证的痛点。
-
-系统围绕四个关键问题设计：
-- **意图混合**：用户可能在同一句话里混合咨询与业务操作，需要编排层统一路由分发
-- **信息源异构**：知识库（非结构化）和业务数据（结构化）需在同一回答里整合
-- **延迟硬约束**：多步 Agent 流水线动辄秒级延迟，需缓存绕过重复 LLM 调用
-- **安全边界**：敏感内容（如用药、诊断）不能由 AI 直接回答，须内置安全审查步骤
+基于 **RAG（检索增强生成）** 与 **Agent 编排** 构建的智能客服平台，面向电商场景提供 AI 对话服务。
 
 ## 功能概览
 
-### 1. RAG 智能对话
+### 1. Agent 编排与路由
 
-将用户提问向量化后，在 Milvus 知识库中检索相似文档，将检索结果作为上下文注入大模型，生成基于知识库的回答，同时返回引用的源文档内容。
+系统采用 **Orchestrator 模式**（`AgentOrchestrator`），按以下流程统一处理请求：
 
-### 2. 客服多步骤 Agent
+- **意图识别** — 基于 FAISS 向量匹配进行本地意图分类（`IntentRecognizer`），识别 `query-order`、`check-shipping`、`request-return`、`check-balance`、`coupon-inquiry` 五种业务意图，支持否定词过滤（咨询类直接走 RAG）和 LLM 兜底模式
+- **路由分发** — 意图命中后根据复杂性检测结果分发到两条路径：
+  - **直接 Tool 调用**：简单意图，参数抽取后直接调用对应工具，零额外 LLM 开销
+  - **ReAct Agent**：多步意图（含推理/条件判断/退货类），由 `ReActAgent` 自主决策是否查 RAG、调用业务 Tool，融合结果回复
+- **RAG Agent 兜底**：未命中意图的通用问答，走 `GeneralAgentExecutor` 的多步骤流水线（问题理解 → 内容审查 → 知识检索 → 回答生成）
+- **人在回路**：退款审批场景，Agent 自动暂停等待管理员通过 `/agent/refund/confirm` 确认
 
-设计了四步流水线式 Agent 编排：
+### 2. ReAct Agent（工具调用 + RAG 融合）
 
-- **问题重写** — 提取医疗关键词，将口语化提问改写为检索查询
-- **安全审查** — 检测是否涉及用药、诊断、处方、急危重症等敏感内容，输出风险等级（low / medium / high）与结构化风险评估
-- **知识检索** — 使用重写后的查询，通过嵌入模型 + Milvus 向量检索相关知识文档
-- **答案生成** — 基于检索结果与安全审查结论，结合对话历史生成回复
-- **质量评估** — 基于 LLM 对回答进行打分（相关性、准确性、完整性、可操作性），分数 ≥ 6 的回答才有资格被缓存
+基于 LangChain `create_agent` + LangGraph `MemorySaver` 的 ReAct 循环，配套三层工具选择策略：
 
-支持普通响应与 **SSE 流式响应** 两种模式，流式接口按步骤推送事件（`step_start` → `step_complete` → `content` → `done`），让前端实时感知 Agent 内部进展。
+- **P0 意图前置过滤**：`IntentResult.action` → 缩减候选工具池到 2-5 个
+- **P2 FAISS 语义重排**：用户 query × 工具描述余弦相似度 + 意图加权 → Top-3/5
+- **P1 本地模型确认**：本地 `Qwen2.5-1.5B` 从 Top-3/5 中选出最相关的工具（兜底消歧）
 
-### 3. 文档知识库管理
+Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 `skills/*/SKILL.md` 加载 YAML frontmatter + Markdown 正文到 `SkillRegistry`，运行时命中 Skill 后将 SOP 正文注入 system prompt，实现"增加新业务只改配置"。
 
-支持向 Milvus 向量知识库导入文档，提供单条插入、批量插入和文件上传（`.txt` / `.md` / `.csv` / `.json` / `.xml` / `.html` / `.py` / `.java` 等常见文本格式）三种方式，自动完成文本分块、向量化和入库。
+### 3. RAG 智能对话
 
-### 4. 企业信息查询
+支持两种 RAG 路径：
+- **简单 RAG**（`/chat`）：Embedding → Milvus 向量检索 → LLM 生成
+- **Agent RAG**（`/agent/chat` − `GeneralAgentExecutor`）：多步骤流水线，含问题理解、安全审查、知识检索（Milvus 2.6 原生混合检索 Dense + Sparse BM25）、回答生成 + 基于规则的质量评估（回答长度、上下文完整性、低质量模式检测）
 
-基于 MySQL 的企业信息检索服务，数据模型定义完整（企业名称、信用代码、法人、注册资本、经营范围、经营状态、风险信息、地区、行业），Repository 层支持模糊匹配、精确匹配、地区/行业筛选等多维度查询。
+支持 BGE-Reranker 重排序（`RerankerService`）对检索结果按相关性重新打分和低相关截断，支持 LLM 相关性过滤。
 
-### 5. 问题缓存去重
+### 4. 文档知识库管理
 
-基于 Redis Stack 的向量相似度搜索，对高频问题自动缓存回答，避免重复调用 LLM。支持精确 SHA256 哈希匹配与向量余弦相似度匹配双重策略，相似度阈值 0.85。缓存回答经质量评估（分数 ≥ 6）后才会被存储。
+支持向 Milvus 向量知识库导入文档，提供单条插入（`POST /chatagent/documents`）、批量插入（`POST /chatagent/documents/batch`）和文件上传（`POST /chatagent/documents/upload`，支持 `.txt` / `.md` / `.csv` / `.json` / `.xml` / `.html` / `.py` / `.java` 等常见文本格式）三种方式。内部使用两层切分策略：`SemanticChunker` 语义切分（`percentile` 模式，阈值 85）→ Token 安全兜底（超限 chunk 用 `RecursiveCharacterTextSplitter` 二次切分）。
 
-### 6. Prometheus 可观测性
+### 5. 商品嵌入与搜索
 
-通过 `prometheus-fastapi-instrumentator` 自动采集 HTTP 请求指标，同时定义了业务自定义指标（API 调用、数据库查询、Milvus 检索、Embedding 请求、Redis 缓存、Agent 对话轮次、Token 消耗、异常统计），并实现 LangChain 标准回调处理器（`PrometheusCallbackHandler`）统一追踪 LLM 调用、Embedding 请求、Agent 执行、工具调用等事件。
+支持将商品标题向量化存入 Milvus（`POST /chatagent/items/embed`），批量嵌入（`POST /chatagent/items/embed/batch`），以及文件上传嵌入（`POST /chatagent/items/embed/file`，`.txt/.tsv/.csv`）。支持 Milvus 混合检索搜索商品（`POST /chatagent/items/search`），按 item_id 去重。
+
+### 6. 企业信息查询
+
+基于 MySQL 的企业信息检索服务，Repository 层支持模糊匹配、精确匹配、地区/行业筛选等多维度查询，路由前缀为 `/reports`。
+
+### 7. 问题缓存去重
+
+基于 Redis Stack 的向量相似度搜索（`RedisCacheService`），支持 SHA256 精确哈希匹配与向量余弦相似度匹配双重策略。缓存回答经质量评估（基于规则打分 ≥ 6）后存储。同时支持对话历史存储（按 conversation_id 分 key）和高频问题统计（Sorted Set），包含问题脱敏处理（移除电话号码、邮箱、身份证号、详细地址）。
+
+### 8. Prometheus 可观测性
+
+通过 `prometheus-fastapi-instrumentator` 自动暴露 HTTP 请求指标，同时定义了业务自定义指标（API 调用、数据库查询、Milvus 检索、Embedding 请求、Redis 缓存、Agent 对话轮次、Token 消耗、异常统计），并实现 LangChain 标准回调处理器（`PrometheusCallbackHandler`）追踪 LLM 调用、Embedding 请求、Agent 执行、Tool 调用等事件。
+
+### 9. Langfuse 全链路追踪
+
+通过 `langfuse.langchain.CallbackHandler` + `propagate_attributes()` 上下文管理器（v4.x 规范）实现 LLM 调用、Agent 执行、意图识别、参数抽取等全链路追踪，每个请求创建独立 trace（session_id / tags / trace_name），应用 shutdown 时 flush 确保数据不丢失。
+
+### 10. 参数抽取
+
+支持三种模式逐级兜底（`IntentRecognizer.extract_params`）：
+- **local**：纯正则 + 关键词（毫秒级，零 API），失败后降级到 local_model → llm
+- **local_model**：transformers 本地小模型（`Qwen2.5-0.5B-Instruct`，4bit 量化），失败降级到 llm
+- **llm**：Qwen structured output，最精准
 
 ---
 
 ## 系统架构
 
-### 四层架构
+### 编排队列
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  接入层（Access Layer）                                       │
-│  FastAPI REST API + Bearer Token 认证 + 请求日志中间件         │
-│  + 三层异常处理器（业务异常 → HTTP 异常 → 通用异常）            │
-├──────────────────────────────────────────────────────────────┤
-│  编排层（Orchestration Layer）                                │
-│  HospitalAgentExecutor：四步流水线编排                         │
-│  问题重写 → 安全审查 → 知识检索 → 答案生成 → 质量评估           │
-│  + 内存对话历史管理（asyncio.Lock + 24h 过期）                 │
-├──────────────────────────────────────────────────────────────┤
-│  执行层（Execution Layer）                                    │
-│  ┌───────────┐ ┌──────────────┐ ┌────────────────┐          │
-│  │ LLM 服务  │ │ 嵌入服务     │ │ Milvus 服务    │          │
-│  │   Qwen    │ │ Doubao Embed │ │  向量存储+检索  │          │
-│  └───────────┘ └──────────────┘ └────────────────┘          │
-│  ┌──────────────────────┐  ┌──────────────────────┐         │
-│  │  Redis 缓存服务       │  │  Prometheus 监控      │         │
-│  │  向量相似度 + 对话历史 │  │  + LangChain 回调     │         │
-│  └──────────────────────┘  └──────────────────────┘         │
-├──────────────────────────────────────────────────────────────┤
-│  基础设施层（Infrastructure Layer）                           │
-│  MySQL (业务数据)   Milvus (向量库)   Redis Stack (缓存+向量) │
-│  etcd (Milvus 元数据)   MinIO (Milvus 对象存储)               │
-└──────────────────────────────────────────────────────────────┘
+用户请求
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│         AgentOrchestrator.chat_with_agent()  │
+│                                              │
+│  意图识别 (IntentRecognizer)                  │
+│  ├── 否定词过滤 → RAG 兜底                   │
+│  ├── FAISS 向量匹配 → call_remote_api        │
+│  └── 默认 → rag_answer                       │
+│                                              │
+│  路由分发                                     │
+│  ├── call_remote_api                        │
+│  │   ├── 简单意图 → ToolService.dispatch()   │
+│  │   └── 多步意图 → ReActAgent.run()         │
+│  └── rag_answer                              │
+│      └── GeneralAgentExecutor.execute()      │
+└─────────────────────────────────────────────┘
+    │
+    ▼
+ ChatResponse
 ```
 
 ### 模块划分
 
 | 模块 | 职责 |
 |------|------|
-| `src/core` | 全局配置管理（Pydantic Settings）、依赖注入辅助 |
-| `src/shared` | 异步数据库引擎、统一异常体系、结构化日志、统一响应格式 |
-| `src/modules/auth` | Bearer Token API Key 认证鉴权 |
-| `src/modules/chat` | 智能客服核心：RAG 对话 + Agent 编排 + 文档管理 |
-| `src/modules/chat/agent` | 客服 Agent 四步流水线（问题重写、安全审查、检索、生成）+ 质量评估 |
-| `src/modules/chat/core` | LLM 服务（Qwen）、嵌入服务（Doubao）、Milvus 向量服务、Redis 缓存服务 |
-| `src/modules/items` | 企业信息查询（模型/Schema/Repository 完整，Service 层待完成）|
-| `src/modules/monitoring` | Prometheus 指标定义 + LangChain 回调处理器（LLM/Embedding/Agent/Tool 全链路追踪）|
+| `src/core` | 全局配置管理（Pydantic Settings），含 LLM/Embedding/Milvus/意图识别/参数抽取等全部配置项 |
+| `src/shared` | 异步数据库引擎（SQLAlchemy 2.0 + aiomysql）、统一异常体系（BusinessException/401/403/404/422/500）、结构化日志（structlog）、统一响应格式（BaseResponse） |
+| `src/modules/auth` | Bearer Token API Key 认证鉴权（HTTPBearer + FIXED_API_KEY 比对） |
+| `src/modules/chat` | 智能客服核心模块 |
+| `src/modules/chat/agent` | Agent 编排（`AgentOrchestrator`）+ 通用执行器（`GeneralAgentExecutor`）+ ReAct Agent（`ReActAgent`）+ Skill 加载器（`SkillLoader` / `SkillRegistry`）+ 提示词管理（`PromptTemplateManager`） |
+| `src/modules/chat/core` | LLM 服务、Embedding 服务（local BGE）、Milvus 混合检索服务、Redis 缓存服务、意图识别器（FAISS）、文档服务（SemanticChunker）、Reranker 服务（BGE-Reranker-base）、工具注册与服务（`ToolService`）、本地模型服务（`LocalModelService`） |
+| `src/modules/items` | 企业信息查询（模型/Schema/Repository），路由注册为 `/reports` |
+| `src/modules/monitoring` | Prometheus 指标定义 + LangChain 回调 + Langfuse 回调 |
 
 ---
 
 ## 关键设计决策
 
-### 大模型选择：通义千问（Qwen）
+### 大模型：通义千问（Qwen）
 
-项目文本生成统一使用通义千问，通过 OpenAI 兼容模式接入（`dashscope.aliyuncs.com/compatible-mode/v1`），模型为 `qwen3.5-plus-2026-02-15`，`temperature=0.7`。LLM 调用封装在 `LLMService` 单例中，所有 Agent 步骤及 RAG 对话均使用 `chat_qwen()` 方法。
+通过 OpenAI 兼容模式接入阿里云 DashScope（`dashscope.aliyuncs.com/compatible-mode/v1`），默认模型为 `qwen3.6-flash-2026-04-16`。`LLMService` 采用单例模式，Agent 步骤 4 回答生成使用 `temperature=0.3`。
 
-### 嵌入模型：火山引擎 Doubao Embedding
+### 嵌入模型：本地 BGE（可切换云端）
 
-使用 Doubao 多模态嵌入模型 `doubao-embedding-vision-251215`，通过 Ark SDK 的 `multimodal_embeddings.create` 接口生成向量，维度为 2048。`ArkEmbeddings` 实现了 LangChain 的 `Embeddings` 接口，支持文本嵌入、图文混合嵌入，异步方法通过 `asyncio.to_thread` 封装。
+默认使用本地 `BAAI/bge-small-zh-v1.5`（sentence-transformers），通过 `EMBEDDING_PROVIDER=local` 配置。
+
+### 意图识别：FAISS 本地优先
+
+默认使用本地 FAISS 向量匹配（`INTENT_RECOGNITION_MODE=local`），使用类级别共享的 `faiss.IndexFlatIP` 索引（BGE 归一化向量，内积 = 余弦相似度），5 种业务意图各 4 条示例短语，相似度阈值 0.65。支持否定词过滤（含"退货政策/退款流程/怎么退"等 10 种模式）、复杂性检测（含"为什么/怎么办/帮我处理"等 13 种触发模式 + 退货类永走 Agent + 边缘分数阈值 0.85）。支持 `llm` 模式兜底。
+
+### Milvus 混合检索策略
+
+使用 Milvus 2.6 原生混合检索（Dense HNSW + Sparse BM25），RRF 融合（`rrf_k=60`），COSINE 相似度度量。Reranker 开启时从 Milvus 多取 `top_k * 4` 条供 BGE-Reranker 重排序。检索结果默认经 LLM 相关性过滤。Step 1 预计算的 question embedding 复用于 step 3，避免重复调用 Embedding API。
+
+### BGE-Reranker 重排序
+
+`RerankerService` 基于 `BAAI/bge-reranker-base` CrossEncoder 对 Milvus 检索结果重新打分，支持相关性阈值截断和 Top-K 截取。同步 CPU 推理通过 `asyncio.to_thread` / `loop.run_in_executor` 放入线程池，避免阻塞事件循环。
 
 ### Agent 安全设计
 
-安全审查是 Agent 流水线中的**第二步**，作为内置步骤而非可选插件：
-
-- 通过 LLM 结构化输出识别敏感内容（用药、诊断、处方、急危重症、未成年人等），输出 JSON 格式的 `is_safe`、`risk_level`、`risk_categories`、`warning_message`
-- LLM 返回的 JSON 解析失败时，使用**关键词匹配兜底**（预定义敏感关键词列表），默认标记为中等风险
-- 高风险（`risk_level="high"`）或 `can_proceed=False` 时直接拦截，返回安全警告模板并引导就医
-- 安全审查步骤如果 LLM 调用本身抛出异常（网络错误等），采用保守策略：默认高风险并阻止继续
-
-### Milvus 向量检索策略
-
-- **索引类型**：HNSW（`M=16, efConstruction=200`）
-- **查询参数**：`ef` 随 `top_k` 动态调整（`ef = max(50, top_k * 2)`）
-- **相似度度量**：COSINE，与嵌入模型的向量输出匹配
-- **维度适配**：连接时自动检测集合维度（`embedding_dimension=2048`），不匹配则删除旧集合并重建索引
-- **集合字段**：id（INT64 自增）、text（VARCHAR 65535）、embedding（FLOAT_VECTOR 2048）、metadata（JSON）
-
-### 单例服务模式
-
-`LLMService`、`EmbeddingService`、`MilvusService`、`RedisCacheService` 均采用单例模式（通过 `__new__` + `get_instance()` 实现），避免重复初始化连接。`ChatAgentService` 内部通过 `_initialize()` 方法集中管理各服务的懒加载，调用时通过属性访问器自动创建。
+安全审查是 `GeneralAgentExecutor` 流水线中的步骤 2，电商 domain 下默认禁用（`enabled=False`）。启用时通过 LLM 结构化输出或 JSON 解析识别敏感内容，解析失败使用敏感关键词兜底（从配置读取）。高风险时返回安全警告模板并阻止继续。审查步骤 LLM 异常时采用保守策略（默认高风险）。
 
 ### 文本分块策略
 
-使用 LangChain `RecursiveCharacterTextSplitter`，`chunk_size=1000`，`chunk_overlap=200`，`length_function=len`，以字符级递归分割，确保相邻块有上下文重叠。
+使用 `langchain_experimental.text_splitter.SemanticChunker` 作为主切分策略（`percentile` 模式，阈值 85），通过向量相似度检测话题边界进行语义切分。超限 chunk 用 `RecursiveCharacterTextSplitter`（`chunk_size=3276, chunk_overlap=200`，分隔符 `["\n\n", "\n", "。", ".", " ", ""]`）做 Token 安全兜底。Embedding 模型最大输入 4096 tokens，取 80% 安全余量（3276 chars）。
+
+### 本地模型：参数抽取
+
+配置 `LOCAL_PARAM_MODEL = "./models/Qwen2.5-0.5B-Instruct"`，支持 `auto`/`cpu` 设备选择、4bit 量化（需 bitsandbytes）。通过 `LocalModelService` 封装，用于意图命中后的参数抽取，支持 max_retries=2 的重试机制。
 
 ### 统一异常体系
 
-定义了分层异常类：`BusinessException(400)` → `AuthenticationException(401)` / `AuthorizationException(403)` / `NotFoundException(404)` / `ValidationException(422)` / `DatabaseException(500)`。通过 FastAPI 三层异常处理器注册（业务异常 → HTTP 异常 → 通用异常），统一拦截并返回 `ErrorResponse` 格式。
+分层异常类：`BusinessException(400)` → `AuthenticationException(401)` / `AuthorizationException(403)` / `NotFoundException(404)` / `ValidationException(422)` / `DatabaseException(500)`。通过 FastAPI 三层异常处理器注册（业务异常 → HTTP 异常 → 通用异常），统一拦截并返回 `ErrorResponse` 格式。
 
 ### 统一响应格式
 
@@ -147,43 +161,47 @@
 
 - `logging_middleware`：FastAPI 中间件自动记录每个请求的方法、URL、客户端 IP、状态码、处理耗时
 - `APILogger`：封装业务事件（`log_business_event`）、API 调用（`log_api_call`）、数据库操作（`log_database_operation`）的专用日志方法
-- **日志脱敏**：API Key 仅记录前 8 位（`api_key[:8] + "****"`），缓存命中时用户问题仅记录前 30 字符
-
-### Prometheus 监控与 LangChain 回调
-
-通过 `prometheus-fastapi-instrumentator` 自动暴露 HTTP 请求指标（总数、耗时分布、进行中请求数），同时自定义了以下业务指标：
-
-- **API/DB/Milvus/Embedding/Redis 指标**：调用次数（Counter）+ 耗时分布（Histogram），按模块、操作类型、状态等维度区分
-- **Agent 指标**：对话轮次（按 success/failed）、Token 使用量（prompt/completion）
-- **异常指标**：按异常类型和模块维度统计
-
-`PrometheusCallbackHandler` 实现了 LangChain 标准 `BaseCallbackHandler`，自动追踪 LLM 调用（`on_llm_start/end/error`）、Embedding 请求（`on_embedding_start/end`）、Agent 执行（`on_agent_action/finish`）、Tool 调用（`on_tool_start/end/error`）、Chain 执行和 Retriever 操作，全程采集耗时和 Token 数据。
+- **日志脱敏**：API Key 仅记录前 8 位（`api_key[:8] + "****"`）
 
 ### 异步数据库访问
 
-采用 SQLAlchemy 2.0 异步引擎 + `aiomysql` 驱动（`mysql+aiomysql://`），配置 `pool_pre_ping=True`（连接预检查）和 `pool_recycle=3600`（连接定期回收）。通过 FastAPI `Depends(get_db)` 依赖注入管理会话生命周期，`get_db()` 生成器在 `finally` 块中确保会话关闭。
+采用 SQLAlchemy 2.0 异步引擎 + `aiomysql` 驱动，配置 `pool_pre_ping=True`（连接预检查）和 `pool_recycle=3600`（连接定期回收）。通过 FastAPI `Depends(get_db)` 依赖注入管理会话生命周期，`get_db()` 生成器在 `finally` 块中确保会话关闭。
 
 ### 内存对话历史管理
 
-`HospitalAgentExecutor` 使用类变量 `_history`（Dict）存储对话历史，按 `conversation_id` 分区，通过 `asyncio.Lock` 保证异步安全。历史过期时间 24 小时，每 10 次调用触发一次过期清理，防止内存泄漏。
+`GeneralAgentExecutor` 使用实例变量 `_history`（Dict）存储对话历史，按 `conversation_id` 分区，通过 `asyncio.Lock`（类变量，所有实例共享）保证异步安全。历史过期时间 24 小时，每 10 次调用触发一次过期清理。对话历史限制条数由 `max_history_turns` 配置控制。
 
-### SSE 流式事件协议
+### Token 消耗控制
 
-客服 Agent 流式接口返回 `text/event-stream`，事件以 JSON 行格式推送：
+- 每篇检索文档截断到 800 字符后传给 LLM（`_MAX_DOC_CHARS = 800`）
+- 对话历史每条截断到 300 字符
+- LLM 相关性过滤最多传 20 条文档给 LLM 判断
+- Step 4 prompt 中多个占位符复用同一 `rag_context` 值
 
-- `step_start`：步骤开始（如 "正在分析您的问题..."）
-- `step_complete`：步骤完成（含输出数据）
-- `content`：流式回答内容块（`is_final` 标记是否结束）
-- `done`：整体完成（含 conversation_id、documents_used、safety_passed）
-- `error`：错误信息
+### 单品单例服务模式
+
+`LLMService`、`EmbeddingService`、`MilvusService`、`RedisCacheService`、`RerankerService`、`LocalModelService` 均采用单例模式（通过 `__new__` + `get_instance()` 实现），避免重复初始化连接。
+
+### 人在回路：退款审批
+
+`ReActAgent` 处理退款请求时，Agent 自动暂停并返回 `status="waiting_for_confirmation"`，管理员通过 `POST /chatagent/agent/refund/confirm` 确认或拒绝。中断上下文存储在模块级 `_INTERRUPT_STORE` 字典中，支持后续恢复执行。
+
+### Skill SOP 注入
+
+`SkillLoader` 从 `skills/` 目录递归扫描 `SKILL.md` 文件（YAML frontmatter + Markdown 正文），自动构建 `INTENT_TOOL_MAP`（P0 过滤用）和工具描述列表（P2 FAISS 索引用）。新增 Skill 只需创建新目录 + `SKILL.md`，无需改代码。运行时命中 Skill 后将 SOP 正文内联注入 ReAct Agent 的 system prompt。
 
 ### 基础设施容器化
 
 通过 `docker-compose.yml` 一键编排以下服务：
 
 - **etcd**（`quay.io/coreos/etcd:v3.5.25`）— Milvus 元数据存储
-- **MinIO**（`minio/minio:RELEASE.2024-12-18T13-15-44Z`）— Milvus 对象存储
+- **MinIO**（`minio/minio:RELEASE.2024-12-18T13-15-44Z`）— Milvus 对象存储 + Langfuse bucket
 - **Milvus Standalone**（`milvusdb/milvus:v2.6.14`）— 向量数据库，端口 19530
 - **Redis Stack**（`redis/redis-stack-server:7.2.0-v14`）— 向量缓存 + 对话历史，端口 6379
+- **Prometheus** — 监控指标采集，端口 9090
+- **Grafana** — 可视化仪表盘，端口 3001（映射到容器 3000）
+- **Langfuse Worker + Web**（`docker.io/langfuse/langfuse:3`）— LLM 追踪平台，Web 端口 3000
+- **ClickHouse** — Langfuse 分析数据库
+- **PostgreSQL** — Langfuse 主数据库
 
-所有服务均配置健康检查，网络统一在 `milvus` 网桥下。
+所有服务均配置健康检查，Milvus 依赖 etcd + MinIO，Langfuse 依赖 postgres + minio + redis + clickhouse。

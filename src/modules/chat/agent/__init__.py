@@ -4,9 +4,10 @@ Agent 模块
 """
 
 from src.modules.chat.agent.executor import GeneralAgentExecutor, HospitalAgentExecutor
+from src.modules.chat.agent.orchestrator import AgentOrchestrator
 from src.modules.chat.agent.schemas import (
-    HospitalChatRequest,
-    HospitalChatResponse,
+    ChatRequest,
+    ChatResponse,
     AgentStepResult,
     SafetyCheckResult,
     QuestionRewriteResult,
@@ -18,9 +19,11 @@ __all__ = [
     # 执行器
     "GeneralAgentExecutor",  # 通用执行器
     "HospitalAgentExecutor",  # 向后兼容，别名
+    # 编排器
+    "AgentOrchestrator",
     # Schema
-    "HospitalChatRequest",
-    "HospitalChatResponse",
+    "ChatRequest",
+    "ChatResponse",
     "AgentStepResult",
     "SafetyCheckResult",
     "QuestionRewriteResult",

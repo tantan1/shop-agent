@@ -1,4 +1,20 @@
 import sys
+import warnings
+
+# 抑制 langgraph 内部 JsonPlusSerializer 的 allowed_objects 弃用警告
+# filterwarnings 对该警告无效（langchain_core 使用自定义 deprecation 机制）
+# 直接 patch warnings.warn 按消息内容拦截
+_original_warn = warnings.warn
+def _patched_warn(*args, **kwargs):
+    # args[0] 可能直接是 Warning 实例（langchain 传入 warning_cls(message)），而非字符串
+    msg = args[0]
+    if isinstance(msg, Warning):
+        msg = str(msg)
+    if isinstance(msg, str) and "allowed_objects" in msg:
+        return
+    return _original_warn(*args, **kwargs)
+warnings.warn = _patched_warn
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -17,6 +33,7 @@ from src.shared.responses import success_response
 from src.modules.auth.routers import router as auth_router
 from src.modules.items.routers import router as reports_router
 from src.modules.chat.routers import router as chat_router
+from src.modules.chat.routers_mockapi import router as mockapi_router
 from src.modules.monitoring.router import router as monitoring_router
 from src.modules.monitoring.metrics import app_info
 
@@ -37,9 +54,63 @@ async def lifespan(app_instance: FastAPI):
     # 启动 Prometheus instrumentation
     instrumentator.instrument(app_instance)
     
+    # 预热模型（避免首次请求等待模型加载）
+    # 注意: lifespan 内事件循环已在运行，不能使用 loop.run_until_complete()
+    try:
+        from src.modules.chat.core.embedding_service import EmbeddingService
+        # 直接同步加载 embedding 模型
+        emb_svc = EmbeddingService.get_instance()
+        embeddings = emb_svc.get_embeddings()       # 触发模型加载
+        embeddings.embed_query("warmup")             # 首次推理预热
+        print("[startup] Embedding 模型预热完成")
+
+        # 预热 FAISS 意图索引（同步构建，避免首次意图识别 ~12s）
+        try:
+            from src.modules.chat.core.intent_recognizer import IntentRecognizer
+            IntentRecognizer.warmup_sync(embedding_service=emb_svc)
+            print("[startup] FAISS 意图索引预热完成")
+        except Exception as e:
+            print(f"[startup] FAISS 意图索引预热跳过: {e}")
+    except Exception as e:
+        print(f"[startup] Embedding 模型预热跳过: {e}")
+    
+    try:
+        from src.modules.chat.core.reranker_service import RerankerService
+        reranker = RerankerService.get_instance()
+        # Reranker 推理是同步的，需放入线程池避免阻塞启动
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            pool.submit(reranker.rerank, "warmup", ["预热文档"]).result()
+        print("[startup] BGE-Reranker 模型预热完成")
+    except Exception as e:
+        print(f"[startup] BGE-Reranker 模型预热跳过: {e}")
+    
+    # 预热本地小模型（避免首次参数抽取等待 ~13s 模型加载）
+    try:
+        from src.modules.chat.core.local_model_service import LocalModelService
+        local = LocalModelService.get_instance()
+        # 模型加载是同步阻塞的（transformers from_pretrained），放入线程池
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            loaded = pool.submit(local._ensure_loaded).result()
+        if loaded:
+            print("[startup] 本地小模型 (参数抽取) 预热完成")
+        else:
+            print("[startup] 本地小模型预热跳过（加载失败）")
+    except Exception as e:
+        print(f"[startup] 本地小模型预热跳过: {e}")
+    
     yield
     
     # 关闭时清理
+    # Flush Langfuse 追踪缓冲区 — 确保所有数据在退出前发送
+    try:
+        from src.modules.monitoring.langfuse_callback import flush_langfuse
+        flush_langfuse()
+        print("[shutdown] Langfuse 追踪数据已刷新")
+    except Exception as e:
+        print(f"[shutdown] Langfuse flush 跳过: {e}")
+    
     # 卸载 instrumentation 以避免重复注册
     instrumentator.uninstrument(app_instance)
 
@@ -85,6 +156,7 @@ print(f"[DEBUG] API_V1_PREFIX = {config.API_V1_PREFIX!r}")
 app.include_router(auth_router, prefix=config.API_V1_PREFIX)
 app.include_router(reports_router, prefix=config.API_V1_PREFIX)
 app.include_router(chat_router, prefix=config.API_V1_PREFIX)
+app.include_router(mockapi_router, prefix=config.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=config.API_V1_PREFIX)
 
 

@@ -10,18 +10,43 @@ class ChatConfig:
     # 从全局配置获取值
     tongyi_api_key: str = config.TONGYI_API_KEY
     chat_model: str = config.CHAT_MODEL
+    tool_selector_model: str = config.TOOL_SELECTOR_MODEL  # P1 工具选择器专用轻量模型（更快更便宜）
+    # P1 本地模型（设置后优先用本地模型替代云端 API）
+    tool_selector_local_model: str = config.TOOL_SELECTOR_LOCAL_MODEL
+    tool_selector_local_device: str = config.TOOL_SELECTOR_LOCAL_DEVICE
+    tool_selector_local_load_in_4bit: bool = config.TOOL_SELECTOR_LOCAL_LOAD_IN_4BIT
     temperature: float = 0.7
+    
+    # 本地小模型配置（参数抽取用）
+    local_param_model: str = config.LOCAL_PARAM_MODEL
+    local_param_device: str = config.LOCAL_PARAM_DEVICE
+    local_param_max_tokens: int = config.LOCAL_PARAM_MAX_TOKENS
+    local_param_load_in_4bit: bool = config.LOCAL_PARAM_LOAD_IN_4BIT
+    
     embedding_model: str = config.EMBEDDING_MODEL
+    embedding_provider: str = config.EMBEDDING_PROVIDER  # local | volcengine
     milvus_host: str = config.MILVUS_HOST
     milvus_port: int = config.MILVUS_PORT
     milvus_collection_name: str = "chat_embeddings"
-    embedding_dimension: int = 2048  # Doubao-embedding 维度
+    
+    @property
+    def embedding_dimension(self) -> int:
+        """根据 provider 返回对应维度"""
+        _DIMS = {
+            "BAAI/bge-small-zh-v1.5": 512,
+            "BAAI/bge-large-zh-v1.5": 1024,
+            "BAAI/bge-m3": 1024,
+            "doubao-embedding-vision-251215": 2048,
+            "doubao-embedding-text-240915": 1024,
+        }
+        return _DIMS.get(self.embedding_model, 1024)
     
     # Redis 缓存配置
     redis_vector_enabled: bool = True
     redis_vector_threshold: float = 0.85  # 相似度阈值
     redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_password: str = ""  # Redis 密码（留空则无密码连接）
     cache_expire_days: int = 7  # 缓存过期天数
     
     # 火山引擎配置
@@ -29,7 +54,7 @@ class ChatConfig:
     volcengine_embedding_endpoint: str = config.VOLCENGINE_EMBEDDING_ENDPOINT
     
     # 默认领域
-    default_domain: str = "medical"
+    default_domain: str = "ecommerce"
 
 
 chat_config = ChatConfig()
@@ -81,6 +106,13 @@ class AgentConfig(BaseModel):
     top_k: int = 5
     max_history_turns: int = 10
     max_retrieval_queries: int = 3
+    retrieval_score_threshold: float = 0.0  # Milvus RRF 融合分数最低阈值（0=不过滤，低于此阈值的文档被丢弃）
+    rrf_k: int = 60  # RRFRanker k 参数（越小高分权重越大，推荐范围 10~100）
+    relevance_filter_enabled: bool = False  # 是否启用 LLM 相关性过滤（过滤语义不相关的检索结果）
+    rerank_enabled: bool = True  # 是否启用 BGE-Reranker 重排序
+    rerank_threshold: float = 0.3  # Rerank 相关性分数最低阈值（0~1，低于此值的文档被丢弃）
+    rerank_top_k: int = 10  # Rerank 后保留的文档数量
+    rerank_initial_top_k: int = 10  # 从 Milvus 先多取几条给 Reranker 筛（降低到10以减少CrossEncoder推理开销）
     
     # 缓存配置
     cache_enabled: bool = True
@@ -138,7 +170,10 @@ def _create_medical_config() -> AgentConfig:
         ),
         top_k=5,
         max_history_turns=10,
-        max_retrieval_queries=3,
+        max_retrieval_queries=1,  # 只检索最优查询，避免多次 embedding API 调用
+        retrieval_score_threshold=0.003,  # RRF 融合分数阈值
+        rrf_k=40,  # RRF 融合 k：越小越精确，越大越全（40=偏精确）
+        rerank_initial_top_k=15,  # 多拉几条候选给 Reranker 精选
         cache_enabled=True,
         cache_threshold=0.85,
         low_quality_patterns=[
@@ -158,12 +193,12 @@ def _create_ecommerce_config() -> AgentConfig:
         name="电商助手",
         description="电商客服助手，为用户提供商品咨询、订单处理等服务",
         step1=AgentStepConfig(
-            enabled=True,
+            enabled=False,
             name="需求分析",
             prompt_template_key="ecommerce_step1_analyze"
         ),
         step2=AgentStepConfig(
-            enabled=True,
+            enabled=False,
             name="合规检查",
             prompt_template_key="ecommerce_step2_compliance",
             output_format="json",
@@ -172,16 +207,22 @@ def _create_ecommerce_config() -> AgentConfig:
         step3=AgentStepConfig(
             enabled=True,
             name="商品检索",
-            prompt_template_key="ecommerce_step3_search"
+            prompt_template_key="ecommerce_step3_query"
         ),
         step4=AgentStepConfig(
             enabled=True,
             name="商品推荐",
-            prompt_template_key="ecommerce_step4_recommend"
+            prompt_template_key="ecommerce_step4_generate"
         ),
         top_k=10,
         max_history_turns=5,
         max_retrieval_queries=5,
+        retrieval_score_threshold=0.005,  # RRF 融合分数阈值（过滤低相关性文档）
+        rrf_k=40,  # 电商场景突出高分商品
+        rerank_enabled=True,  # 启用 Rerank 重排序
+        rerank_threshold=0.3,  # 低于 0.3 的文档丢弃
+        rerank_top_k=5,
+        rerank_initial_top_k=20,  # Milvus 先召回 20 条让 Reranker 筛
         cache_enabled=True,
         cache_threshold=0.80,
         low_quality_patterns=[
@@ -242,7 +283,7 @@ def _create_general_config() -> AgentConfig:
             prompt_template_key="general_step1_understand"
         ),
         step2=AgentStepConfig(
-            enabled=False,
+            enabled=True,
             name="内容审查",
             prompt_template_key="general_step2_review"
         ),
@@ -258,7 +299,10 @@ def _create_general_config() -> AgentConfig:
         ),
         top_k=5,
         max_history_turns=10,
-        max_retrieval_queries=3,
+        max_retrieval_queries=1,  # 只检索最优查询，避免多次 embedding API 调用
+        retrieval_score_threshold=0.003,  # RRF 融合分数阈值
+        rrf_k=40,  # RRF 融合 k：越小越精确，越大越全（40=偏精确）
+        rerank_initial_top_k=15,  # 多拉几条候选给 Reranker 精选
         cache_enabled=True,
         cache_threshold=0.85
     )
