@@ -17,12 +17,16 @@ from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.redis_cache_service import RedisCacheService
 from src.modules.chat.core.reranker_service import RerankerService
+from src.modules.chat.core.content_filter import ContentFilterService
+from src.core.token_estimator import get_token_estimator
+from src.modules.chat.core.local_model_service import LocalModelService
+from src.modules.chat.core.graph_service import NebulaGraphService
 from src.modules.monitoring.langchain_callback import get_prometheus_callback
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from src.modules.chat.agent.prompts import PromptTemplateManager
+from src.modules.chat.agent.prompts import PromptTemplateManager, WARNING_TEMPLATES, GUIDANCE_TEMPLATES
 from src.modules.chat.agent.schemas import (
     AgentStepResult,
     SafetyCheckResult,
@@ -40,24 +44,30 @@ from src.shared.logger import APILogger
 logger = APILogger("general_agent_executor")
 
 
+# ── 模块级工具函数 ────────────────────────────────────────────────
+
+def _parse_json_from_llm(text: str) -> dict:
+    """从 LLM 返回文本中提取 JSON 对象。
+
+    支持多种格式：纯 JSON、```json 代码块、``` 通用代码块。
+    失败时返回 None。
+    """
+    json_str = text
+    if "```json" in text:
+        json_str = text.split("```json")[1].split("```")[0]
+    elif "```" in text:
+        json_str = text.split("```")[1].split("```")[0]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
+
+
 # 类常量定义
-_CLEANUP_INTERVAL = 10  # 每N次调用清理一次过期历史
-_MAX_DOC_CHARS = 800  # 每篇文档最大字符数（截断以减少 LLM 输入 token，加快推理）
+_MAX_DOC_CHARS = 800     # 每篇文档最大字符数（截断以减少 LLM 输入 token，加快推理）
 
 
 class GeneralAgentExecutor:
-    """
-    通用Agent执行器
-    
-    支持通过domain参数切换不同业务领域：
-    - medical: 医疗客服
-    - ecommerce: 电商客服
-    - customer_service: 通用客服
-    - general: 通用助手
-    """
-    
-    # 类变量：仅用于初始化锁（共享的异步锁）
-    _history_lock: asyncio.Lock = None  # 异步锁
     
     def __init__(
         self,
@@ -82,21 +92,10 @@ class GeneralAgentExecutor:
         self.domain = domain
         self.config = agent_config or get_agent_config(domain)
         
-        # 实例变量：每个实例独立的会话历史
-        self._history: Dict[str, List[Dict[str, str]]] = {}  # conversation_id -> history
-        self._last_access: Dict[str, datetime] = {}  # 追踪最后访问时间
-        self._cleanup_counter: int = 0  # 清理计数器
-        
         self.llm_service = llm_service
         self.embedding_service = embedding_service
         self.milvus_service = milvus_service
         self.redis_cache_service = redis_cache_service
-        
-        self._history_max_age = timedelta(hours=24)
-        
-        # 初始化锁（类变量，共享的）
-        if GeneralAgentExecutor._history_lock is None:
-            GeneralAgentExecutor._history_lock = asyncio.Lock()
     
     @property
     def agent_name(self) -> str:
@@ -114,43 +113,24 @@ class GeneralAgentExecutor:
         template_key = step_config.prompt_template_key if step_config else ""
         return PromptTemplateManager.get(self.domain, template_key)
     
-    def _cleanup_old_history(self):
-        """清理过期的对话历史"""
-        now = datetime.now()
-        expired = [
-            cid for cid, last_access in self._last_access.items()
-            if now - last_access > self._history_max_age
-        ]
-        for cid in expired:
-            self._history.pop(cid, None)
-            self._last_access.pop(cid, None)
-        if expired:
-            logger.info(f"[{self.domain}] 已清理 {len(expired)} 条过期对话历史")
-    
     async def _get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
-        """获取对话历史（异步安全）"""
-        async with self._history_lock:
-            if conversation_id not in self._history:
-                self._history[conversation_id] = []
-            self._last_access[conversation_id] = datetime.now()
-            
-            self._cleanup_counter += 1
-            if self._cleanup_counter >= _CLEANUP_INTERVAL:
-                self._cleanup_old_history()
-                self._cleanup_counter = 0
-            
-            return self._history[conversation_id].copy()
+        """从 Redis 获取对话历史；Redis 不可用时返回空列表降级。"""
+        if self.redis_cache_service and self.redis_cache_service.is_available:
+            messages = self.redis_cache_service.get_chat_messages(
+                conversation_id, max_turns=self.config.max_history_turns
+            )
+            return messages
+        return []
     
     async def _add_to_history(self, conversation_id: str, role: str, content: str):
-        """添加对话历史（异步安全）"""
-        async with self._history_lock:
-            history = self._history.get(conversation_id, [])
-            history.append({"role": role, "content": content})
-            
-            if len(history) > self.config.max_history_turns * 2:
-                history = history[-self.config.max_history_turns * 2:]
-            
-            self._history[conversation_id] = history
+        """将消息追加到 Redis 对话历史；Redis 不可用时静默跳过。"""
+        if self.redis_cache_service and self.redis_cache_service.is_available:
+            content_clean = content.strip()[:4096]  # 防止超长消息撑爆 Redis
+            self.redis_cache_service.add_chat_message(
+                conversation_id, role, content_clean,
+                max_turns=self.config.max_history_turns,
+                expire_days=1,
+            )
     
     async def step1_understand(
         self,
@@ -229,6 +209,11 @@ class GeneralAgentExecutor:
     ) -> tuple[AgentStepResult, SafetyCheckResult]:
         """
         步骤2：内容审查/安全检查
+
+        分级策略：
+        1. 本地小模型（如启用）→ 省API费，约100-300ms
+        2. 本地模型不可用/失败 → 回退到云端LLM
+        3. 本地模型判非合规 → 再走云端LLM复核（防误拦）
         
         Args:
             user_question: 用户问题
@@ -255,69 +240,104 @@ class GeneralAgentExecutor:
         
         start_time = time.time()
         try:
-            # 构建消息
+            # 获取提示词模板
             template = PromptTemplateManager.get(self.domain, step_config.prompt_template_key)
-            messages = [
-                {"role": "system", "content": template},
-                {"role": "user", "content": f"用户问题：{user_question}"}
-            ]
-            
-            # 根据配置选择输出方式
+
             safety_data = None
-            if step_config.output_format == "json" and step_config.response_schema:
-                # 使用结构化输出
-                schema_class = get_structured_schema(step_config.response_schema)
-                if schema_class:
-                    try:
-                        structured_result = await self.llm_service.chat_qwen_structured(
-                            messages, 
-                            schema_class,
-                            temperature=0.0,  # 结构化输出用低温
-                            langfuse_handler=getattr(self, '_langfuse_handler', None)
-                        )
-                        # 转换为字典
-                        if hasattr(structured_result, 'model_dump'):
-                            safety_data = structured_result.model_dump()
-                        else:
-                            safety_data = structured_result
-                        logger.info(f"[{self.domain}] {step_config.name}使用结构化输出")
-                    except Exception as e:
-                        logger.warning(
-                            f"[{self.domain}] {step_config.name}结构化输出失败，降级到JSON解析: {str(e)[:100]}"
-                        )
-                        # 降级到手动解析
-            if safety_data is None:
-                response = await self.llm_service.chat_qwen(
-                messages, 
-                langfuse_handler=getattr(self, '_langfuse_handler', None)
-            )
+            local_used = False
+
+            # ===== 本地小模型优先路径 =====
+            if getattr(self.config, 'step2_safety_local_model_enabled', False):
                 try:
-                    json_str = response
-                    if "```json" in response:
-                        json_str = response.split("```json")[1].split("```")[0]
-                    elif "```" in response:
-                        json_str = response.split("```")[1].split("```")[0]
-                    safety_data = json.loads(json_str)
-                except json.JSONDecodeError:
-                    # 保守策略：从配置获取敏感词
-                    sensitive_keywords = self.config.sensitive_keywords if hasattr(self.config, 'sensitive_keywords') else ["诊断", "处方", "胸痛"]
-                    detected = [kw for kw in sensitive_keywords if kw in user_question]
-                    safety_data = {
-                        "is_safe": False if detected else True,
-                        "risk_level": "high" if detected else "low",
-                        "risk_categories": detected or ["解析失败"]
-                    }
+                    local_svc = LocalModelService.get_instance()
+                    t_local = time.time()
+                    local_data = await local_svc.safety_classify(template, user_question)
+                    t_local_ms = int((time.time() - t_local) * 1000)
+                    if local_data is not None:
+                        safety_data = local_data
+                        local_used = True
+                        logger.info(
+                            f"[{self.domain}] {step_config.name}使用本地小模型",
+                            duration_ms=t_local_ms,
+                            result=safety_data,
+                        )
+                    else:
+                        logger.info(
+                            f"[{self.domain}] {step_config.name}本地小模型不可用，回退云端LLM",
+                            duration_ms=t_local_ms,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[{self.domain}] {step_config.name}本地小模型异常，回退云端LLM: {str(e)[:100]}"
+                    )
+
+            # ===== 云端 LLM 路径（仅在本地模型不可用或判非合规时走）=====
+            if safety_data is None:
+                # 本地模型不可用 → 走云端 LLM
+                pass
+            elif not self._safety_data_is_ok(safety_data):
+                # 本地模型判非合规 → 升级云端 LLM 复核（防误拦）
+                logger.info(
+                    f"[{self.domain}] {step_config.name}本地模型判非合规，升级云端LLM复核"
+                )
+                safety_data = None
+                local_used = False
+
+            if safety_data is None:
+                # 构建消息
+                messages = [
+                    {"role": "system", "content": template},
+                    {"role": "user", "content": f"用户问题：{user_question}"}
+                ]
+                
+                # 根据配置选择输出方式
+                if step_config.output_format == "json" and step_config.response_schema:
+                    # 使用结构化输出
+                    schema_class = get_structured_schema(step_config.response_schema)
+                    if schema_class:
+                        try:
+                            structured_result = await self.llm_service.chat_qwen_structured(
+                                messages, 
+                                schema_class,
+                                temperature=0.0,  # 结构化输出用低温
+                                langfuse_handler=getattr(self, '_langfuse_handler', None)
+                            )
+                            # 转换为字典
+                            if hasattr(structured_result, 'model_dump'):
+                                safety_data = structured_result.model_dump()
+                            else:
+                                safety_data = structured_result
+                            logger.info(f"[{self.domain}] {step_config.name}使用结构化输出")
+                        except Exception as e:
+                            logger.warning(
+                                f"[{self.domain}] {step_config.name}结构化输出失败，降级到JSON解析: {str(e)[:100]}"
+                            )
+                            # 降级到手动解析
+                if safety_data is None:
+                    response = await self.llm_service.chat_qwen(
+                        messages,
+                        langfuse_handler=getattr(self, '_langfuse_handler', None)
+                    )
+                    safety_data = _parse_json_from_llm(response)
+                    if safety_data is None:
+                        # 保守策略：从配置获取敏感词
+                        sensitive_keywords = self.config.sensitive_keywords if hasattr(self.config, 'sensitive_keywords') else ["诊断", "处方", "胸痛"]
+                        detected = [kw for kw in sensitive_keywords if kw in user_question]
+                        safety_data = {
+                            "is_safe": False if detected else True,
+                            "risk_level": "high" if detected else "low",
+                            "risk_categories": detected or ["解析失败"]
+                        }
             
-            safety_result = SafetyCheckResult(
-                is_safe=safety_data.get("is_safe", True),
-                risk_level=safety_data.get("risk_level", "low"),
-                risk_categories=safety_data.get("risk_categories", []),
-                warning_message=safety_data.get("warning_message"),
-                can_proceed=safety_data.get("is_safe", True) or safety_data.get("risk_level") != "high"
-            )
+            # 统一转换为 SafetyCheckResult（兼容两种 Schema 格式）
+            safety_result = self._build_safety_result(safety_data)
             
             duration = int((time.time() - start_time) * 1000)
-            logger.info(f"[{self.domain}] {step_config.name}完成", is_safe=safety_result.is_safe)
+            logger.info(
+                f"[{self.domain}] {step_config.name}完成",
+                is_safe=safety_result.is_safe,
+                local_used=local_used,
+            )
             
             step_result = AgentStepResult(
                 step_name=step_config.name,
@@ -349,6 +369,40 @@ class GeneralAgentExecutor:
                 error_message=str(e),
                 duration_ms=duration
             ), safety_result
+
+    @staticmethod
+    def _safety_data_is_ok(data: Dict[str, Any]) -> bool:
+        """检查安全审查结果是否合规（兼容两种 schema 格式）。"""
+        # SafetyCheckSchema 格式
+        if "is_safe" in data:
+            return data.get("is_safe", True)
+        # ComplianceCheckSchema 格式
+        if "compliant" in data:
+            return data.get("compliant", True)
+        return True
+
+    @staticmethod
+    def _build_safety_result(data: Dict[str, Any]) -> SafetyCheckResult:
+        """将安全审查数据统一转换为 SafetyCheckResult（兼容两种 schema）。"""
+        # ComplianceCheckSchema 格式 → 标准格式
+        if "compliant" in data:
+            is_safe = data.get("compliant", True)
+            issue = data.get("issue", "")
+            return SafetyCheckResult(
+                is_safe=is_safe,
+                risk_level="high" if not is_safe else "low",
+                risk_categories=[issue] if not is_safe and issue else [],
+                can_proceed=is_safe,
+            )
+        # SafetyCheckSchema 格式（原生）
+        is_safe = data.get("is_safe", True)
+        return SafetyCheckResult(
+            is_safe=is_safe,
+            risk_level=data.get("risk_level", "low"),
+            risk_categories=data.get("risk_categories", []),
+            warning_message=data.get("warning_message"),
+            can_proceed=is_safe or data.get("risk_level", "low") != "high",
+        )
     
     async def step3_retrieve(
         self,
@@ -402,7 +456,7 @@ class GeneralAgentExecutor:
                         query_embedding=query_embedding,
                         query_text=query,
                         top_k=milvus_top_k,
-                        rrf_k=getattr(self.config, 'rrf_k', 60)
+                        rrf_k=getattr(self.config, 'rrf_k', 60),
                     )
                     
                     score_threshold = getattr(self.config, 'retrieval_score_threshold', 0.0)
@@ -586,14 +640,10 @@ class GeneralAgentExecutor:
                 langfuse_handler=getattr(self, '_langfuse_handler', None)
             )
             
-            # 解析 JSON
-            json_str = response
-            if "```json" in response:
-                json_str = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                json_str = response.split("```")[1].split("```")[0]
-            
-            result = json.loads(json_str.strip())
+            result = _parse_json_from_llm(response)
+            if result is None:
+                logger.warning(f"[{self.domain}] 相关性过滤 JSON 解析失败，保留所有文档")
+                return documents
             irrelevant_ids = set(result.get("irrelevant_ids", []))
             
             if not irrelevant_ids:
@@ -616,11 +666,34 @@ class GeneralAgentExecutor:
         except Exception as e:
             logger.warning(f"[{self.domain}] 相关性过滤失败，保留所有文档: {str(e)[:100]}")
             return documents  # 失败时保守策略：不过滤
-    
+
+    async def _query_graph_context(self, user_question: str) -> str:
+        """查询 NebulaGraph 商品关系图，返回可注入 prompt 的文本。
+
+        图查询与向量检索并行执行，不增加端到端延迟。
+        如果 NebulaGraph 未启用、未连接或查询无结果，返回空字符串。
+        """
+        import os
+        enabled = os.getenv("NEBULA_GRAPH_ENABLED", "true").lower() == "true"
+        if not enabled:
+            return ""
+
+        try:
+            graph = NebulaGraphService.get_instance()
+            context = await graph.query_and_build_context(user_question)
+            if context:
+                logger.info(
+                    f"[{self.domain}] 图查询命中",
+                    graph_context_len=len(context),
+                )
+            return context
+        except Exception as e:
+            logger.debug(f"[{self.domain}] 图查询兜底跳过: {str(e)[:80]}")
+            return ""
+
     def _build_safety_reminder(self, safety_result: SafetyCheckResult) -> str:
         """构建安全提醒"""
         if not safety_result.is_safe:
-            from src.modules.chat.agent.prompts import WARNING_TEMPLATES
             return WARNING_TEMPLATES.get("default", "").format(
                 risk_categories=", ".join(safety_result.risk_categories),
                 warning_message=safety_result.warning_message or "请咨询专业人员"
@@ -682,7 +755,8 @@ class GeneralAgentExecutor:
         user_question: str,
         rag_context: str,
         safety_result: SafetyCheckResult,
-        conversation_id: str
+        conversation_id: str,
+        graph_context: str = "",
     ) -> tuple[AgentStepResult, str, Dict[str, Any]]:
         """
         步骤4：回答生成
@@ -730,9 +804,10 @@ class GeneralAgentExecutor:
                     parts.append(f"{role}: {content}")
                 chat_history_str = "\n".join(parts)
             
-            # 构建提示
+            # 构建提示（只传模板实际使用的槽位，Python format 自动忽略多余 kwargs）
             prompt_content = template.format(
                     current_time=current_time,
+                    graph_context=graph_context or "（无相关商品关系数据）",
                     rag_context=rag_context,
                     user_question=user_question,
                     safety_check_result=safety_check_result,
@@ -743,6 +818,73 @@ class GeneralAgentExecutor:
                     context=rag_context,
                     category=""
                 )
+            
+            # ---- Token 预算守卫：防止 prompt 超过模型上下文窗口 ----
+            # Qwen 8K 窗口，预留 ~1200 tokens 给输出
+            MAX_PROMPT_TOKENS = getattr(self.config, 'max_generation_prompt_tokens', 6800)
+            estimator_tk = get_token_estimator()
+            prompt_tokens = estimator_tk.estimate(prompt_content)
+            
+            if prompt_tokens > MAX_PROMPT_TOKENS:
+                logger.warning(
+                    f"[{self.domain}] Prompt token {prompt_tokens} 超出预算 {MAX_PROMPT_TOKENS}，逐次缩减RAG上下文",
+                    prompt_tokens=prompt_tokens,
+                    rag_chars=len(rag_context),
+                )
+                # 按文档边界拆分 rag_context，从末尾逐篇丢弃直到预算内
+                rag_docs = rag_context.split("\n\n")
+                fitted = False
+                for n in range(len(rag_docs), 0, -1):
+                    reduced_rag = "\n\n".join(rag_docs[:n])
+                    test_prompt = template.format(
+                        current_time=current_time,
+                        graph_context=graph_context or "（无相关商品关系数据）",
+                        rag_context=reduced_rag,
+                        user_question=user_question,
+                        safety_check_result=safety_check_result,
+                        safety_reminder=safety_reminder,
+                        chat_history=chat_history_str,
+                        product_info=reduced_rag,
+                        knowledge_base=reduced_rag,
+                        context=reduced_rag,
+                        category=""
+                    )
+                    test_tokens = estimator_tk.estimate(test_prompt)
+                    if test_tokens <= MAX_PROMPT_TOKENS:
+                        prompt_content = test_prompt
+                        rag_context = reduced_rag  # 同步更新，供后续质量评估等使用
+                        logger.info(
+                            f"[{self.domain}] RAG上下文缩减成功",
+                            docs_before=len(rag_docs),
+                            docs_after=n,
+                            tokens_before=prompt_tokens,
+                            tokens_after=test_tokens,
+                        )
+                        fitted = True
+                        break
+                
+                if not fitted:
+                    # 极限兜底：1 篇文档也超预算 → 丢弃 RAG，纯 LLM 常识回答
+                    fallback_rag = "（RAG 检索结果过长已省略，请基于通用知识回答）"
+                    prompt_content = template.format(
+                        current_time=current_time,
+                        graph_context=graph_context or "（无相关商品关系数据）",
+                        rag_context=fallback_rag,
+                        user_question=user_question,
+                        safety_check_result=safety_check_result,
+                        safety_reminder=safety_reminder,
+                        chat_history=chat_history_str,
+                        product_info=fallback_rag,
+                        knowledge_base=fallback_rag,
+                        context=fallback_rag,
+                        category=""
+                    )
+                    rag_context = fallback_rag
+                    logger.warning(
+                        f"[{self.domain}] RAG上下文全部丢弃，降为无检索回答",
+                        final_prompt_tokens=estimator_tk.estimate(prompt_content),
+                    )
+            
             messages = [{"role": "system", "content": prompt_content}]
             
             # 回答生成用较低 temperature，减少随机采样开销，输出更稳定
@@ -752,7 +894,30 @@ class GeneralAgentExecutor:
                 langfuse_handler=getattr(self, '_langfuse_handler', None)
             )
             
+            # ---- 输出内容安全过滤（规则引擎，零 LLM 成本） ----
+            output_filter_safe = True
+            if self.config.content_filter_enabled:
+                cf = ContentFilterService.get_instance()
+                output_check = cf.filter_output(response, self.domain)
+                if not output_check.is_safe:
+                    output_filter_safe = False
+                    logger.warning(
+                        f"[{self.domain}] 输出内容安全检查未通过",
+                        risk_categories=output_check.risk_categories,
+                        original_length=len(response),
+                    )
+                    if output_check.filtered_text:
+                        # 脱敏后可用
+                        response = output_check.filtered_text
+                    else:
+                        # 完全不可用 → 替换为安全兜底
+                        response = WARNING_TEMPLATES.get("content_filtered", "").format(
+                            risk_categories=", ".join(output_check.risk_categories),
+                            warning_message="请重新描述您的问题",
+                        )
+            
             quality_evaluation = self._quick_evaluate_answer_quality(response, rag_context)
+            quality_evaluation["output_filter_safe"] = output_filter_safe
             
             await self._add_to_history(conversation_id, "user", user_question)
             await self._add_to_history(conversation_id, "assistant", response)
@@ -787,8 +952,6 @@ class GeneralAgentExecutor:
         safety_result: SafetyCheckResult
     ) -> str:
         """生成兜底响应"""
-        from src.modules.chat.agent.prompts import WARNING_TEMPLATES, GUIDANCE_TEMPLATES
-        
         if not safety_result.is_safe:
             return WARNING_TEMPLATES.get("default", "").format(
                 risk_categories=", ".join(safety_result.risk_categories) or "敏感内容",
@@ -875,10 +1038,10 @@ class GeneralAgentExecutor:
         # 获取 Prometheus 回调
         callback = get_prometheus_callback()
         executor_start_time = time.time()
+        conversation_id = request.conversation_id or f"conv_{int(time.time())}"
         
         # Langfuse v4.x: 外部传入 handler 时复用，否则内部创建
         if langfuse_handler is None:
-            conversation_id = request.conversation_id or f"conv_{int(time.time())}"
             result = create_langfuse_handler(
                 session_id=conversation_id,
                 tags=[request.domain, "agent-chat"],
@@ -922,7 +1085,10 @@ class GeneralAgentExecutor:
             # 步骤1
             step1_result = await self.step1_understand(request.message, conversation_id)
             steps.append(step1_result.model_dump())
-            queries = step1_result.output_data.get("rewritten_queries", [request.message])
+            queries = step1_result.output_data.get("rewritten_queries", [])
+            # 始终将原始问题作为一条检索 query，防止改写丢失用户意图
+            if request.message not in queries:
+                queries.append(request.message)
             
             # 步骤2
             step2_result, safety_result = await self.step2_review(request.message)
@@ -941,22 +1107,37 @@ class GeneralAgentExecutor:
                     stream_available=True
                 )
             
-            # 步骤3 - 传入预计算向量，避免重复调 embedding API
-            step3_result, documents = await self.step3_retrieve(
+            # 步骤3 - 向量检索 与 图查询 并行执行
+            t_graph_start = time.time()
+            step3_task = self.step3_retrieve(
                 queries, self.config.top_k, request.message,
                 precomputed_embedding=question_embedding
             )
+            graph_task = self._query_graph_context(request.message)
+
+            step3_result, documents = await step3_task
+            graph_context = await graph_task
+            t_graph = int((time.time() - t_graph_start) * 1000)
+
             steps.append(step3_result.model_dump())
             # 截断每篇文档到 _MAX_DOC_CHARS，减少 LLM 输入 token 数
             documents_used = [
                 doc["content"][:_MAX_DOC_CHARS] for doc in documents[:5]
             ]
-            
+
+            # 合并向量检索上下文 + 图查询上下文
             rag_context = "\n\n".join(documents_used) or "暂无相关检索结果"
+            if graph_context:
+                logger.debug(
+                    f"[{self.domain}] 图查询命中",
+                    graph_ms=t_graph,
+                    graph_context_chars=len(graph_context),
+                )
             
             # 步骤4
             step4_result, response, quality_evaluation = await self.step4_generate(
-                request.message, rag_context, safety_result, conversation_id
+                request.message, rag_context, safety_result, conversation_id,
+                graph_context=graph_context,
             )
             steps.append(step4_result.model_dump())
             
@@ -986,12 +1167,16 @@ class GeneralAgentExecutor:
                     request.message, response, conversation_id, question_embedding
                 )
             
+            # 综合 Step2 输入审查结果 + Step4 输出过滤结果
+            output_filter_safe = quality_evaluation.get("output_filter_safe", True)
+            final_safety_passed = safety_result.is_safe and output_filter_safe
+            
             return ChatResponse(
                 message=response,
                 conversation_id=conversation_id,
                 steps=steps,
                 documents_used=documents_used,
-                safety_passed=safety_result.is_safe,
+                safety_passed=final_safety_passed,
                 stream_available=True,
                 cache_hit=False
             )
@@ -1017,7 +1202,7 @@ class GeneralAgentExecutor:
                 conversation_id=conversation_id,
                 steps=steps,
                 documents_used=documents_used,
-                safety_passed=True,
+                safety_passed=False,
                 stream_available=True
             )
         finally:

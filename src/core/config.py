@@ -48,11 +48,25 @@ class Settings(BaseSettings):
     # Embedding 提供者: local | volcengine
     EMBEDDING_PROVIDER: str = "local"
     EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
+
+    # BGE-Reranker 本地模型路径（用于 RAG 检索结果重排序）
+    # 优先从 ModelScope 本地缓存加载（国内秒下），不存在则回退 HuggingFace 自动下载
+    RERANKER_LOCAL_MODEL_PATH: str = ""  # 如 C:/Users/.../modelscope/BAAI/bge-reranker-base
     
+    # 向量数据库提供者: milvus | pgvector
+    VECTOR_STORE_PROVIDER: str = "milvus"
+
     # Milvus向量数据库配置
     MILVUS_HOST: str = "localhost"
     MILVUS_PORT: int = 19530
-    
+
+    # PostgreSQL pgvector 配置（VECTOR_STORE_PROVIDER=pgvector 时生效）
+    PGVECTOR_HOST: str = "localhost"
+    PGVECTOR_PORT: int = 5432
+    PGVECTOR_DB: str = "shop_agent"
+    PGVECTOR_USER: str = "postgres"
+    PGVECTOR_PASSWORD: str = "postgres"
+    PGVECTOR_TABLE: str = "documents"
     # 远程业务API配置（意图识别触发远程调用时使用）
     REMOTE_API_BASE_URL: str = ""
     REMOTE_API_TIMEOUT: int = 10
@@ -65,6 +79,44 @@ class Settings(BaseSettings):
     
     # FAISS 意图向量匹配参数
     INTENT_VECTOR_SIMILARITY_THRESHOLD: float = 0.65  # 余弦相似度阈值（BGE归一化向量用内积）
+
+    # 同义词归一化配置
+    # L1+L2: 静态同义词表 + 文本标准化（默认开启，零LLM成本，零延迟）
+    SYNONYM_NORMALIZE_ENABLED: bool = True
+    # L3: LLM归一化（默认关闭，需API调用，约500-1500ms延迟，覆盖长尾表达）
+    SYNONYM_NORMALIZE_LLM_ENABLED: bool = False
+
+    # NebulaGraph 图数据库配置（商品关系图谱，增强 RAG 的结构化知识）
+    NEBULA_GRAPH_ADDRS: str = "127.0.0.1:9669"  # graphd 地址，逗号分隔多地址
+    NEBULA_USER: str = "root"
+    NEBULA_PASSWORD: str = "nebula"
+    NEBULA_SPACE: str = "shop_graph"  # 图空间名
+    NEBULA_TIMEOUT: int = 3000  # 连接超时 ms
+    NEBULA_POOL_SIZE: int = 4  # 连接池大小
+    NEBULA_GRAPH_ENABLED: bool = True  # 是否启用图查询增强
+
+    # Step2 输入安全审查本地小模型配置
+    # 开启后 Step2 优先用本地小模型做合规分类（省 API 费），非合规才升级云端 LLM 复核
+    STEP2_SAFETY_LOCAL_MODEL_ENABLED: bool = False
+
+    # Token 预估器配置（用于 Token 消耗限流）
+    # Qwen3 全系列共用 tokenizer，指向本地 tokenizer.json 即可
+    TOKENIZER_PATH: str = "./models/Qwen3-1.7B/tokenizer.json"
+    # Token 消耗限流默认值（每窗口 max_tokens）
+    TOKEN_LIMIT_MAX_TOKENS: int = 100000  # 每分钟最大 token 消耗
+    TOKEN_LIMIT_WINDOW_SECONDS: int = 60  # 窗口 60 秒
+    TOKEN_LIMIT_ENABLED: bool = True  # 是否启用 token 消耗限流
+    # 用户输入长度管控（基于 token 而非字符数，与 LLM 实际消耗一致）
+    MAX_USER_MESSAGE_TOKENS: int = 2000  # 单条用户消息的最大 token 数（~1300 中文字/4000 英文字）
+    # 截断策略: keep_both_ends | keep_start_only | keep_end_only
+    # keep_both_ends: 保留首 40% + 尾 20%，中间插入省略标记（推荐，核心意图在首部，关键细节在尾部）
+    # keep_start_only: 仅保留开头（适合客服场景）
+    TRUNCATION_STRATEGY: str = "keep_both_ends"
+    # 截断提示语（{original_tokens}/{truncated_tokens}/{max_tokens} 会被替换）
+    TRUNCATION_WARNING_TEMPLATE: str = (
+        "⚠️ 您的输入较长（原始 {original_tokens} token，已自动保留核心 {truncated_tokens} token）。"
+        "如需更精准的回答，建议精简描述后重新提问。\n\n"
+    )
 
     @property
     def database_url(self) -> str:

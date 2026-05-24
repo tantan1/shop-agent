@@ -36,6 +36,10 @@ from src.modules.chat.routers import router as chat_router
 from src.modules.chat.routers_mockapi import router as mockapi_router
 from src.modules.monitoring.router import router as monitoring_router
 from src.modules.monitoring.metrics import app_info
+from src.core.rate_limiter import get_rate_limiter
+from src.modules.monitoring.skywalking_client import (
+    init_skywalking, skywalking_middleware, shutdown_skywalking
+)
 
 
 @asynccontextmanager
@@ -53,6 +57,9 @@ async def lifespan(app_instance: FastAPI):
     
     # 启动 Prometheus instrumentation
     instrumentator.instrument(app_instance)
+
+    # 初始化 SkyWalking 链路追踪
+    init_skywalking()
     
     # 预热模型（避免首次请求等待模型加载）
     # 注意: lifespan 内事件循环已在运行，不能使用 loop.run_until_complete()
@@ -110,9 +117,15 @@ async def lifespan(app_instance: FastAPI):
         print("[shutdown] Langfuse 追踪数据已刷新")
     except Exception as e:
         print(f"[shutdown] Langfuse flush 跳过: {e}")
+
+    # 关闭 SkyWalking Agent
+    shutdown_skywalking()
     
     # 卸载 instrumentation 以避免重复注册
-    instrumentator.uninstrument(app_instance)
+    try:
+        instrumentator.uninstrument(app_instance)
+    except AttributeError:
+        pass  # 部分版本的 prometheus_fastapi_instrumentator 不支持 uninstrument
 
 
 app = FastAPI(
@@ -125,8 +138,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# SkyWalking 链路追踪中间件（最外层，覆盖全链路）
+app.middleware("http")(skywalking_middleware)
+
 # 添加日志中间件
 app.middleware("http")(logging_middleware)
+
+# 速率限制中间件（Redis + 内存降级，全局 30req/60s）
+_rate_limiter = get_rate_limiter()
+app.middleware("http")(_rate_limiter.middleware)
 
 # 注册异常处理器
 app.add_exception_handler(BusinessException, business_exception_handler)

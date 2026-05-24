@@ -51,23 +51,27 @@ class DocumentService:
     @staticmethod
     def estimate_tokens(text: str) -> int:
         """
-        估算文本的 token 数量（保守估算，不依赖 tiktoken 等额外依赖）
+        估算文本的 token 数量。
 
-        策略：
-        - ASCII/英文 部分：~4 字符/token
-        - 非 ASCII（中文等）：~1.2 字符/token（保守，实际约 1.5~2）
-        - 兜底使用 len(text)（最保守：每个字符算 1 token，确保不超限）
+        优先使用 TokenEstimator（HF tokenizers，精度 100% + LRU 缓存），
+        加载失败时降级为字符估算（保守，确保不超限）。
         """
         if not text:
             return 0
 
-        # 统计非 ASCII 字符数（中文等多字节字符约占 token 大头）
+        # 优先复用 TokenEstimator（含 LRU 缓存，不再重复编码）
+        try:
+            from src.core.token_estimator import get_token_estimator
+            estimator = get_token_estimator()
+            if estimator.is_loaded:
+                return estimator.estimate(text)
+        except Exception:
+            pass
+
+        # 降级：保守字符估算（中文 /1.2，英文 /4.0，不超过 len(text)）
         non_ascii = sum(1 for ch in text if ord(ch) > 127)
         ascii_len = len(text) - non_ascii
-
-        # 中文 ~1.5 chars/token, 英文 ~4 chars/token，各取保守值
         estimated = int(ascii_len / 4.0 + non_ascii / 1.2)
-        # 最坏兜底：不超过字符串长度本身
         return min(estimated, len(text))
 
     @staticmethod

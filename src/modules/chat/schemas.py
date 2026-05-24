@@ -3,7 +3,12 @@ from pydantic import BaseModel, Field
 
 
 class ChatQueryRequest(BaseModel):
-    message: str = Field(..., description="聊天信息")
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=4000,
+        description="聊天信息（1-4000字符）"
+    )
 
 
 class ChatQueryResponse(BaseModel):
@@ -49,8 +54,8 @@ class ChatRequest(BaseModel):
     message: str = Field(
         ...,
         min_length=1,
-        max_length=2000,
-        description="用户消息，限制 1-2000 字符"
+        max_length=5000,
+        description="用户消息，限制 1-5000 字符。超过内置 token 预算会自动智能截断并提示用户"
     )
     conversation_id: Optional[str] = Field(default=None, description="对话ID，用于多轮对话")
     stream: bool = Field(default=True, description="是否启用流式输出")
@@ -69,6 +74,9 @@ class ChatResponse(BaseModel):
     domain: str = Field(default="ecommerce", description="处理的业务领域")
     status: str = Field(default="completed", description="执行状态: completed | waiting_for_confirmation | cancelled")
     interrupt_data: Optional[Dict[str, Any]] = Field(default=None, description="中断数据（人在回路暂停信息）")
+    input_truncated: bool = Field(default=False, description="用户输入是否因过长被自动截断")
+    input_original_tokens: Optional[int] = Field(default=None, description="原始输入的 token 数（截断前）")
+    input_truncated_tokens: Optional[int] = Field(default=None, description="截断后的 token 数")
 
 
 class RefundConfirmRequest(BaseModel):

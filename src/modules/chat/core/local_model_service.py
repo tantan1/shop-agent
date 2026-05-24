@@ -89,9 +89,9 @@ class LocalModelService:
 
             # CPU: 不传 device_map（避免内部触发 CUDA），float32
             if device == "cpu":
-                load_kwargs["torch_dtype"] = torch.float32
+                load_kwargs["dtype"] = torch.float32
             else:
-                load_kwargs["torch_dtype"] = torch.float16
+                load_kwargs["dtype"] = torch.float16
                 load_kwargs["device_map"] = device  # "auto" | "cuda" | "cuda:0" 等
 
             if use_4bit and device != "cpu":
@@ -342,15 +342,20 @@ class LocalModelService:
 
                     if params:
                         t_total = (_perf_time.perf_counter() - t_total_start) * 1000
-                        timing_info = (
-                            f"[⏱] 本地模型参数提取成功 | 总耗时={t_total:.0f}ms | "
-                            f"load={t_load:.0f}ms schema={t_schema:.0f}ms prompt={t_prompt:.0f}ms "
-                            f"generate={t_gen_total:.0f}ms json_parse={t_json:.0f}ms validate={t_valid:.0f}ms | "
-                            f"attempt={attempt + 1}"
-                        )
-                        print(timing_info)
-                        logger.info(
+                        logger.debug(
                             "本地模型参数提取成功 [耗时统计]",
+                            total_ms=round(t_total, 1),
+                            load_ms=round(t_load, 1),
+                            schema_ms=round(t_schema, 1),
+                            prompt_ms=round(t_prompt, 1),
+                            generate_ms=round(t_gen_total, 1),
+                            json_parse_ms=round(t_json, 1),
+                            validate_ms=round(t_valid, 1),
+                            attempt=attempt + 1,
+                            extracted=list(params.keys()),
+                        )
+                        logger.info(
+                            "本地模型参数提取成功",
                             extracted=list(params.keys()),
                             attempt=attempt + 1,
                             duration_total_ms=round(t_total, 1),
@@ -365,11 +370,6 @@ class LocalModelService:
 
                 # JSON 解析失败或空结果
                 if attempt < max_retries:
-                    print(
-                        f"[⏱] 本地模型 JSON解析失败(重试{attempt + 1}) | "
-                        f"prompt={t_prompt:.0f}ms generate={t_gen_total:.0f}ms json={t_json:.0f}ms | "
-                        f"raw={raw_output[:100]}"
-                    )
                     logger.warning(
                         f"JSON 解析失败（尝试 {attempt + 1}）: "
                         f"raw={raw_output[:150]}, "
@@ -435,13 +435,8 @@ class LocalModelService:
 
         g_total = (_perf_time.perf_counter() - g_start) * 1000
 
-        print(
-            f"[⏱] 本地模型 _generate | 总={g_total:.0f}ms | "
-            f"tok={t_tok:.1f}ms dev={t_dev:.1f}ms infer={t_infer:.0f}ms dec={t_dec:.1f}ms | "
-            f"in={input_len}t → out={output_len}t"
-        )
-        logger.info(
-            "本地模型 _generate 耗时详情",
+        logger.debug(
+            "本地模型 _generate",
             input_tokens=input_len,
             output_tokens=output_len,
             duration_total_ms=round(g_total, 1),
@@ -485,9 +480,9 @@ class LocalModelService:
             load_kwargs: Dict[str, Any] = {"trust_remote_code": True}
 
             if device == "cpu":
-                load_kwargs["torch_dtype"] = torch.float32
+                load_kwargs["dtype"] = torch.float32
             else:
-                load_kwargs["torch_dtype"] = torch.float16
+                load_kwargs["dtype"] = torch.float16
                 load_kwargs["device_map"] = device
 
             if use_4bit and device != "cpu":
@@ -663,6 +658,136 @@ class LocalModelService:
 
         generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
         return self._tool_selector_tokenizer.decode(
+            generated_ids, skip_special_tokens=True,
+        ).strip()
+
+    # ════════════════════════════════════════════════════════════════
+    # Step2 安全审查分类（复用参数抽取模型，二进制分类）
+    # ════════════════════════════════════════════════════════════════
+
+    @observe(name="local_model.safety_classify")
+    async def safety_classify(
+        self,
+        system_prompt: str,
+        user_question: str,
+        max_retries: int = 1,
+    ) -> Optional[Dict[str, Any]]:
+        """使用本地小模型做安全合规分类（Step2 内容审查加速）。
+
+        Args:
+            system_prompt: 合规判断规则说明（与云端 LLM 共用同一 prompt）
+            user_question: 用户问题文本
+            max_retries: JSON 解析失败重试次数
+
+        Returns:
+            解析后的合规判断 dict（如 {"compliant": true, "issue": ""}），
+            None 表示模型不可用或解析失败（调用方应回退到云端 LLM）
+        """
+        t_start = _perf_time.monotonic()
+
+        ok = self._ensure_loaded()
+        if not ok or self._model is None:
+            logger.debug("安全审查本地模型不可用，跳过")
+            return None
+
+        # 构建 prompt（短文本二分类，不需要思维链）
+        user_msg = (
+            f"{system_prompt}\n\n"
+            f"用户问题：{user_question}\n\n"
+            f"请严格按JSON格式输出判断结果，不要输出任何额外文字："
+        )
+
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            messages = [
+                {"role": "system", "content": "你是一个内容安全审查助手。只输出JSON，不要解释。"},
+                {"role": "user", "content": user_msg},
+            ]
+            try:
+                prompt = self._tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,  # 简单分类，不需要 CoT
+                )
+            except Exception:
+                prompt = (
+                    f"<|im_start|>system\n你是一个内容安全审查助手。只输出JSON，不要解释。<|im_end|>\n"
+                    f"<|im_start|>user\n{user_msg}<|im_end|>\n"
+                    f"<|im_start|>assistant\n"
+                )
+        else:
+            prompt = (
+                f"<|im_start|>system\n你是一个内容安全审查助手。只输出JSON，不要解释。<|im_end|>\n"
+                f"<|im_start|>user\n{user_msg}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+            )
+
+        for attempt in range(max_retries + 1):
+            try:
+                t_gen_start = _perf_time.monotonic()
+                raw_output = await asyncio.get_event_loop().run_in_executor(
+                    self._get_executor(),
+                    self._safety_generate,
+                    prompt,
+                )
+                t_gen = (_perf_time.monotonic() - t_gen_start) * 1000
+
+                # 剥离 <think>...</think>
+                raw_output = self._strip_think_tags(raw_output)
+
+                # JSON 解析
+                data = self._extract_json_from_text(raw_output)
+                if data is not None:
+                    t_total = (_perf_time.monotonic() - t_start) * 1000
+                    logger.info(
+                        "本地模型安全审查完成",
+                        duration_total_ms=round(t_total, 1),
+                        duration_generate_ms=round(t_gen, 1),
+                        attempt=attempt + 1,
+                        result=data,
+                    )
+                    return data
+
+                # JSON 解析失败
+                if attempt < max_retries:
+                    logger.warning(
+                        f"安全审查 JSON 解析失败 (attempt {attempt + 1}): "
+                        f"raw={raw_output[:120]}"
+                    )
+                else:
+                    logger.warning(
+                        f"安全审查本地模型失败（已重试 {max_retries} 次），回退到云端LLM"
+                    )
+
+            except Exception as e:
+                logger.error(f"安全审查本地模型异常 (attempt {attempt + 1}): {str(e)[:200]}")
+
+        return None  # 回退到云端 LLM
+
+    def _safety_generate(self, prompt: str) -> str:
+        """同步生成（executor 线程中执行，安全审查专用）。"""
+        import torch
+
+        inputs = self._tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=2048,
+        )
+        device = next(self._model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model.generate(
+                **inputs,
+                max_new_tokens=64,  # 安全审查输出很短：{"compliant":true,"issue":""}
+                do_sample=False,
+                pad_token_id=self._tokenizer.eos_token_id,
+                eos_token_id=self._tokenizer.eos_token_id,
+            )
+
+        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        return self._tokenizer.decode(
             generated_ids, skip_special_tokens=True,
         ).strip()
 

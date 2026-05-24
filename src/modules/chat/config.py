@@ -25,9 +25,19 @@ class ChatConfig:
     
     embedding_model: str = config.EMBEDDING_MODEL
     embedding_provider: str = config.EMBEDDING_PROVIDER  # local | volcengine
+    # 向量数据库提供者: milvus | pgvector
+    vector_store_provider: str = config.VECTOR_STORE_PROVIDER
+    # Milvus 配置
     milvus_host: str = config.MILVUS_HOST
     milvus_port: int = config.MILVUS_PORT
     milvus_collection_name: str = "chat_embeddings"
+    # PostgreSQL pgvector 配置
+    pgvector_host: str = config.PGVECTOR_HOST
+    pgvector_port: int = config.PGVECTOR_PORT
+    pgvector_db: str = config.PGVECTOR_DB
+    pgvector_user: str = config.PGVECTOR_USER
+    pgvector_password: str = config.PGVECTOR_PASSWORD
+    pgvector_table: str = config.PGVECTOR_TABLE
     
     @property
     def embedding_dimension(self) -> int:
@@ -55,6 +65,11 @@ class ChatConfig:
     
     # 默认领域
     default_domain: str = "ecommerce"
+    
+    # 同义词归一化（L1+L2 静态匹配，零 LLM 成本）
+    synonym_normalize_enabled: bool = True
+    # L3 LLM 归一化（默认关闭，需 API 调用）
+    synonym_normalize_llm_enabled: bool = config.SYNONYM_NORMALIZE_LLM_ENABLED
 
 
 chat_config = ChatConfig()
@@ -129,7 +144,14 @@ class AgentConfig(BaseModel):
     
     # 安全审查敏感词（JSON解析失败时的兜底检测）
     sensitive_keywords: List[str] = Field(default_factory=lambda: ["诊断", "处方", "胸痛"])
-    
+
+    # 内容过滤服务开关（规则引擎，零 LLM 成本）
+    content_filter_enabled: bool = Field(default=True, description="是否启用内容安全过滤服务")
+    content_filter_output_block: bool = Field(default=True, description="输出过滤是否硬阻断（True=命中拦截）")
+
+    # Step2 安全审查本地小模型（省 API 费，非合规才升级云端 LLM 复核）
+    step2_safety_local_model_enabled: bool = Field(default=False, description="Step2 是否启用本地小模型优先")
+
     class Config:
         extra = "allow"  # 允许额外字段
 
@@ -182,7 +204,11 @@ def _create_medical_config() -> AgentConfig:
             "我无法回答",
             "无法提供",
             "未查询到"
-        ]
+        ],
+        sensitive_keywords=[
+            "诊断", "处方", "胸痛", "开药", "用药", "手术",
+            "自杀", "自残", "安乐死",
+        ],
     )
 
 
@@ -229,7 +255,12 @@ def _create_ecommerce_config() -> AgentConfig:
             "抱歉，暂无相关商品",
             "服务暂时繁忙",
             "我无法为您推荐"
-        ]
+        ],
+        sensitive_keywords=[
+            "毒品", "枪支", "管制刀具", "色情", "赌博", "诈骗",
+            "翻墙", "VPN", "个人信息", "身份证号", "银行卡号",
+            "刷单", "刷好评", "假货", "假币",
+        ],
     )
 
 
@@ -267,7 +298,11 @@ def _create_customer_service_config() -> AgentConfig:
         max_history_turns=20,
         max_retrieval_queries=3,
         cache_enabled=True,
-        cache_threshold=0.85
+        cache_threshold=0.85,
+        sensitive_keywords=[
+            "色情", "暴力", "恐怖", "政治敏感", "侮辱", "攻击",
+            "个人信息", "银行卡", "密码", "非法集会",
+        ],
     )
 
 
@@ -304,7 +339,11 @@ def _create_general_config() -> AgentConfig:
         rrf_k=40,  # RRF 融合 k：越小越精确，越大越全（40=偏精确）
         rerank_initial_top_k=15,  # 多拉几条候选给 Reranker 精选
         cache_enabled=True,
-        cache_threshold=0.85
+        cache_threshold=0.85,
+        sensitive_keywords=[
+            "色情", "暴力", "政治敏感", "非法",
+            "诈骗", "赌博", "毒品",
+        ],
     )
 
 

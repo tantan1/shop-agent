@@ -40,8 +40,14 @@ from src.modules.chat.agent.skill_loader import (
     SkillRegistry,
     get_skill_registry,
 )
+from src.modules.chat.core.content_filter import ContentFilterService
 from src.shared.logger import APILogger
 from src.modules.chat.core.local_model_service import LocalModelService
+from src.modules.chat.core.sentiment_service import (
+    EmotionResult,
+    EmotionLevel,
+    EMOTION_TONE_PROMPTS,
+)
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 from langfuse import observe
 
@@ -371,6 +377,23 @@ _REACT_SYSTEM_PROMPT = """你是电商公司的智能客服助手，能够自主
 """
 
 
+# ════════════════════════════════════════════════════════════════════════
+# 情绪 → 语气模式映射
+# ════════════════════════════════════════════════════════════════════════
+
+def _emotion_to_tone_mode(level: EmotionLevel) -> str:
+    """将情绪等级映射为 system prompt 语气模式。"""
+    if level == EmotionLevel.EMERGENCY:
+        return "emergency"
+    if level == EmotionLevel.ANGRY:
+        return "angry"
+    if level == EmotionLevel.DISAPPOINTED:
+        return "disappointed"
+    if level == EmotionLevel.ANXIOUS:
+        return "anxious"
+    return "normal"
+
+
 class ReActAgent:
     """真正的 ReAct Agent —— 具备 tool-calling 迭代循环 + 意图前置工具过滤"""
 
@@ -382,12 +405,16 @@ class ReActAgent:
         embedding_service: EmbeddingService | None = None,
         milvus_service: MilvusService | None = None,
         max_iterations: int = 5,
+        emotion_result: EmotionResult | None = None,
+        input_truncated: bool = False,
     ):
         self._llm_service = llm_service
         self._tool_service = tool_service
         self._embedding_service = embedding_service
         self._milvus_service = milvus_service
         self._max_iterations = max_iterations
+        self._emotion_result = emotion_result  # 当前请求的情绪检测结果
+        self._input_truncated = input_truncated  # 用户输入是否被截断
 
         # 加载 skill 注册表（从 skills/*/SKILL.md）
         self._skill_registry = _skill_registry()
@@ -653,12 +680,24 @@ class ReActAgent:
         return graph.with_config({"recursion_limit": self._max_iterations * 2 + 2})
 
     def _build_system_prompt(self, tool_names: set[str]) -> str:
-        """动态拼装 system prompt：base 核心指令 + 命中 skill 的 SOP 正文。
+        """动态拼装 system prompt：base 核心指令 + 情绪 tone + 命中 skill 的 SOP 正文。
 
         按 tool_name → skill.allowed_tools 反向查找，注入对应的操作指引。
         不注入 knowledge_search 的 SOP（它不是业务 skill）。
         """
         prompt = _REACT_SYSTEM_PROMPT  # 纯静态核心指令
+
+        # ── 情绪驱动的回复语气（在 base prompt 之后、SOP 之前）──
+        if self._emotion_result and self._emotion_result.level != EmotionLevel.NEUTRAL:
+            tone_mode = _emotion_to_tone_mode(self._emotion_result.level)
+            tone_text = EMOTION_TONE_PROMPTS.get(tone_mode, "")
+            if tone_text:
+                prompt += tone_text
+                logger.info(
+                    "系统提示注入情绪感知",
+                    level=self._emotion_result.level.name,
+                    mode=tone_mode,
+                )
 
         # 排除 knowledge_search（它不是业务 skill）
         biz_tool_names = tool_names - {"knowledge_search"}
@@ -672,6 +711,15 @@ class ReActAgent:
             bodies = [s.body for s in matched_skills if s.body]
             if bodies:
                 prompt += "\n\n## 当前场景操作指南\n" + "\n\n".join(bodies)
+
+        # ── 输入截断提醒：引导 Agent 在关键信息缺失时主动反问 ──
+        if self._input_truncated:
+            prompt += (
+                "\n\n## 输入截断提醒\n"
+                "用户本次输入较长，已被自动精简，订单号、手机号等关键信息可能丢失。\n"
+                "回复时如发现处理请求所必需的信息不完整，请主动、礼貌地向用户询问补充，"
+                "例如：'请问您的订单号是多少呢？'、'您能提供一下手机号码吗？'"
+            )
 
         return prompt
 
@@ -706,6 +754,30 @@ class ReActAgent:
         selected_tools = await self._select_tools_for_intent(
             intent_result.action, user_query=request.message
         )
+
+        # ---- 输入内容安全过滤（规则引擎，零 LLM 成本） ----
+        cf = ContentFilterService.get_instance()
+        input_check = cf.filter_input(request.message, domain)
+        if not input_check.is_safe:
+            logger.warning(
+                "ReAct Agent 输入安全检查未通过",
+                domain=domain,
+                risk_categories=input_check.risk_categories,
+            )
+            return ChatResponse(
+                message="抱歉，您的请求包含不安全内容，无法处理。",
+                conversation_id=conversation_id,
+                steps=intent_steps + [{
+                    "step_name": "输入安全过滤",
+                    "step_order": len(intent_steps),
+                    "status": "blocked",
+                    "output_data": {"reason": input_check.reason},
+                }],
+                documents_used=[],
+                safety_passed=False,
+                stream_available=True,
+                domain=domain,
+            )
 
         # 使用共享的 MemorySaver 启用 checkpointer（人在回路的 interrupt() 必需）
         memory_saver = MemorySaver()
@@ -809,7 +881,7 @@ class ReActAgent:
                         },
                     }],
                     documents_used=[],
-                    safety_passed=True,
+                    safety_passed=True,  # 硬编码系统消息，非 LLM 输出
                     stream_available=True,
                     domain=domain,
                     status="waiting_for_confirmation",
@@ -834,7 +906,7 @@ class ReActAgent:
                     "error_message": str(e)[:200],
                 }],
                 documents_used=[],
-                safety_passed=True,
+                safety_passed=False,
                 stream_available=True,
                 domain=domain,
             )
@@ -850,6 +922,22 @@ class ReActAgent:
         final_output, intermediate_steps = self._parse_messages(messages)
         if not final_output:
             final_output = "抱歉，我暂时无法处理这个请求。"
+
+        # ---- 输出内容安全过滤（规则引擎，零 LLM 成本） ----
+        output_filter_safe = True
+        cf = ContentFilterService.get_instance()
+        output_check = cf.filter_output(final_output, domain)
+        if not output_check.is_safe:
+            output_filter_safe = False
+            logger.warning(
+                "ReAct Agent 输出安全检查未通过",
+                domain=domain,
+                risk_categories=output_check.risk_categories,
+            )
+            if output_check.filtered_text:
+                final_output = output_check.filtered_text
+            else:
+                final_output = "抱歉，当前无法处理您的请求，请稍后重试。"
 
         react_steps = self._format_intermediate_steps(intermediate_steps, elapsed_ms)
 
@@ -871,7 +959,7 @@ class ReActAgent:
             conversation_id=conversation_id,
             steps=intent_steps + react_steps,
             documents_used=[],
-            safety_passed=True,
+            safety_passed=output_filter_safe,
             stream_available=True,
             domain=domain,
         )
@@ -986,7 +1074,7 @@ class ReActAgent:
                     "output_data": {"order_id": order_id, "confirm": False},
                 }],
                 documents_used=[],
-                safety_passed=True,
+                safety_passed=True,  # 硬编码系统消息，非 LLM 输出
                 stream_available=True,
                 domain=domain,
                 status="completed",
@@ -1005,12 +1093,29 @@ class ReActAgent:
                 message="审批已通过，但退款操作执行失败，请稍后重试。",
                 conversation_id=conversation_id,
                 status="completed",
+                safety_passed=False,
                 domain=domain,
             )
 
         elapsed_ms = int((time.monotonic() - react_start) * 1000)
 
         logger.info("人在回路恢复执行完成", thread_id=thread_id, confirm=True, elapsed_ms=elapsed_ms)
+
+        # ---- 输出内容安全过滤 ----
+        output_filter_safe = True
+        cf = ContentFilterService.get_instance()
+        output_check = cf.filter_output(dispatch_result, domain)
+        if not output_check.is_safe:
+            output_filter_safe = False
+            logger.warning(
+                "人在回路 输出安全检查未通过",
+                domain=domain,
+                risk_categories=output_check.risk_categories,
+            )
+            if output_check.filtered_text:
+                dispatch_result = output_check.filtered_text
+            else:
+                dispatch_result = "操作已执行，但结果包含无法展示的内容。"
 
         return ChatResponse(
             message=dispatch_result,
@@ -1028,7 +1133,7 @@ class ReActAgent:
                 },
             }],
             documents_used=[],
-            safety_passed=True,
+            safety_passed=output_filter_safe,
             stream_available=True,
             domain=domain,
             status="completed",

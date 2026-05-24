@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional
 import threading
 
 from src.shared.logger import APILogger
+from src.core.config import config
 
 logger = APILogger("reranker_service")
 
@@ -28,8 +29,6 @@ class RerankerService:
     _model: object = None  # CrossEncoder 实例
 
     DEFAULT_MODEL = "BAAI/bge-reranker-base"
-    # 优先从 ModelScope 本地路径加载（国内秒下），不存在则回退到 HuggingFace 自动下载
-    LOCAL_MODEL_PATH = "C:/Users/Administrator/.cache/modelscope/BAAI/bge-reranker-base"
 
     def __init__(self, model_name: str = None, use_fp16: bool = False):
         self._model_name = model_name or self.DEFAULT_MODEL
@@ -65,10 +64,11 @@ class RerankerService:
                 from sentence_transformers import CrossEncoder
                 import os
 
-                # 优先使用本地 ModelScope 下载的模型
-                if os.path.isdir(self.LOCAL_MODEL_PATH):
-                    model_path = self.LOCAL_MODEL_PATH
-                    logger.info(f"使用本地模型: {model_path}")
+                # 优先使用配置指定的本地模型路径（支持 .env 配置）
+                local_path = config.RERANKER_LOCAL_MODEL_PATH
+                if local_path and os.path.isdir(local_path):
+                    model_path = local_path
+                    logger.info(f"使用本地模型 (config): {model_path}")
                 else:
                     model_path = self._model_name
                     logger.info(f"本地模型不存在，从 HuggingFace 加载: {model_path}")

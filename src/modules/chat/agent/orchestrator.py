@@ -16,8 +16,21 @@ from src.modules.chat.schemas import (
     ChatResponse,
     IntentResult,
 )
+from src.modules.chat.core.content_filter import ContentFilterService
+from src.modules.chat.core.synonym_normalizer import InputNormalizer
+from src.modules.chat.core.sentiment_service import (
+    SentimentService,
+    EmotionResult,
+)
+from src.modules.chat.agent.dispute_coordinator import (
+    DisputeCoordinator,
+    should_use_dispute_coordinator,
+)
+from src.modules.chat.config import chat_config
 from src.shared.exceptions import ValidationException
 from src.shared.logger import APILogger
+from src.core.token_estimator import get_token_estimator
+from src.core.config import config
 
 if TYPE_CHECKING:
     from src.modules.chat.core.llm_service import LLMService
@@ -50,6 +63,39 @@ class AgentOrchestrator:
         self._tool_service: ToolService = tool_service
         self._redis_cache_service: RedisCacheService | None = redis_cache_service
 
+        # 输入同义词归一化（L1+L2 默认开启，L3 按配置关闭）
+        self._input_normalizer = InputNormalizer(llm_service=llm_service)
+
+        # 情绪检测服务（级联 L1→L2→L3）
+        self._sentiment_service: SentimentService | None = None
+
+    # ═════════════════════════════════════════════════════════════════
+    # 情绪检测（懒初始化）
+    # ═════════════════════════════════════════════════════════════════
+
+    def _ensure_sentiment_service(self) -> SentimentService:
+        """懒初始化情绪检测服务（需要 local_model 引用，首次调用时注入）。"""
+        if self._sentiment_service is None:
+            from src.modules.chat.core.local_model_service import LocalModelService
+            self._sentiment_service = SentimentService(
+                local_model=LocalModelService.get_instance(),
+                llm=self._llm_service,
+            )
+        return self._sentiment_service
+
+    # ═════════════════════════════════════════════════════════════════
+    # 纠纷协调器（懒初始化）
+    # ═════════════════════════════════════════════════════════════════
+
+    def _ensure_dispute_coordinator(self) -> DisputeCoordinator:
+        """懒初始化纠纷协调器（首次纠纷触发时创建）。"""
+        if not hasattr(self, '_dispute_coordinator') or self._dispute_coordinator is None:
+            self._dispute_coordinator = DisputeCoordinator(
+                llm=self._llm_service,
+                tool_service=self._tool_service,
+            )
+        return self._dispute_coordinator
+
     # =========================================================================
     # 基础属性（从 ChatAgentService 迁移）
     # =========================================================================
@@ -71,6 +117,26 @@ class AgentOrchestrator:
     @property
     def llm(self):
         return self._llm_service
+
+    # =========================================================================
+    # 输入归一化
+    # =========================================================================
+
+    def _get_normalize_enabled(self) -> bool:
+        """检查是否启用同义词归一化"""
+        return getattr(chat_config, 'synonym_normalize_enabled', True)
+
+    async def _normalize_input(self, message: str, domain: str) -> str:
+        """对用户输入执行同义词归一化（L1+L2，L3按配置）"""
+        if not self._get_normalize_enabled():
+            return message
+        try:
+            return await self._input_normalizer.normalize(message, domain)
+        except Exception as e:
+            logger.warning(
+                f"同义词归一化异常，回退原文本: {str(e)[:100]}"
+            )
+            return message  # 归一化失败不阻塞流程
 
     # =========================================================================
     # 旧版 RAG 聊天流程
@@ -102,6 +168,7 @@ class AgentOrchestrator:
 
             if template:
                 prompt_content = template.format(
+                    graph_context="",
                     rag_context=context,
                     user_question=query,
                     current_time=current_time,
@@ -148,15 +215,30 @@ class AgentOrchestrator:
             langfuse_ctx.__enter__()
 
         try:
-            # 1. 搜索相似文档
-            similar_docs = await self._search_similar_documents(request.message)
+            # 1. 输入归一化 + 搜索相似文档
+            search_query = await self._normalize_input(request.message, domain)
+            similar_docs = await self._search_similar_documents(search_query)
 
-            # 2. 生成回答
+            # 2. 生成回答（使用原始消息保留完整语义）
             response_text = await self._generate_response(
                 request.message, similar_docs, langfuse_handler=langfuse_handler
             )
 
-            # 3. 构建响应
+            # 3. 输出内容安全过滤（规则引擎，零 LLM 成本）
+            cf = ContentFilterService.get_instance()
+            output_check = cf.filter_output(response_text, domain)
+            if not output_check.is_safe:
+                logger.warning(
+                    "RAG 输出安全检查未通过",
+                    domain=domain,
+                    risk_categories=output_check.risk_categories,
+                )
+                if output_check.filtered_text:
+                    response_text = output_check.filtered_text
+                else:
+                    response_text = "抱歉，当前无法处理您的请求，请稍后重试。"
+
+            # 4. 构建响应
             response = ChatQueryResponse(
                 message=response_text,
                 relevant_documents=[doc.page_content for doc in similar_docs],
@@ -197,6 +279,8 @@ class AgentOrchestrator:
         domain: str,
         intent_steps: list,
         langfuse_handler=None,
+        emotion_result: EmotionResult | None = None,
+        input_truncated: bool = False,
     ) -> ChatResponse:
         """
         将意图命中的复杂查询交给 ReAct Agent 处理。
@@ -213,6 +297,8 @@ class AgentOrchestrator:
             tool_service=self._tool_service,
             embedding_service=self._embedding_service,
             milvus_service=self._milvus_service,
+            emotion_result=emotion_result,
+            input_truncated=input_truncated,
         )
 
         return await react.run(
@@ -250,40 +336,147 @@ class AgentOrchestrator:
             langfuse_ctx.__enter__()
 
         try:
+            # ===== 输入同义词归一化（L1+L2，零 LLM 成本）=====
+            t_norm_start = _time.perf_counter()
+            normalized_message = await self._normalize_input(request.message, domain)
+            t_norm = (_time.perf_counter() - t_norm_start) * 1000
+            if normalized_message != request.message:
+                logger.info(
+                    "输入同义词归一化",
+                    original=request.message[:60],
+                    normalized=normalized_message[:60],
+                )
+
+            # ===== 输入长度管控：Token 预算截断 =====
+            # 使用 Qwen3 tokenizer 精确估算，而非字符数（中文 ≈ 1.5 token/字，英文 ≈ 0.3 token/字）
+            t_trunc_start = _time.perf_counter()
+            max_input_tokens = config.MAX_USER_MESSAGE_TOKENS
+            truncation_strategy = config.TRUNCATION_STRATEGY
+            _was_truncated = False  # 局部标记，最后注入 response
+
+            token_estimator = get_token_estimator()
+            truncated_text, orig_tokens, trunc_tokens = token_estimator.truncate_to_tokens(
+                normalized_message,
+                max_tokens=max_input_tokens,
+                strategy=truncation_strategy,
+            )
+            t_trunc = (_time.perf_counter() - t_trunc_start) * 1000
+
+            if orig_tokens > trunc_tokens:
+                # 发生了截断：重建 request 对象（Pydantic model 是 frozen 的）
+                _was_truncated = True
+                request = request.model_copy(update={"message": truncated_text})
+                logger.info(
+                    "用户输入 token 超预算，已智能截断",
+                    strategy=truncation_strategy,
+                    original_tokens=orig_tokens,
+                    truncated_tokens=trunc_tokens,
+                    max_tokens=max_input_tokens,
+                    duration_trunc_ms=round(t_trunc, 1),
+                    preview=truncated_text[:60],
+                )
+            # 更新 normalized_message 为截断后的版本（意图识别使用）
+            normalized_message = request.message
+
+            # ===== 情绪检测（L1 规则 <1ms + L2 本地 ~30ms）=====
+            t_emo_start = _time.perf_counter()
+            emotion_result: EmotionResult | None = None
+            try:
+                sentiment_svc = self._ensure_sentiment_service()
+                emotion_result = await sentiment_svc.detect(
+                    request.message,
+                    session_id=conversation_id,
+                    skip_cloud=True,  # 默认跳过云端，保持延迟可控
+                )
+            except Exception:
+                logger.debug("情绪检测异常，跳过", exc_info=True)
+
+            t_emo = (_time.perf_counter() - t_emo_start) * 1000
+
+            # 舆情风险 → 立即升级，不走后续管线
+            if emotion_result and emotion_result.is_emergency:
+                logger.warning(
+                    "舆情风险检测，触发立即升级",
+                    conversation_id=conversation_id,
+                    level=emotion_result.level.name,
+                    source=emotion_result.source,
+                    keywords=emotion_result.keywords,
+                    duration_emo_ms=round(t_emo, 1),
+                )
+                return ChatResponse(
+                    message=(
+                        "非常抱歉给您带来了不好的体验，我们已经将您的问题升级给高级专员处理，"
+                        "专员将尽快通过电话或在线客服与您联系。如有紧急问题，"
+                        "请拨打客服热线 400-XXX-XXXX。"
+                    ),
+                    conversation_id=conversation_id,
+                    steps=[{
+                        "step_name": "情绪检测-舆情升级",
+                        "step_order": 0,
+                        "status": "escalated",
+                        "output_data": {
+                            "level": emotion_result.level.name,
+                            "keywords": emotion_result.keywords,
+                        },
+                    }],
+                    documents_used=[],
+                    safety_passed=True,
+                    stream_available=True,
+                    domain=domain,
+                    status="escalated",
+                    input_truncated=_was_truncated,
+                    input_original_tokens=orig_tokens if _was_truncated else None,
+                    input_truncated_tokens=trunc_tokens if _was_truncated else None,
+                )
+
             # ===== 意图识别 =====
             t0 = _time.perf_counter()
             intent_result = await self._intent_recognizer.recognize(
-                request.message, langfuse_handler=langfuse_handler
+                normalized_message, langfuse_handler=langfuse_handler
             )
             t_intent = (_time.perf_counter() - t0) * 1000
 
             # 远程 API 意图 → _handle_remote_intent
             if intent_result.intent == "call_remote_api" and intent_result.action:
                 response = await self._handle_remote_intent(
-                    request, intent_result, domain, langfuse_handler=langfuse_handler
+                    request, intent_result, domain,
+                    langfuse_handler=langfuse_handler,
+                    emotion_result=emotion_result,
+                    input_truncated=_was_truncated,
                 )
                 t_overall = (_time.perf_counter() - t_overall_start) * 1000
-                print(f"[⏱] Agent编排 [整体] total={t_overall:.0f}ms intent={t_intent:.0f}ms path=remote_api")
-                logger.info(
+                logger.debug(
                     "Agent编排耗时统计 [整体]",
                     duration_total_ms=round(t_overall, 1),
+                    duration_norm_ms=round(t_norm, 1),
                     duration_intent_ms=round(t_intent, 1),
                     path="remote_api",
                 )
+                # 注入截断信息
+                if _was_truncated:
+                    response.input_truncated = True
+                    response.input_original_tokens = orig_tokens
+                    response.input_truncated_tokens = trunc_tokens
                 return response
 
             # RAG Agent 兜底
             response = await self._chat_with_rag_agent(
-                request, domain, langfuse_handler=langfuse_handler
+                request, domain, langfuse_handler=langfuse_handler,
+                input_truncated=_was_truncated,
             )
             t_overall = (_time.perf_counter() - t_overall_start) * 1000
-            print(f"[⏱] Agent编排 [整体] total={t_overall:.0f}ms intent={t_intent:.0f}ms path=rag")
-            logger.info(
+            logger.debug(
                 "Agent编排耗时统计 [整体]",
                 duration_total_ms=round(t_overall, 1),
+                duration_norm_ms=round(t_norm, 1),
                 duration_intent_ms=round(t_intent, 1),
                 path="rag",
             )
+            # 注入截断信息
+            if _was_truncated:
+                response.input_truncated = True
+                response.input_original_tokens = orig_tokens
+                response.input_truncated_tokens = trunc_tokens
             return response
         finally:
             if langfuse_ctx:
@@ -299,6 +492,8 @@ class AgentOrchestrator:
         intent_result: IntentResult,
         domain: str,
         langfuse_handler=None,
+        emotion_result=None,
+        input_truncated: bool = False,
     ) -> ChatResponse:
         """处理 call_remote_api 意图：参数抽取 → 门控 → Tool/ReAct"""
         conversation_id = request.conversation_id or f"conv_{int(_time.time())}"
@@ -327,6 +522,40 @@ class AgentOrchestrator:
                 "output_data": {"extracted_params": extracted_params}
             })
 
+        # ---- 纠纷协调检测（在 ReAct/Tool 之前） ----
+        if should_use_dispute_coordinator(
+            message=request.message,
+            emotion_result=emotion_result,
+            intent_action=intent_result.action,
+        ):
+            logger.info(
+                "触发纠纷协调流程",
+                action=intent_result.action,
+                emotion=emotion_result.level.name if emotion_result else "unknown",
+                params=intent_result.params,
+            )
+            t0 = _time.perf_counter()
+            dispute_coordinator = self._ensure_dispute_coordinator()
+            response = await dispute_coordinator.resolve(
+                request=request,
+                emotion_result=emotion_result,
+                conversation_id=conversation_id,
+                domain=domain,
+                intent_steps=intent_steps,
+                order_id=intent_result.params.get("order_id") if intent_result.params else None,
+                langfuse_handler=langfuse_handler,
+            )
+            t_dispute = (_time.perf_counter() - t0) * 1000
+            t_total = (_time.perf_counter() - t_handler_start) * 1000
+            logger.debug(
+                "Agent编排耗时统计 [remote_api→dispute]",
+                duration_total_ms=round(t_total, 1),
+                duration_params_ms=round(t_params, 1),
+                duration_dispute_ms=round(t_dispute, 1),
+                action=intent_result.action,
+            )
+            return response
+
         # ---- 复杂性门控 ----
         if intent_result.complexity == "multi_step":
             logger.info(
@@ -344,11 +573,12 @@ class AgentOrchestrator:
                 domain=domain,
                 intent_steps=intent_steps,
                 langfuse_handler=langfuse_handler,
+                emotion_result=emotion_result,
+                input_truncated=input_truncated,
             )
             t_react = (_time.perf_counter() - t0) * 1000
             t_total = (_time.perf_counter() - t_handler_start) * 1000
-            print(f"[⏱] Agent编排 [remote_api→ReAct] total={t_total:.0f}ms params={t_params:.0f}ms react={t_react:.0f}ms action={intent_result.action}")
-            logger.info(
+            logger.debug(
                 "Agent编排耗时统计 [remote_api→ReAct]",
                 duration_total_ms=round(t_total, 1),
                 duration_params_ms=round(t_params, 1),
@@ -365,6 +595,22 @@ class AgentOrchestrator:
         )
         t_tool = (_time.perf_counter() - t0) * 1000
 
+        # ---- 输出内容安全过滤（规则引擎，零 LLM 成本） ----
+        output_filter_safe = True
+        cf = ContentFilterService.get_instance()
+        output_check = cf.filter_output(tool_response, domain)
+        if not output_check.is_safe:
+            output_filter_safe = False
+            logger.warning(
+                "Direct Tool 输出安全检查未通过",
+                domain=domain,
+                risk_categories=output_check.risk_categories,
+            )
+            if output_check.filtered_text:
+                tool_response = output_check.filtered_text
+            else:
+                tool_response = "抱歉，当前无法处理您的请求，请稍后重试。"
+
         step_index = len(intent_steps)
         response = ChatResponse(
             message=tool_response,
@@ -376,14 +622,13 @@ class AgentOrchestrator:
                 "output_data": {"action": intent_result.action, "params": intent_result.params}
             }],
             documents_used=[],
-            safety_passed=True,
+            safety_passed=output_filter_safe,
             stream_available=True,
             domain=domain,
         )
 
         t_total = (_time.perf_counter() - t_handler_start) * 1000
-        print(f"[⏱] Agent编排 [remote_api→direct_tool] total={t_total:.0f}ms params={t_params:.0f}ms tool={t_tool:.0f}ms action={intent_result.action}")
-        logger.info(
+        logger.debug(
             "Agent编排耗时统计 [remote_api→direct_tool]",
             duration_total_ms=round(t_total, 1),
             duration_params_ms=round(t_params, 1),
@@ -407,6 +652,7 @@ class AgentOrchestrator:
         request: ChatRequest,
         domain: str,
         langfuse_handler=None,
+        input_truncated: bool = False,
     ) -> ChatResponse:
         """RAG Agent 兜底流程"""
         from src.modules.chat.agent.executor import GeneralAgentExecutor
@@ -418,6 +664,16 @@ class AgentOrchestrator:
             milvus_service=self._milvus_service,
             redis_cache_service=self._redis_cache_service,
         )
+
+        # 截断信息注入：用户输入已被精简，提示 LLM 关注可能缺失的关键信息
+        if input_truncated:
+            request = request.model_copy(update={
+                "message": (
+                    "[系统提示：用户原始输入较长，已被自动精简，部分细节可能丢失。"
+                    "如果回复时发现缺少关键信息（如订单号、手机号等），请主动询问用户补充。]\n\n"
+                    + request.message
+                )
+            })
 
         response = await executor.execute(request, langfuse_handler=langfuse_handler)
         response.domain = domain

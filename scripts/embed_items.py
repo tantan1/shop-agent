@@ -18,9 +18,22 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)),
 
 from src.modules.chat.core.embedding_service import EmbeddingService, ArkEmbeddings
 from src.modules.chat.core.milvus_service import MilvusService
+from src.modules.chat.core.pgvector_service import PgVectorService
+from src.modules.chat.config import chat_config
 from src.shared.logger import APILogger
 
 logger = APILogger("embed_items")
+
+
+def _get_vector_service():
+    """工厂方法：根据 VECTOR_STORE_PROVIDER 创建对应的向量数据库服务"""
+    provider = chat_config.vector_store_provider
+    if provider == "pgvector":
+        logger.info("使用 PostgreSQL pgvector 作为向量存储")
+        return PgVectorService.get_instance()
+    else:
+        logger.info("使用 Milvus 作为向量存储")
+        return MilvusService.get_instance()
 
 # Ark API 批次大小（与 embedding_service.py 中的 BATCH_SIZE 一致）
 API_BATCH_SIZE = 25
@@ -181,22 +194,22 @@ async def main():
     
     # 初始化服务
     embedding_svc = EmbeddingService.get_instance()
-    milvus_svc = MilvusService.get_instance()
-    milvus_svc.initialize()
+    vector_svc = _get_vector_service()
+    vector_svc.initialize()
     
     try:
         await embed_and_insert(
             texts=texts,
             item_ids=item_ids,
             embedding_service=embedding_svc,
-            milvus_service=milvus_svc,
+            milvus_service=vector_svc,
             api_batch_size=args.batch,
             milvus_batch_size=args.milvus_batch,
             start_line_no=skip_lines,
             total_lines=skip_lines + len(texts),
         )
     finally:
-        milvus_svc.close()
+        vector_svc.close()
 
 
 if __name__ == "__main__":

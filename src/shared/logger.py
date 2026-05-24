@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Callable
 import structlog
@@ -7,6 +8,11 @@ from src.core.config import config
 
 def configure_logging():
     """配置结构化日志"""
+    # 设置标准库 logging 级别（structlog 依赖它做 level 过滤）
+    logging.basicConfig(
+        level=getattr(logging, config.LOG_LEVEL.upper(), logging.DEBUG),
+        format="%(message)s",
+    )
     # 配置structlog
     structlog.configure(
         processors=[

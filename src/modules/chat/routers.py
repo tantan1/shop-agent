@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Request
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.shared.database import get_db
 from src.modules.auth.dependencies import verify_api_key
+from src.core.rate_limiter import get_rate_limiter
 from src.modules.chat.services import ChatAgentService
 from src.modules.chat.schemas import (
     ChatQueryRequest,
@@ -183,8 +184,10 @@ async def health_check(
 @router.post("/agent/chat", summary="通用Agent对话")
 async def agent_chat(
     request: ChatRequest,
+    req: Request,
     _: None = Depends(verify_api_key),
-    chatagent_service: ChatAgentService = Depends(get_chatagent_service)
+    chatagent_service: ChatAgentService = Depends(get_chatagent_service),
+    _rl: None = Depends(get_rate_limiter().dependency(max_requests=15, window_seconds=60)),
 ):
     """
     使用通用 Agent 进行多步骤对话
@@ -230,8 +233,46 @@ async def agent_chat(
     }
     ```
     """
-    response = await chatagent_service.chat_with_agent(request)
-    return success_response(data=response.model_dump())
+    # ── 设置 Token 限流上下文 ──
+    try:
+        from src.core.config import config as core_config
+        from src.modules.chat.core.llm_service import set_rate_limit_context
+
+        client_ip = req.client.host if req.client else "unknown"
+        conv_id = getattr(request, "conversation_id", "") or "new"
+        rate_limit_key = f"{client_ip}:agent_chat:{conv_id}"
+        enabled = getattr(core_config, "TOKEN_LIMIT_ENABLED", True)
+        set_rate_limit_context(rate_limit_key, enabled=enabled)
+    except Exception:
+        pass  # 上下文设置失败不影响主流程
+
+    try:
+        response = await chatagent_service.chat_with_agent(request)
+        return success_response(data=response.model_dump())
+    except Exception as e:
+        # 处理 TokenLimitExceeded
+        if "TokenLimitExceeded" in type(e).__name__:
+            from fastapi.responses import JSONResponse
+            remain = getattr(e, "remaining", 0)
+            reset = getattr(e, "reset_seconds", 60)
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "code": 429,
+                    "message": "error",
+                    "data": {
+                        "error": "Token 消耗超限，请稍后再试",
+                        "retry_after": reset,
+                        "limit_type": "token",
+                    },
+                },
+                headers={
+                    "Retry-After": str(reset),
+                    "X-Token-Limit-Remaining": str(remain),
+                    "X-Token-Limit-Reset": str(reset),
+                },
+            )
+        raise
 
 
 # =============================================================================

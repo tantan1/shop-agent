@@ -472,6 +472,75 @@ class RedisCacheService:
             logger.error(f"获取对话历史失败: {str(e)}")
             return []
     
+    # =========================================================================
+    # Agent 对话历史（role+content 格式，供 GeneralAgentExecutor 使用）
+    # =========================================================================
+    
+    CHAT_HISTORY_KEY = f"{KEY_PREFIX}chat_history:{{conversation_id}}"
+    
+    def add_chat_message(self, conversation_id: str, role: str, content: str,
+                         max_turns: int = 10, expire_days: int = 1) -> bool:
+        """向 Redis 追加一条 Agent 对话消息，并裁剪到 max_turns 轮。
+        
+        Args:
+            conversation_id: 会话ID
+            role: 消息角色（user/assistant/system）
+            content: 消息内容
+            max_turns: 最大保留轮数（每轮 user+assistant 占 2 条），超出的自动裁剪
+            expire_days: 过期天数，默认 1 天
+            
+        Returns:
+            是否存储成功
+        """
+        if not self.is_available:
+            return False
+        
+        try:
+            history_key = self.CHAT_HISTORY_KEY.format(conversation_id=conversation_id)
+            message = json.dumps({"role": role, "content": content}, ensure_ascii=False)
+            pipe = self._client.pipeline()
+            pipe.rpush(history_key, message)
+            # 保留最近 max_turns * 2 条（每轮一对 user+assistant）
+            pipe.ltrim(history_key, -max_turns * 2, -1)
+            pipe.expire(history_key, expire_days * 86400)
+            pipe.execute()
+            return True
+        except redis.RedisError as e:
+            logger.error(f"追加对话消息失败: {str(e)}")
+            return False
+    
+    def get_chat_messages(self, conversation_id: str, max_turns: int = 10
+                          ) -> List[Dict[str, str]]:
+        """从 Redis 获取 Agent 对话历史（role+content 格式）。
+        
+        Args:
+            conversation_id: 会话ID
+            max_turns: 最大返回轮数
+            
+        Returns:
+            消息列表 [{"role": "user", "content": "..."}, ...]
+        """
+        if not self.is_available:
+            return []
+        
+        try:
+            history_key = self.CHAT_HISTORY_KEY.format(conversation_id=conversation_id)
+            items = self._client.lrange(history_key, -max_turns * 2, -1)
+            
+            messages = []
+            for item in items:
+                try:
+                    msg = json.loads(item)
+                    if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                        messages.append(msg)
+                except json.JSONDecodeError:
+                    continue
+            
+            return messages
+        except redis.RedisError as e:
+            logger.error(f"获取对话消息失败: {str(e)}")
+            return []
+    
     def get_frequent_questions(self, top_n: int = 20) -> List[Dict[str, Any]]:
         """
         获取高频问题

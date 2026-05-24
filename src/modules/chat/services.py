@@ -12,6 +12,7 @@ from src.modules.chat.schemas import (
 )
 from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
+from src.modules.chat.core.pgvector_service import PgVectorService
 from src.modules.chat.core.llm_service import LLMService
 from src.modules.chat.core.tool_registry import ToolService
 from src.modules.chat.core.item_service import ItemService
@@ -26,13 +27,24 @@ from src.modules.chat.config import chat_config
 logger = APILogger("chatagent_service")
 
 
+def _create_vector_service():
+    """工厂方法：根据 VECTOR_STORE_PROVIDER 创建对应的向量数据库服务"""
+    provider = chat_config.vector_store_provider
+    if provider == "pgvector":
+        logger.info("使用 PostgreSQL pgvector 作为向量存储")
+        return PgVectorService.get_instance()
+    else:
+        logger.info("使用 Milvus 作为向量存储")
+        return MilvusService.get_instance()
+
+
 class ChatAgentService:
     """智能客服服务 —— 服务初始化、依赖注入、对外委托"""
 
     def __init__(self, db: AsyncSession):
         self.db = db
         self._embedding_service = None
-        self._milvus_service = None
+        self._vector_service = None  # MilvusService | PgVectorService
         self._llm_service = None
         self._redis_cache_service = None
         self._tool_service = ToolService()
@@ -57,10 +69,16 @@ class ChatAgentService:
         return self.embedding
 
     @property
-    def milvus(self) -> MilvusService:
-        if self._milvus_service is None:
-            self._milvus_service = MilvusService.get_instance()
-        return self._milvus_service
+    def vector_service(self):
+        """统一向量服务属性（Milvus 或 PgVector）"""
+        if self._vector_service is None:
+            self._vector_service = _create_vector_service()
+        return self._vector_service
+
+    # 向后兼容的 milvus 别名
+    @property
+    def milvus(self):
+        return self.vector_service
 
     @property
     def llm(self) -> LLMService:
@@ -73,8 +91,8 @@ class ChatAgentService:
     # =========================================================================
 
     async def close(self):
-        if self._milvus_service:
-            self._milvus_service.close()
+        if self._vector_service:
+            self._vector_service.close()
         if self._llm_service:
             self._llm_service.close()
         if self._redis_cache_service:
@@ -93,12 +111,12 @@ class ChatAgentService:
             self._llm_service = LLMService.get_instance()
             self._llm_service.initialize()
 
+            # 初始化向量数据库服务（Milvus 或 PgVector）
+            self._vector_service = _create_vector_service()
+            self._vector_service.initialize()
+
             # 初始化嵌入服务（单例）
             self._embedding_service = EmbeddingService.get_instance()
-
-            # 初始化 Milvus 服务（单例）
-            self._milvus_service = MilvusService.get_instance()
-            self._milvus_service.initialize()
 
             # 初始化 Redis 缓存服务（单例）
             if chat_config.redis_vector_enabled:
@@ -117,7 +135,7 @@ class ChatAgentService:
             # 初始化文档服务
             self._document_service = DocumentService(
                 embedding_service=self._embedding_service,
-                milvus_service=self._milvus_service,
+                milvus_service=self._vector_service,
                 item_service=self._item_service,
             )
 
@@ -125,7 +143,7 @@ class ChatAgentService:
             self._orchestrator = AgentOrchestrator(
                 llm_service=self._llm_service,
                 embedding_service=self._embedding_service,
-                milvus_service=self._milvus_service,
+                milvus_service=self._vector_service,
                 intent_recognizer=self._intent_recognizer,
                 tool_service=self._tool_service,
                 redis_cache_service=self._redis_cache_service,

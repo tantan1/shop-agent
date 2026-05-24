@@ -267,7 +267,7 @@ class MilvusService:
         query_embedding: List[float],
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
-        rrf_k: int = 60
+        rrf_k: int = 60,
     ) -> List[Document]:
         """
         混合检索（Dense向量 + Sparse BM25）
