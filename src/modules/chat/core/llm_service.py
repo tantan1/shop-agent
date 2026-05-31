@@ -76,7 +76,8 @@ class LLMService:
                     api_key=chat_config.tongyi_api_key,
                     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                     temperature=0.7,
-                    extra_body={"enable_thinking": False}
+                    max_tokens=8096,
+                    extra_body={"enable_thinking": False},
                 )
                 logger.info(f"通义千问模型初始化成功: {chat_config.chat_model}")
             
@@ -95,7 +96,8 @@ class LLMService:
                 api_key=chat_config.tongyi_api_key,
                 base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                 temperature=0.7,
-                extra_body={"enable_thinking": False}
+                max_tokens=8096,
+                extra_body={"enable_thinking": False},
             )
         return self._qwen_llm
 
@@ -103,7 +105,7 @@ class LLMService:
     def tool_selector_llm(self) -> ChatOpenAI:
         """获取工具选择器专用轻量 LLM（更快、更便宜）。
 
-        P1 工具选择任务极其简单（从 3-5 个工具名选一个），
+        P2 工具选择任务极其简单（从 3-5 个工具名选一个），
         不需要主 Agent 的大模型，用小模型可降低延迟 50%+ 且不牺牲准确率。
         """
         if self._tool_selector_llm is None:
@@ -117,7 +119,8 @@ class LLMService:
                 api_key=chat_config.tongyi_api_key,
                 base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                 temperature=0.0,  # 工具选择不需要创造性
-                extra_body={"enable_thinking": False}
+                max_tokens=8096,
+                extra_body={"enable_thinking": False},
             )
             logger.info(f"工具选择器模型初始化成功: {model}")
         return self._tool_selector_llm

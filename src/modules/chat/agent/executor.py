@@ -3,18 +3,18 @@
 支持多领域配置，通过domain参数切换不同业务场景
 
 检索说明：
-    - 使用 Milvus 2.6+ 原生混合检索（Dense + Sparse BM25）
+    - 使用向量数据库原生混合检索（Dense + Sparse BM25），兼容 Milvus 与 PgVector
     - 无需手动实现 BM25 和 RRF 融合
 """
+from __future__ import annotations
 
 import json
 import time
 import asyncio
-from typing import AsyncGenerator, Optional, List, Dict, Any, Union
+from typing import TYPE_CHECKING, AsyncGenerator, Optional, List, Dict, Any, Union
 
 from src.modules.chat.core.llm_service import LLMService
 from src.modules.chat.core.embedding_service import EmbeddingService
-from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.redis_cache_service import RedisCacheService
 from src.modules.chat.core.reranker_service import RerankerService
 from src.modules.chat.core.content_filter import ContentFilterService
@@ -25,6 +25,11 @@ from src.modules.monitoring.langchain_callback import get_prometheus_callback
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from src.modules.chat.core.milvus_service import MilvusService
+    from src.modules.chat.core.pgvector_service import PgVectorService
+    VectorStoreService = Union[MilvusService, PgVectorService]
 
 from src.modules.chat.agent.prompts import PromptTemplateManager, WARNING_TEMPLATES, GUIDANCE_TEMPLATES
 from src.modules.chat.agent.schemas import (
@@ -75,7 +80,7 @@ class GeneralAgentExecutor:
         agent_config: Optional[AgentConfig] = None,
         llm_service: Optional[LLMService] = None,
         embedding_service: Optional[EmbeddingService] = None,
-        milvus_service: Optional[MilvusService] = None,
+        milvus_service: Optional[VectorStoreService] = None,
         redis_cache_service: Optional[RedisCacheService] = None,
     ):
         """
@@ -86,7 +91,7 @@ class GeneralAgentExecutor:
             agent_config: Agent配置，不提供则自动根据domain加载
             llm_service: LLM服务
             embedding_service: 嵌入服务
-            milvus_service: 向量数据库服务
+            milvus_service: 向量数据库服务（Milvus 或 PgVector）
             redis_cache_service: 缓存服务
         """
         self.domain = domain
@@ -452,12 +457,41 @@ class GeneralAgentExecutor:
                         query_embedding = await self.embedding_service.embed_query(query)
                     
                     # 使用 Milvus 2.6 原生混合检索（Dense + Sparse BM25）
-                    docs = self.milvus_service.hybrid_search(
-                        query_embedding=query_embedding,
-                        query_text=query,
-                        top_k=milvus_top_k,
-                        rrf_k=getattr(self.config, 'rrf_k', 60),
-                    )
+                    # 如果混合检索失败（如缺少 sparse_bm25 字段）或返回空结果，
+                    # 自动回退到纯 Dense 向量检索
+                    docs: list = []
+                    hybrid_failed = False
+                    try:
+                        docs = self.milvus_service.hybrid_search(
+                            query_embedding=query_embedding,
+                            query_text=query,
+                            top_k=milvus_top_k,
+                            rrf_k=getattr(self.config, 'rrf_k', 60),
+                        )
+                    except Exception as hybrid_err:
+                        hybrid_failed = True
+                        logger.warning(
+                            f"[{self.domain}] 混合检索异常，回退到纯向量检索",
+                            error=str(hybrid_err)[:120],
+                        )
+                    
+                    if (not docs) or hybrid_failed:
+                        if hybrid_failed or i == 0:
+                            # 混合检索返回空 → 尝试纯 Dense 回退
+                            try:
+                                docs = self.milvus_service.search_similar(
+                                    query_embedding, top_k=milvus_top_k
+                                )
+                                if not hybrid_failed:
+                                    logger.info(
+                                        f"[{self.domain}] 混合检索返回0结果，已回退到纯Dense检索",
+                                        dense_count=len(docs),
+                                    )
+                            except Exception as dense_err:
+                                logger.warning(
+                                    f"[{self.domain}] Dense回退也失败: {str(dense_err)[:120]}"
+                                )
+                                docs = []
                     
                     score_threshold = getattr(self.config, 'retrieval_score_threshold', 0.0)
                     for doc in docs:
@@ -1086,9 +1120,26 @@ class GeneralAgentExecutor:
             step1_result = await self.step1_understand(request.message, conversation_id)
             steps.append(step1_result.model_dump())
             queries = step1_result.output_data.get("rewritten_queries", [])
-            # 始终将原始问题作为一条检索 query，防止改写丢失用户意图
-            if request.message not in queries:
-                queries.append(request.message)
+            
+            # 检测改写结果是否为元描述（如"问题类型：流程咨询"）而非实际检索查询
+            # 这类元描述 embedding 与知识库文档不匹配，会导致检索全 0
+            _META_DESCRIPTION_PREFIXES = (
+                "问题类型：", "核心需求：", "关键实体：", "问题分类：",
+                "问题类型:",  "核心需求:",  "关键实体:",  "问题分类:",
+            )
+            _has_meta_queries = any(
+                q.startswith(_META_DESCRIPTION_PREFIXES) for q in queries
+            )
+            if _has_meta_queries:
+                logger.warning(
+                    f"[{self.domain}] 步骤1 输出了元描述而非检索词，已丢弃",
+                    meta_queries=queries,
+                )
+                queries = [request.message]  # 回退：只用原始问题检索
+            else:
+                # 始终将原始问题作为一条检索 query，防止改写丢失用户意图
+                if request.message not in queries:
+                    queries.append(request.message)
             
             # 步骤2
             step2_result, safety_result = await self.step2_review(request.message)
@@ -1126,7 +1177,13 @@ class GeneralAgentExecutor:
             ]
 
             # 合并向量检索上下文 + 图查询上下文
-            rag_context = "\n\n".join(documents_used) or "暂无相关检索结果"
+            rag_context = "\n\n".join(documents_used)
+            if not rag_context:
+                if graph_context:
+                    # 向量检索无结果但图查询命中，引导 LLM 使用图数据
+                    rag_context = "（商品详情检索无结果，请参考下方商品关系图数据进行推荐）"
+                else:
+                    rag_context = "暂无相关检索结果"
             if graph_context:
                 logger.debug(
                     f"[{self.domain}] 图查询命中",

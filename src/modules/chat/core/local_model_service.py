@@ -508,7 +508,7 @@ class LocalModelService:
             self._tool_selector_load_failed_reason = str(e)[:300]
             logger.warning(
                 f"工具选择器模型加载失败: {model_path} — {str(e)[:200]}。"
-                f"将回退到云端 P1 模型。"
+                f"将回退到云端 P2 模型。"
             )
             return False
 
@@ -527,7 +527,7 @@ class LocalModelService:
 
         Args:
             user_query: 用户原始消息
-            tool_names: 候选工具名列表（P0+P2 过滤后的结果，通常 3-5 个）
+            tool_names: 候选工具名列表（P0+P1 过滤后的结果，通常 3-5 个）
             tool_descriptions: {工具名: 描述} 映射
             system_prompt: 路由规则说明
             max_retries: 解析失败重试次数
@@ -538,7 +538,7 @@ class LocalModelService:
         t_start = _perf_time.monotonic()
 
         if not self._ensure_tool_selector_loaded():
-            # 本地模型不可用 —— 返回全部候选（让上层回退到 P2 结果）
+            # 本地模型不可用 —— 返回全部候选（让上层回退到 P1 结果）
             logger.debug("工具选择器本地模型不可用，返回全部候选工具")
             return list(tool_names)
 
@@ -634,7 +634,7 @@ class LocalModelService:
             except Exception as e:
                 logger.error(f"工具选择器推理异常 (attempt {attempt + 1}): {str(e)[:200]}")
 
-        # 降至全部候选（回退到 P2 结果）
+        # 降至全部候选（回退到 P1 结果）
         return list(tool_names)
 
     def _tool_selector_generate(self, prompt: str) -> str:

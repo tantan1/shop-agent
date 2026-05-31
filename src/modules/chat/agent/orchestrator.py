@@ -5,7 +5,7 @@ Agent 编排器
 from __future__ import annotations
 
 import time as _time
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Union
 
 from langchain_core.documents import Document
 
@@ -36,9 +36,11 @@ if TYPE_CHECKING:
     from src.modules.chat.core.llm_service import LLMService
     from src.modules.chat.core.embedding_service import EmbeddingService
     from src.modules.chat.core.milvus_service import MilvusService
+    from src.modules.chat.core.pgvector_service import PgVectorService
     from src.modules.chat.core.intent_recognizer import IntentRecognizer
     from src.modules.chat.core.tool_registry import ToolService
     from src.modules.chat.core.redis_cache_service import RedisCacheService
+    VectorStoreService = Union[MilvusService, PgVectorService]
 
 logger = APILogger("agent_orchestrator")
 
@@ -51,14 +53,14 @@ class AgentOrchestrator:
         *,
         llm_service: LLMService,
         embedding_service: EmbeddingService,
-        milvus_service: MilvusService,
+        milvus_service: VectorStoreService,
         intent_recognizer: IntentRecognizer,
         tool_service: ToolService,
         redis_cache_service: RedisCacheService | None = None,
     ):
         self._llm_service: LLMService = llm_service
         self._embedding_service: EmbeddingService = embedding_service
-        self._milvus_service: MilvusService = milvus_service
+        self._milvus_service: VectorStoreService = milvus_service
         self._intent_recognizer: IntentRecognizer = intent_recognizer
         self._tool_service: ToolService = tool_service
         self._redis_cache_service: RedisCacheService | None = redis_cache_service
@@ -185,7 +187,7 @@ class AgentOrchestrator:
 
             response = await self.llm.chat_qwen_with_prompt(
                 prompt=prompt_content,
-                system_prompt="你是电商公司的官方助手",
+                system_prompt="你是一个智能助手，基于知识库提供准确回答。不要虚构公司名称或品牌信息。",
                 langfuse_handler=langfuse_handler,
             )
             return response
@@ -314,20 +316,33 @@ class AgentOrchestrator:
     # 主编排入口
     # =========================================================================
 
-    async def chat_with_agent(self, request: ChatRequest) -> ChatResponse:
-        """通用 Agent 多步骤对话（含意图识别 + 路由分发）"""
+    async def chat_with_agent(self, request: ChatRequest,
+                            experiment_assignment=None) -> ChatResponse:
+        """通用 Agent 多步骤对话（含意图识别 + 路由分发）
+
+        Args:
+            request: 聊天请求
+            experiment_assignment: A/B 实验分配结果（由 ExperimentService 注入）
+        """
         from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
         domain = getattr(request, 'domain', 'ecommerce')
         conversation_id = request.conversation_id or f"conv_{int(_time.time())}"
         t_overall_start = _time.perf_counter()
 
+        # ── A/B 实验元数据 ──
+        exp_tags = [domain, "agent-orchestrator"]
+        exp_metadata = {"domain": domain, "type": "agent-orchestrator"}
+        if experiment_assignment is not None:
+            exp_tags.extend(experiment_assignment.to_tags())
+            exp_metadata["experiment"] = experiment_assignment.to_metadata()
+
         # ── Langfuse: 编排器根 trace（整条管道共享一个 handler）──
         result = create_langfuse_handler(
             session_id=conversation_id,
-            tags=[domain, "agent-orchestrator"],
+            tags=exp_tags,
             trace_name=f"{domain}-orchestrator",
-            metadata={"domain": domain, "type": "agent-orchestrator"},
+            metadata=exp_metadata,
         )
         langfuse_handler = None
         langfuse_ctx = None
@@ -457,6 +472,9 @@ class AgentOrchestrator:
                     response.input_truncated = True
                     response.input_original_tokens = orig_tokens
                     response.input_truncated_tokens = trunc_tokens
+                # 注入 A/B 实验分组
+                if experiment_assignment:
+                    response.experiment_group = experiment_assignment.variant_name
                 return response
 
             # RAG Agent 兜底
@@ -477,6 +495,9 @@ class AgentOrchestrator:
                 response.input_truncated = True
                 response.input_original_tokens = orig_tokens
                 response.input_truncated_tokens = trunc_tokens
+            # 注入 A/B 实验分组
+            if experiment_assignment:
+                response.experiment_group = experiment_assignment.variant_name
             return response
         finally:
             if langfuse_ctx:

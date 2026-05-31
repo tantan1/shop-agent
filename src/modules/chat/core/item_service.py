@@ -1,7 +1,9 @@
 """
 商品嵌入 & 搜索服务
 """
-from typing import List, Dict, Any, Set
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Dict, Any, Set, Union
 import importlib
 
 from src.modules.chat.schemas import (
@@ -9,9 +11,14 @@ from src.modules.chat.schemas import (
     ItemSearchResult,
 )
 from src.modules.chat.core.embedding_service import EmbeddingService
-from src.modules.chat.core.milvus_service import MilvusService
 from src.shared.exceptions import ValidationException
 from src.shared.logger import APILogger
+
+if TYPE_CHECKING:
+    from src.modules.chat.core.milvus_service import MilvusService
+    from src.modules.chat.core.pgvector_service import PgVectorService
+
+VectorStoreService = Union["MilvusService", "PgVectorService"]
 
 logger = APILogger("item_service")
 
@@ -31,9 +38,13 @@ ALLOWED_TEXT_EXTENSIONS: Set[str] = {
 class ItemService:
     """商品嵌入 & 搜索服务"""
 
-    def __init__(self):
+    def __init__(self, vector_service: VectorStoreService | None = None):
         self._embedding_svc = EmbeddingService.get_instance()
-        self._milvus_svc = MilvusService.get_instance()
+        self._vector_svc = vector_service
+
+    # 延迟注入 vector_service（避免循环依赖时构造函数拿不到实例）
+    def set_vector_service(self, vector_service: VectorStoreService):
+        self._vector_svc = vector_service
 
     @property
     def _embeddings(self):
@@ -41,9 +52,11 @@ class ItemService:
         return self._embedding_svc.get_embeddings()
 
     @property
-    def _milvus(self) -> MilvusService:
-        """获取 Milvus 服务"""
-        return self._milvus_svc
+    def _milvus(self) -> VectorStoreService:
+        """获取向量数据库服务（Milvus 或 PgVector）"""
+        if self._vector_svc is None:
+            raise RuntimeError("ItemService: vector_service 未注入，请先调用 set_vector_service()")
+        return self._vector_svc
 
     @staticmethod
     def parse_text_file(file_content: bytes, file_name: str) -> str:

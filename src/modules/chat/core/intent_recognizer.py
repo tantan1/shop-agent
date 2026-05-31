@@ -496,8 +496,8 @@ class IntentRecognizer:
 
         # ---- 默认：走RAG回答 ----
         t_total = (_perf_time.perf_counter() - t_total_start) * 1000
-        print(
-            f"[⏱] 意图识别 [默认rag] total={t_total:.0f}ms "
+        logger.info(
+            f"意图识别 [默认rag] total={t_total:.0f}ms "
             f"init_faiss={t_init_faiss:.0f}ms get_emb={t_get_emb:.0f}ms "
             f"embed={t_embed:.0f}ms"
         )

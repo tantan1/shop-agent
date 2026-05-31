@@ -60,6 +60,8 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, description="对话ID，用于多轮对话")
     stream: bool = Field(default=True, description="是否启用流式输出")
     domain: str = Field(default="ecommerce", description="业务领域: medical/ecommerce/customer_service/general")
+    # ── A/B 实验字段（可选，未传则自动分配）──
+    experiment_group: Optional[str] = Field(default=None, description="A/B实验组标识（如 control / treatment_A），留空则由服务端自动分配")
 
 
 class ChatResponse(BaseModel):
@@ -77,6 +79,8 @@ class ChatResponse(BaseModel):
     input_truncated: bool = Field(default=False, description="用户输入是否因过长被自动截断")
     input_original_tokens: Optional[int] = Field(default=None, description="原始输入的 token 数（截断前）")
     input_truncated_tokens: Optional[int] = Field(default=None, description="截断后的 token 数")
+    # ── A/B 实验反馈 ──
+    experiment_group: Optional[str] = Field(default=None, description="实际命中的实验组标识（供前端日志收集）")
 
 
 class RefundConfirmRequest(BaseModel):
@@ -266,5 +270,53 @@ __all__ = [
     "ItemSearchResult",
     "ItemSearchResponse",
     "IntentResult",
+    "ExperimentCreateRequest",
+    "ExperimentPauseRequest",
+    "ExperimentValidateRequest",
 ]
+
+
+# =============================================================================
+# A/B 实验管理 API Schema
+# =============================================================================
+
+class VariantSchema(BaseModel):
+    """实验变体请求"""
+    name: str = Field(..., description="变体名称: control / treatment_A")
+    variant_type: str = Field(default="treatment", description="变体类型: control | treatment")
+    traffic_percent: float = Field(..., ge=0, le=100, description="流量百分比（0-100）")
+    pipeline_overrides: Dict[str, Any] = Field(default_factory=dict, description="管道覆盖配置")
+    description: str = Field(default="", description="变体描述")
+
+
+class SafetyGuardSchema(BaseModel):
+    """安全护栏请求"""
+    metric: str = Field(..., description="监控指标: escalation_rate | error_rate | p99_latency_ms 等")
+    threshold: float = Field(..., description="阈值")
+    comparison: str = Field(default="gt", description="比较方式: gt | lt | pct_change")
+    window_seconds: int = Field(default=300, ge=60, description="监控窗口秒数")
+    action: str = Field(default="pause", description="触发动作: pause | stop")
+
+
+class ExperimentCreateRequest(BaseModel):
+    """创建/更新实验请求"""
+    id: str = Field(..., min_length=3, max_length=64, description="实验唯一ID，如 exp_reranker_001")
+    name: str = Field(..., description="实验名称")
+    description: str = Field(default="", description="实验描述")
+    variants: List[VariantSchema] = Field(..., min_length=2, description="至少包含对照组+实验组")
+    safety_guards: List[SafetyGuardSchema] = Field(default_factory=list, description="安全护栏配置")
+    domains: List[str] = Field(default_factory=lambda: ["ecommerce"], description="生效领域")
+    owner: str = Field(default="", description="实验负责人")
+
+
+class ExperimentPauseRequest(BaseModel):
+    """暂停/恢复实验请求"""
+    id: str = Field(..., description="实验ID")
+    status: str = Field(default="paused", description="目标状态: paused | running | stopped")
+
+
+class ExperimentValidateRequest(BaseModel):
+    """分流均匀性验证请求"""
+    id: str = Field(..., description="实验ID")
+    sample_user_count: int = Field(default=10000, ge=1000, le=100000, description="模拟用户数（1000-100000）")
 

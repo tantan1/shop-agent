@@ -115,11 +115,13 @@ class MilvusService:
         if embedding_field.params.get("dim") != chat_config.embedding_dimension:
             return False
 
-        # 检查 sparse_bm25 字段是否存在（混合检索必需）
-        if "sparse_bm25" not in fields:
-            return False
-
         return True
+    
+    def _validate_sparse_field(self, collection: Collection) -> bool:
+        """检查 sparse_bm25 字段是否存在（缺失时不影响初始化，仅禁用 BM25 混合检索）"""
+        schema = collection.schema
+        fields = {f.name: f for f in schema.fields}
+        return "sparse_bm25" in fields
     
     def _create_collection(self, collection_name: str) -> Collection:
         """创建新的集合（支持混合检索：Dense + Sparse BM25）"""
@@ -171,6 +173,14 @@ class MilvusService:
                     f"集合 {collection_name} schema 不匹配，将重新创建"
                 )
                 utility.drop_collection(collection_name)
+            elif not self._validate_sparse_field(collection):
+                # sparse_bm25 字段缺失但不重建 — 只记录警告，混合检索时自动回退纯 Dense
+                logger.warning(
+                    f"集合 {collection_name} 缺少 sparse_bm25 字段，"
+                    "混合检索将自动回退为纯 Dense 检索。"
+                    "如需启用 BM25 混合检索，请重新创建集合并导入数据。"
+                )
+                self._collection = collection  # 接受现有集合
             else:
                 self._collection = collection
         

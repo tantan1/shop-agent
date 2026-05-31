@@ -48,7 +48,7 @@ class ChatAgentService:
         self._llm_service = None
         self._redis_cache_service = None
         self._tool_service = ToolService()
-        self._item_service = ItemService()
+        self._item_service = None
         self._intent_recognizer = None
         self._document_service = None
         self._orchestrator = None
@@ -118,6 +118,9 @@ class ChatAgentService:
             # 初始化嵌入服务（单例）
             self._embedding_service = EmbeddingService.get_instance()
 
+            # 初始化商品服务（注入 vector_service，兼容 Milvus/PgVector）
+            self._item_service = ItemService(vector_service=self._vector_service)
+
             # 初始化 Redis 缓存服务（单例）
             if chat_config.redis_vector_enabled:
                 self._redis_cache_service = get_redis_cache_service()
@@ -165,11 +168,14 @@ class ChatAgentService:
         await self._initialize()
         return await self._orchestrator.chat_rag(request)
 
-    async def chat_with_agent(self, request: ChatRequest) -> ChatResponse:
+    async def chat_with_agent(self, request: ChatRequest,
+                            experiment_assignment=None) -> ChatResponse:
         """通用 Agent 多步骤对话（含意图识别 + 路由分发）"""
         try:
             await self._initialize()
-            return await self._orchestrator.chat_with_agent(request)
+            return await self._orchestrator.chat_with_agent(
+                request, experiment_assignment=experiment_assignment
+            )
         except ValidationException:
             raise
         except Exception as e:
@@ -188,12 +194,15 @@ class ChatAgentService:
     # =========================================================================
 
     async def insert_documents(self, request: InsertDocumentRequest) -> dict:
+        await self._initialize()
         return await self._document_service.insert_documents(request)
 
     async def batch_insert_documents(self, documents: List[InsertDocumentRequest]) -> dict:
+        await self._initialize()
         return await self._document_service.batch_insert_documents(documents)
 
     async def insert_file(self, file_content: bytes, file_name: str, metadata: dict = None) -> dict:
+        await self._initialize()
         return await self._document_service.insert_file(file_content, file_name, metadata)
 
     # =========================================================================

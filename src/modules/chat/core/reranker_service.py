@@ -6,6 +6,17 @@ Reranker 服务模块
 from typing import List, Tuple, Optional
 import threading
 
+from langfuse import observe
+
+
+def _get_current_span():
+    """获取当前 OpenTelemetry span（Langfuse @observe 底层使用的 span）。"""
+    try:
+        from opentelemetry import trace
+        return trace.get_current_span()
+    except ImportError:
+        return None
+
 from src.shared.logger import APILogger
 from src.core.config import config
 
@@ -86,6 +97,7 @@ class RerankerService:
                 logger.error(f"Reranker 模型加载失败: {str(e)}")
                 raise
 
+    @observe(name="reranker.scores")
     def compute_scores(
         self,
         query: str,
@@ -111,12 +123,27 @@ class RerankerService:
 
         try:
             scores = self._model.predict(pairs)
-            # predict 返回 numpy array → 转 Python float 列表
-            return [round(float(s), 4) for s in scores]
+            result = [round(float(s), 4) for s in scores]
+
+            # Langfuse: 记录 Reranker 模型名称和输入量（OTel span attribute）
+            _span = _get_current_span()
+            if _span is not None and not isinstance(_span, type(None)):
+                try:
+                    _span.set_attribute("reranker.model", self._model_name)
+                    _span.set_attribute("reranker.provider", "local")
+                    _span.set_attribute("reranker.num_documents", len(documents))
+                    _span.set_attribute("reranker.input_chars_query", len(query))
+                    _span.set_attribute("reranker.input_chars_total", sum(len(d) for d in documents))
+                    _span.set_attribute("reranker.input_tokens_est", max(1, (len(query) + sum(len(d) for d in documents)) // 2))
+                except Exception:
+                    pass
+
+            return result
         except Exception as e:
             logger.error(f"Reranker 计算分数失败: {str(e)[:200]}")
             return [0.0] * len(documents)
 
+    @observe(name="reranker.rerank")
     def rerank(
         self,
         query: str,
@@ -151,6 +178,19 @@ class RerankerService:
             for idx, score, doc in ranked
             if score >= threshold
         ][:top_k]
+
+        # Langfuse: 记录 Reranker 输出信息（OTel span attribute）
+        _span = _get_current_span()
+        if _span is not None and not isinstance(_span, type(None)):
+            try:
+                _span.set_attribute("reranker.model", self._model_name)
+                _span.set_attribute("reranker.provider", "local")
+                _span.set_attribute("reranker.input_docs", len(documents))
+                _span.set_attribute("reranker.output_docs", len(filtered))
+                _span.set_attribute("reranker.top_k", top_k)
+                _span.set_attribute("reranker.threshold", float(threshold))
+            except Exception:
+                pass
 
         logger.debug(
             f"Rerank 完成",

@@ -92,43 +92,59 @@ Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 
 
 ### 编排队列
 
-```
-用户请求
-    │
-    ▼
-┌──────────────────────────────────────────────────┐
-│         AgentOrchestrator.chat_with_agent()      │
-│                                                  │
-│  输入归一化 (SynonymNormalizer L1+L2)              │
-│  ├── L1 静态同义词表 (<1ms)                       │
-│  └── L2 文本标准化 (全角→半角、繁→简)              │
-│                                                  │
-│  Token 预算截断 (TokenEstimator)                   │
-│  └── keep_both_ends 策略                         │
-│                                                  │
-│  情绪检测 (SentimentService)                      │
-│  ├── L1 关键词 (<1ms)                            │
-│  └── L2 本地模型 (~30ms) → 舆情风险立即升级       │
-│                                                  │
-│  意图识别 (IntentRecognizer)                      │
-│  ├── 否定词过滤 → RAG 兜底                        │
-│  ├── FAISS 向量匹配 → call_remote_api             │
-│  └── 默认 → rag_answer                            │
-│                                                  │
-│  路由分发                                         │
-│  ├── 纠纷协调 (DisputeCoordinator)                │
-│  │   └── BuyerAgent ∥ SellerAgent → MediatorAgent │
-│  ├── call_remote_api                             │
-│  │   ├── 简单意图 → ToolService.dispatch()        │
-│  │   └── 多步意图 → ReActAgent.run()              │
-│  └── rag_answer                                   │
-│      └── GeneralAgentExecutor.execute()           │
-│          ├── 预计算向量 (缓存复用)                  │
-│          ├── Step1 问题理解 (默认跳过)              │
-│          ├── Step2 安全审查 (默认跳过)              │
-│          ├── Step3 检索 ∥ 图查询 (并行)            │
-│          └── Step4 回答生成 + 质量评估              │
-└──────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[用户请求] --> B[AgentOrchestrator.chat_with_agent]
+
+    B --> C[输入归一化<br/>SynonymNormalizer]
+    C --> C1[L1 静态同义词表 &lt;1ms]
+    C --> C2[L2 文本标准化<br/>全角→半角、繁→简]
+
+    C1 --> D
+    C2 --> D
+
+    D[Token 预算截断<br/>TokenEstimator]
+    D --> D1["keep_both_ends 策略"]
+
+    D1 --> E[情绪检测<br/>SentimentService]
+    E --> E1[L1 关键词 &lt;1ms]
+    E --> E2[L2 本地模型 ~30ms<br/>舆情风险立即升级]
+
+    E1 --> F
+    E2 --> F
+
+    F[意图识别<br/>IntentRecognizer]
+    F --> F1[否定词过滤 → RAG 兜底]
+    F --> F2[FAISS 向量匹配 → call_remote_api]
+    F --> F3[默认 → rag_answer]
+
+    F1 --> G
+    F2 --> G
+    F3 --> G
+
+    G{路由分发}
+
+    G -->|纠纷协调| H[DisputeCoordinator]
+    H --> H1[BuyerAgent]
+    H --> H2[SellerAgent]
+    H1 --> H3[MediatorAgent 调停裁决]
+    H2 --> H3
+
+    G -->|call_remote_api| I{意图复杂度}
+    I -->|简单意图| I1[ToolService.dispatch<br/>零额外 LLM 开销]
+    I -->|多步意图| I2[ReActAgent.run<br/>自主决策]
+
+    G -->|rag_answer| J[GeneralAgentExecutor.execute]
+    J --> J1[预计算向量 缓存复用]
+    J1 --> J2[Step1 问题理解<br/>默认跳过]
+    J2 --> J3[Step2 安全审查<br/>默认跳过]
+    J3 --> J4["Step3 检索 ∥ 图查询<br/>并行"]
+    J4 --> J5[Step4 回答生成 + 质量评估]
+
+    style A fill:#e1f5fe
+    style G fill:#fff3e0
+    style H fill:#fce4ec
+    style J fill:#e8f5e9
 ```
 
 ### 模块划分

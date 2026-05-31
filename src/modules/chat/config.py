@@ -10,8 +10,8 @@ class ChatConfig:
     # 从全局配置获取值
     tongyi_api_key: str = config.TONGYI_API_KEY
     chat_model: str = config.CHAT_MODEL
-    tool_selector_model: str = config.TOOL_SELECTOR_MODEL  # P1 工具选择器专用轻量模型（更快更便宜）
-    # P1 本地模型（设置后优先用本地模型替代云端 API）
+    tool_selector_model: str = config.TOOL_SELECTOR_MODEL  # P2 工具选择器专用轻量模型（更快更便宜）
+    # P2 本地模型（设置后优先用本地模型替代云端 API）
     tool_selector_local_model: str = config.TOOL_SELECTOR_LOCAL_MODEL
     tool_selector_local_device: str = config.TOOL_SELECTOR_LOCAL_DEVICE
     tool_selector_local_load_in_4bit: bool = config.TOOL_SELECTOR_LOCAL_LOAD_IN_4BIT
@@ -24,7 +24,7 @@ class ChatConfig:
     local_param_load_in_4bit: bool = config.LOCAL_PARAM_LOAD_IN_4BIT
     
     embedding_model: str = config.EMBEDDING_MODEL
-    embedding_provider: str = config.EMBEDDING_PROVIDER  # local | volcengine
+
     # 向量数据库提供者: milvus | pgvector
     vector_store_provider: str = config.VECTOR_STORE_PROVIDER
     # Milvus 配置
@@ -41,7 +41,7 @@ class ChatConfig:
     
     @property
     def embedding_dimension(self) -> int:
-        """根据 provider 返回对应维度"""
+        """根据 provider 返回对应维度（支持完整路径匹配）"""
         _DIMS = {
             "BAAI/bge-small-zh-v1.5": 512,
             "BAAI/bge-large-zh-v1.5": 1024,
@@ -49,7 +49,12 @@ class ChatConfig:
             "doubao-embedding-vision-251215": 2048,
             "doubao-embedding-text-240915": 1024,
         }
-        return _DIMS.get(self.embedding_model, 1024)
+        model = self.embedding_model
+        # 处理完整路径（如 ./models/BAAI/bge-small-zh-v1.5）
+        for key, dim in _DIMS.items():
+            if model.endswith(key) or model == key:
+                return dim
+        return 1024
     
     # Redis 缓存配置
     redis_vector_enabled: bool = True
@@ -61,7 +66,6 @@ class ChatConfig:
     
     # 火山引擎配置
     volcengine_api_key: str = config.VOLCENGINE_API_KEY
-    volcengine_embedding_endpoint: str = config.VOLCENGINE_EMBEDDING_ENDPOINT
     
     # 默认领域
     default_domain: str = "ecommerce"

@@ -91,7 +91,7 @@ services:
     image: pgvector/pgvector:0.8.2-pg18-trixie
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: shop_agent
       POSTGRES_USER: postgres
@@ -356,6 +356,92 @@ services:
       - 127.0.0.1:5432:5432
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
+
+  # ============ NebulaGraph 商品关系知识图谱 ============
+  nebula-metad:
+    container_name: shop-agent-nebula-metad
+    image: vesoft/nebula-metad:v3.8.0
+    restart: unless-stopped
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/nebula/metad:/data/meta
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-metad
+      - --ws_ip=nebula-metad
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19559/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "9559:9559"
+      - "19559:19559"
+
+  nebula-storaged:
+    container_name: shop-agent-nebula-storaged
+    image: vesoft/nebula-storaged:v3.8.0
+    restart: unless-stopped
+    depends_on:
+      nebula-metad:
+        condition: service_healthy
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/nebula/storaged:/data/storage
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-storaged
+      - --ws_ip=nebula-storaged
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19779/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "9779:9779"
+
+  nebula-graphd:
+    container_name: shop-agent-nebula-graphd
+    image: vesoft/nebula-graphd:v3.8.0
+    restart: unless-stopped
+    depends_on:
+      nebula-storaged:
+        condition: service_healthy
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-graphd
+      - --ws_ip=nebula-graphd
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19669/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "9669:9669"
+
+  # NebulaGraph 初始化：注册 storage host + 等待集群就绪
+  nebula-init:
+    container_name: shop-agent-nebula-init
+    image: vesoft/nebula-console:v3.8.0
+    depends_on:
+      nebula-graphd:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        sleep 10 &&
+        nebula-console -addr nebula-graphd -port 9669 -u root -p nebula -e 'ADD HOSTS "nebula-storaged":9779' &&
+        echo "NebulaGraph storage host registered" &&
+        nebula-console -addr nebula-graphd -port 9669 -u root -p nebula -e 'SHOW HOSTS' &&
+        echo "NebulaGraph cluster is ready"
+    restart: "no"
 
 volumes:
   langfuse_postgres_data:

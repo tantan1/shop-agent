@@ -8,6 +8,9 @@ from src.modules.chat.services import ChatAgentService
 from src.modules.chat.schemas import (
     ChatQueryRequest,
     InsertDocumentRequest,
+    ExperimentCreateRequest,
+    ExperimentPauseRequest,
+    ExperimentValidateRequest,
     BatchInsertRequest,
     ChatRequest,
     ItemEmbedRequest,
@@ -246,8 +249,21 @@ async def agent_chat(
     except Exception:
         pass  # 上下文设置失败不影响主流程
 
+    # ── A/B 实验分配 ──
+    experiment_assignment = None
     try:
-        response = await chatagent_service.chat_with_agent(request)
+        from src.modules.chat.core.experiment_service import ExperimentService
+        exp_service = ExperimentService.get_instance()
+        if exp_service.is_initialized:
+            user_id = request.conversation_id or client_ip
+            experiment_assignment = exp_service.assign(user_id, request.domain)
+    except Exception:
+        pass  # 实验分配失败不影响主流程
+
+    try:
+        response = await chatagent_service.chat_with_agent(
+            request, experiment_assignment=experiment_assignment
+        )
         return success_response(data=response.model_dump())
     except Exception as e:
         # 处理 TokenLimitExceeded
@@ -481,3 +497,213 @@ async def agent_test(
     
     response = await chatagent_service.test_agent(request)
     return success_response(data=response.model_dump())
+
+
+# =============================================================================
+# A/B 实验管理 API
+# =============================================================================
+
+@router.post("/experiments", summary="创建/更新 A/B 实验")
+async def create_experiment(
+    exp_request: ExperimentCreateRequest,
+    _: None = Depends(verify_api_key),
+):
+    """创建或更新 A/B 实验配置（写入 Redis，热加载生效）
+
+    实验变量支持：
+    - Reranker: threshold, top_k, enabled
+    - Retrieval: strategy (hybrid/dense_only/bm25_only), top_k
+    - LLM: model, temperature
+    - Prompt: template_version_key
+    - 以及 content_filter, synonym_normalize, nebula_graph 等 feature toggle
+
+    请求示例:
+    ```json
+    {
+      "id": "exp_reranker_001",
+      "name": "Reranker 阈值消融实验",
+      "variants": [
+        {
+          "name": "control",
+          "variant_type": "control",
+          "traffic_percent": 50,
+          "pipeline_overrides": {"rerank_threshold": 0.3}
+        },
+        {
+          "name": "treatment",
+          "variant_type": "treatment",
+          "traffic_percent": 50,
+          "pipeline_overrides": {"rerank_threshold": 0.1}
+        }
+      ],
+      "safety_guards": [
+        {"metric": "escalation_rate", "threshold": 0.10, "comparison": "pct_change"}
+      ],
+      "domains": ["ecommerce"]
+    }
+    ```
+    """
+    from src.modules.chat.core.experiment_service import (
+        ExperimentService, ExperimentDef, VariantDef, VariantType,
+        PipelineOverrides, SafetyGuard, ExperimentStatus, SafetyMetricType,
+    )
+    from datetime import datetime
+
+    exp_service = ExperimentService.get_instance()
+    if not exp_service.is_initialized:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content={
+            "code": 503, "message": "ExperimentService 未初始化（Redis 不可用？）"})
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    exp = ExperimentDef(
+        id=exp_request.id,
+        name=exp_request.name,
+        description=exp_request.description,
+        status=ExperimentStatus.RUNNING,
+        variants=[
+            VariantDef(
+                name=v.name,
+                variant_type=VariantType(v.variant_type),
+                traffic_percent=v.traffic_percent,
+                pipeline_overrides=PipelineOverrides.from_dict(v.pipeline_overrides),
+                description=v.description,
+            )
+            for v in exp_request.variants
+        ],
+        safety_guards=[
+            SafetyGuard.from_dict(dict(
+                metric=g.metric,
+                threshold=g.threshold,
+                comparison=g.comparison,
+                window_seconds=g.window_seconds,
+                action=g.action,
+            ))
+            for g in exp_request.safety_guards
+        ],
+        domains=exp_request.domains,
+        owner=exp_request.owner,
+        created_at=now_str,
+        updated_at=now_str,
+    )
+
+    ok = exp_service.create_experiment(exp)
+    return success_response(data={"status": "created" if ok else "failed", "experiment_id": exp_request.id})
+
+
+@router.patch("/experiments", summary="暂停/恢复/停止 A/B 实验")
+async def update_experiment_status(
+    pause_request: ExperimentPauseRequest,
+    _: None = Depends(verify_api_key),
+):
+    """修改实验状态
+    - paused: 暂停实验（保留配置，所有用户退出实验）
+    - running: 恢复运行
+    - stopped: 永久停止（建议保留数据后 archive）
+
+    请求示例:
+    ```json
+    {"id": "exp_reranker_001", "status": "paused"}
+    ```
+    """
+    from src.modules.chat.core.experiment_service import ExperimentService, ExperimentStatus
+
+    exp_service = ExperimentService.get_instance()
+    exp = exp_service.get_experiment(pause_request.id)
+    if not exp:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"code": 404, "message": f"实验 {pause_request.id} 不存在"})
+
+    new_status = ExperimentStatus(pause_request.status)
+    exp.status = new_status
+    exp_service.create_experiment(exp)
+    return success_response(data={"status": new_status.value, "experiment_id": pause_request.id})
+
+
+@router.post("/experiments/validate", summary="验证实验流量分流均匀性")
+async def validate_experiment_distribution(
+    validate_request: ExperimentValidateRequest,
+    _: None = Depends(verify_api_key),
+):
+    """模拟 N 个用户验证流量分配均匀性（回答'你测过分流均匀性吗？'的追问）
+
+    请求示例:
+    ```json
+    {"id": "exp_reranker_001", "sample_user_count": 10000}
+    ```
+
+    响应:
+    ```json
+    {
+      "experiment_id": "exp_reranker_001",
+      "total_users": 10000,
+      "variant_counts": {"control": 5023, "treatment": 4977},
+      "chi_square": 0.21,
+      "is_uniform": true
+    }
+    ```
+    """
+    from src.modules.chat.core.experiment_service import ExperimentService
+
+    exp_service = ExperimentService.get_instance()
+    sample_users = [f"user_{i:06d}" for i in range(validate_request.sample_user_count)]
+    result = exp_service.validate_distribution(validate_request.id, sample_users)
+    result["experiment_id"] = validate_request.id
+    return success_response(data=result)
+
+
+@router.get("/experiments", summary="列出所有 A/B 实验")
+async def list_experiments(
+    _: None = Depends(verify_api_key),
+):
+    """列出当前所有运行中的 A/B 实验"""
+    from src.modules.chat.core.experiment_service import ExperimentService
+
+    exp_service = ExperimentService.get_instance()
+    experiments = exp_service.list_experiments()
+    return success_response(data={
+        "count": len(experiments),
+        "experiments": [e.to_dict() for e in experiments],
+    })
+
+
+@router.get("/experiments/{experiment_id}", summary="获取单个 A/B 实验详情")
+async def get_experiment_detail(
+    experiment_id: str,
+    _: None = Depends(verify_api_key),
+):
+    """获取单个实验的详细配置"""
+    from src.modules.chat.core.experiment_service import ExperimentService
+
+    exp_service = ExperimentService.get_instance()
+    exp = exp_service.get_experiment(experiment_id)
+    if not exp:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"code": 404, "message": f"实验 {experiment_id} 不存在"})
+
+    return success_response(data=exp.to_dict())
+
+
+@router.delete("/experiments/{experiment_id}", summary="删除 A/B 实验")
+async def delete_experiment(
+    experiment_id: str,
+    _: None = Depends(verify_api_key),
+):
+    """删除实验配置（不可恢复）"""
+    from src.modules.chat.core.experiment_service import ExperimentService
+
+    exp_service = ExperimentService.get_instance()
+    ok = exp_service.delete_experiment(experiment_id)
+    return success_response(data={"deleted": ok, "experiment_id": experiment_id})
+
+
+@router.post("/experiments/refresh", summary="强制刷新实验配置缓存")
+async def refresh_experiments(
+    _: None = Depends(verify_api_key),
+):
+    """强制从 Redis 重新加载实验配置（正常情况下每 30 秒自动刷新）"""
+    from src.modules.chat.core.experiment_service import ExperimentService
+
+    exp_service = ExperimentService.get_instance()
+    exp_service.force_refresh()
+    return success_response(data={"refreshed": True})

@@ -26,45 +26,50 @@ logger = APILogger("graph_service")
 
 # 查询商品的同品牌其他商品（二跳: Product→Brand→Product）
 # {vid} 通过 .format() 填充为双引号字符串字面量；NebulaGraph 不支持参数化 VID
+# 注意：第一跳用 id($$) 获取 Brand 顶点的 VID（中文品牌名），而非 $$.Brand.name（英文属性值）
 NQL_SAME_BRAND = '''
     GO FROM "{vid}" OVER BELONGS_TO
-    YIELD $$.Brand.name AS brand
+    YIELD id($$) AS brand
     | GO FROM $-.brand OVER BELONGS_TO REVERSELY
       WHERE $$.Product.id != "{vid}"
       YIELD $$.Product.name AS name, $$.Product.id AS id
     | LIMIT 5
 '''
 
-# 查询商品的兼容配件（一跳: Product→Product）
+# 查询商品的兼容配件（一跳: Product→Product, REVERSELY）
+# 边方向: 配件 → 主商品，因此查询某商品的兼容配件需 REVERSELY
 NQL_COMPATIBLE = '''
-    GO FROM "{vid}" OVER COMPATIBLE_WITH
+    GO FROM "{vid}" OVER COMPATIBLE_WITH REVERSELY
     YIELD $$.Product.name AS name, $$.Product.id AS id
     | LIMIT 5
 '''
 
-# 查询同品类热门商品（二跳: Product→Category←Product，按销量排序）
+# 查询同品类商品（二跳: Product→Category←Product）
+# 注意：
+#   - 第一跳用 id($$) 获取 Category 顶点的 VID（中文品类名）
+#   - 不在 nGQL 中做 WHERE/ORDER BY，避免管道语义错误 → Python 端过滤
+#   - 不 YIELD sales（int 字段在管道反查中触发 nebula3 Thrift 断言）
 NQL_SAME_CATEGORY_HOT = '''
     GO FROM "{vid}" OVER IN_CATEGORY
-    YIELD $$.Category.name AS cat
+    YIELD id($$) AS cat
     | GO FROM $-.cat OVER IN_CATEGORY REVERSELY
-      YIELD $$.Product.name AS name, $$.Product.id AS id,
-            $$.Product.sales AS sales
-    | YIELD name, id WHERE $$.Product.id != "{vid}"
-    | ORDER BY sales DESC | LIMIT 5
+      YIELD $$.Product.name AS name, $$.Product.id AS id
 '''
 
-# 查询商品的替代品
+# 查询商品的替代品（一跳: Product→Product, REVERSELY）
+# 边方向: 竞品 → 被替代商品，因此查询某商品的替代品需 REVERSELY
 NQL_SUBSTITUTES = '''
-    GO FROM "{vid}" OVER SUBSTITUTE
+    GO FROM "{vid}" OVER SUBSTITUTE REVERSELY
     YIELD $$.Product.name AS name, $$.Product.id AS id
     | LIMIT 5
 '''
 
 # 查询某个品牌下的热销商品
+# 注意：避免使用 ORDER BY/LIMIT 管道 + int 字段触发 nebula3 Thrift 断言
+# 改为先查出全部，Python 端排序取 Top5
 NQL_BRAND_HOT_PRODUCTS = '''
     GO FROM "{brand_name}" OVER BELONGS_TO REVERSELY
-    YIELD $$.Product.name AS name, $$.Product.id AS id, $$.Product.sales AS sales
-    | ORDER BY $-.sales DESC | LIMIT 5
+    YIELD $$.Product.name AS name, $$.Product.id AS id
 '''
 
 # 查询商品所属品牌及品牌信息
@@ -230,6 +235,11 @@ class NebulaGraphService:
         注意：NebulaGraph 不支持参数化 VID（GO FROM $vid），因此用 .format()
               拼接字面量。params 中的值已在上游通过 regex 校验，无注入风险。
         """
+        return self._execute_nql_with_retry(nql, params, retry=True)
+
+    def _execute_nql_with_retry(
+        self, nql: str, params: Optional[Dict[str, Any]] = None, retry: bool = False
+    ) -> List[Dict[str, Any]]:
         if not self._ensure_connected():
             return []
 
@@ -266,14 +276,27 @@ class NebulaGraphService:
                 rows.append(row_dict)
             return rows
 
+        except AssertionError:
+            # nebula3 Thrift 协议状态机断言失败，连接池中的传输层可能已损坏
+            # 重置连接池并重试一次
+            if retry:
+                logger.debug("Thrift 协议断言失败，重置连接池并重试 nGQL")
+                self._pool = None
+                self._available = False
+                self._init_attempted = False
+                self._connect_failed = False
+                return self._execute_nql_with_retry(nql, params, retry=False)
+            logger.warning(f"nGQL Thrift 断言失败（已重试）: {' '.join(nql.split())[:80]}")
+            return []
+
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) or repr(e)
             # 传输层损坏（'str' has no 'write' 等）→ 标记重连
             if "write" in error_msg and "object has no attribute" in error_msg:
                 self._available = False
-                logger.warning(f"nGQL 传输层异常，已标记重连: {error_msg[:120]}")
+                logger.warning(f"nGQL 传输层异常，已标记重连: {error_msg[:200]}")
             else:
-                logger.warning(f"nGQL 查询异常: {error_msg[:120]}")
+                logger.warning(f"nGQL 查询异常: {type(e).__name__}: {error_msg[:200]}")
             return []
         finally:
             if session:
@@ -334,9 +357,10 @@ class NebulaGraphService:
                     "id": row.get("id", ""),
                 })
 
-        # 同品类热销
+        # 同品类商品（Python 端过滤自身，取前 5 条）
         if isinstance(results[2], list):
-            for row in results[2]:
+            same_cat = [r for r in results[2] if r.get("id") != product_id]
+            for row in same_cat[:5]:
                 relations.append({
                     "type": "same_category_hot",
                     "product": row.get("name", ""),
@@ -369,7 +393,7 @@ class NebulaGraphService:
         )
         return [
             {"type": "brand_products", "product": r.get("name", ""), "id": r.get("id", "")}
-            for r in rows
+            for r in rows[:5]
         ]
 
     # =========================================================================
@@ -380,28 +404,43 @@ class NebulaGraphService:
         """将图查询结果序列化为可注入 LLM prompt 的自然语言文本。
 
         返回空字符串表示无图数据（prompt 中 graph_context 占位符保底为 ""）。
+
+        格式设计原则：
+        - 每条关系使用完整自然语言描述，而非简短标签，防止 LLM 误解方向
+        - 例如 "与 xxx 兼容的配件：" 比 "【兼容配件】" 更明确
         """
         if not relations:
             return ""
-
-        lines = ["【商品关系网络 — 来自知识图谱】"]
 
         # 按类型分组
         grouped: Dict[str, List[str]] = {}
         for r in relations:
             rtype = r.get("type", "unknown")
-            label = RELATION_LABELS.get(rtype, rtype)
-            if label not in grouped:
-                grouped[label] = []
+            if rtype not in grouped:
+                grouped[rtype] = []
             vid = r.get("id", "")
             name = r.get("product", "")
             if vid:
-                grouped[label].append(f"{name} (ID: {vid})" if name else f"ID: {vid}")
+                grouped[rtype].append(f"{name} (ID: {vid})" if name else f"ID: {vid}")
             elif name:
-                grouped[label].append(name)
+                grouped[rtype].append(name)
 
-        for label, items in grouped.items():
-            lines.append(f"- 【{label}】{', '.join(items)}")
+        lines = []
+        for rtype, items in grouped.items():
+            if rtype == "compatible_accessory":
+                lines.append(f"- 当前商品可搭配使用的兼容配件：{', '.join(items)}")
+            elif rtype == "substitute":
+                lines.append(f"- 当前商品的替代品/竞品：{', '.join(items)}")
+            elif rtype == "same_brand":
+                lines.append(f"- 与当前商品同品牌的其他商品：{', '.join(items)}")
+            elif rtype == "same_category_hot":
+                lines.append(f"- 与当前商品同品类的商品：{', '.join(items)}")
+            elif rtype == "brand_products":
+                lines.append(f"- 该品牌下的热销商品：{', '.join(items)}")
+            elif rtype == "parent_brand":
+                lines.append(f"- 所属集团/母公司：{', '.join(items)}")
+            else:
+                lines.append(f"- {rtype}：{', '.join(items)}")
 
         return "\n".join(lines)
 
@@ -437,15 +476,24 @@ class NebulaGraphService:
             except Exception as e:
                 logger.debug(f"商品关系查询失败 (pid={pid}): {str(e)[:80]}")
 
-        # 2. 尝试提取品牌名（中文 2-6 字）
-        brand_pattern = r'(?:品牌|牌子)[:：]?\s*([\u4e00-\u9fff]{2,6})'
-        brand_match = re.search(brand_pattern, question)
-        if brand_match:
-            try:
-                brand_products = await self.query_brand_products(brand_match.group(1))
-                relations.extend(brand_products)
-            except Exception as e:
-                logger.debug(f"品牌查询失败: {str(e)[:80]}")
+        # 2. 尝试提取品牌名（"苹果品牌"优先，"品牌苹果"其次）
+        brand_patterns = [
+            r'([\u4e00-\u9fff]{2,6})\s*(?:品牌|牌子)',          # 苹果品牌
+            r'(?:品牌|牌子)[:：]?\s*([\u4e00-\u9fff]{2,6})',   # 品牌苹果
+        ]
+        # 排除误匹配的常见词
+        brand_exclude = {"商品", "产品", "店铺", "什么", "哪些", "有什么", "有什么热", "有什么热销", "有什么热销商", "请问", "我想"}
+        for pattern in brand_patterns:
+            brand_match = re.search(pattern, question)
+            if brand_match:
+                brand_name = brand_match.group(1)
+                if brand_name not in brand_exclude:
+                    try:
+                        brand_products = await self.query_brand_products(brand_name)
+                        relations.extend(brand_products)
+                        break
+                    except Exception as e:
+                        logger.debug(f"品牌查询失败: {str(e)[:80]}")
 
         return self.build_graph_context(relations)
 

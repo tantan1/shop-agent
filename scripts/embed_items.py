@@ -16,7 +16,7 @@ from typing import List, Tuple
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-from src.modules.chat.core.embedding_service import EmbeddingService, ArkEmbeddings
+from src.modules.chat.core.embedding_service import EmbeddingService
 from src.modules.chat.core.milvus_service import MilvusService
 from src.modules.chat.core.pgvector_service import PgVectorService
 from src.modules.chat.config import chat_config

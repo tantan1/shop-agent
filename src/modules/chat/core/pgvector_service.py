@@ -6,6 +6,7 @@ Dense + BM25(ts_rank) → RRF 融合检索
 
 依赖: pip install pgvector psycopg2
 """
+import json
 import math
 import re
 from typing import List, Optional, Dict, Any
@@ -226,8 +227,10 @@ class PgVectorService:
         """使用 PostgreSQL ts_rank 做关键词稀疏检索
 
         返回 {doc_id: ts_rank_score} 映射，score 已归一化
+
+        策略：ts_rank 本质是加权 OR（不是 AND），用 | 连接 token
+        可同时匹配部分词并靠 ts_rank 自动按命中密度排序。
         """
-        # 将中文查询转为 PostgreSQL 可识别的 token 形式
         ts_query = self._build_tsquery(query_text)
 
         with conn.cursor() as cur:
@@ -242,7 +245,6 @@ class PgVectorService:
                 """,
                 (ts_query, ts_query, top_k)
             )
-            # 归一化到 [0, 1]
             results = {}
             rows = cur.fetchall()
             if not rows:
@@ -255,10 +257,10 @@ class PgVectorService:
     def _build_tsquery(self, text: str) -> str:
         """将查询文本转为 PostgreSQL tsquery 格式
 
-        PostgreSQL tsquery 使用 & (AND) 和 | (OR) 连接词
-        对于中文，简单按字拆分并用 & 连接
+        PostgreSQL tsquery 使用 & (AND) 和 | (OR) 连接词。
+        使用 | (OR) 语义——ts_rank 本质是加权 OR，会按命中密度自动排序，
+        使用 & 会导致部分词不匹配时完全无结果，召回率极低。
         """
-        # 去除特殊字符，按字/词拆分
         tokens = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z0-9]+', text)
         if not tokens:
             return "'0'"
@@ -266,7 +268,7 @@ class PgVectorService:
         parts = []
         for token in tokens:
             if re.match(r'[\u4e00-\u9fff]', token):
-                # 中文：按连续字保持、用 & 连接（AND 语义）
+                # 中文：按连续字保持、用 | 连接（OR 语义）
                 if len(token) <= 4:
                     parts.append(token)
                 else:
@@ -275,7 +277,7 @@ class PgVectorService:
                     parts.append(token[-2:])
             else:
                 parts.append(token)
-        return " & ".join(parts)
+        return " | ".join(parts)
 
     # ════════════════════════════════════════════════════════════════════
     # RRF 融合（Python 侧）
@@ -437,7 +439,7 @@ class PgVectorService:
             try:
                 with conn.cursor() as cur:
                     rows = [
-                        (text, embedding, metadata)
+                        (text, embedding, json.dumps(metadata, ensure_ascii=False))
                         for text, embedding, metadata in zip(texts, embeddings, metadata_list)
                     ]
                     execute_values(

@@ -8,16 +8,16 @@ Agent 自主决策：
 
 工具选择策略（P0 + P1 + P2 三层过滤）：
 - P0 意图前置过滤：IntentResult.action → 缩减候选池到 2-5 个
-- P2 Embedding 语义重排（FAISS HNSW）：user query × tool description 余弦相似度 + 意图加权 → Top-3/5
+- P1 Embedding 语义重排（FAISS HNSW）：user query × tool description 余弦相似度 + 意图加权 → Top-3/5
   比 LLM 选择更精准（语义级匹配），比纯规则更鲁棒（捕捉隐含意图）
-- P1 本地模型最终确认：用本地 Qwen2.5-1.5B 从 Top-3/5 中选出最相关的（兜底消歧）
+- P2 本地模型最终确认：用本地 Qwen2.5-1.5B 从 Top-3/5 中选出最相关的（兜底消歧）
   有本地模型时优先用本地，否则回退到云端 LLMToolSelectorMiddleware
 
-Skill SOP 注入（替代 deepagents 渐进式披露）：
+Skill SOP 注入：
 - 所有 skill 定义在 skills/*/SKILL.md 文件中（YAML frontmatter + Markdown 正文）
 - 新增 Skill 只需创建新目录 + SKILL.md，无需改代码
 - 启动时：SkillLoader 读取 frontmatter + 正文（body）存入 SkillRegistry
-- 运行时：P0/P2/P1 确定工具后，反向查找命中 skill，将正文内联注入 system prompt
+- 运行时：P0/P1/P2 确定工具后，反向查找命中 skill，将正文内联注入 system prompt
 - 无额外 LLM 调用开销，无 prompt injection 风险（SOP 在 system role）
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Set, Union
 
 import faiss
 import numpy as np
@@ -55,7 +55,9 @@ if TYPE_CHECKING:
     from src.modules.chat.core.llm_service import LLMService
     from src.modules.chat.core.embedding_service import EmbeddingService
     from src.modules.chat.core.milvus_service import MilvusService
+    from src.modules.chat.core.pgvector_service import PgVectorService
     from src.modules.chat.core.tool_registry import ToolService
+    VectorStoreService = Union[MilvusService, PgVectorService]
 
 logger = APILogger("react_agent")
 
@@ -102,7 +104,7 @@ def _get_intent_tool_map() -> Dict[str, Set[str]]:
     return _skill_registry().intent_tool_map
 
 # ════════════════════════════════════════════════════════════════════════
-# P1: 本地模型工具选择器 —— 语义二次筛选
+# P2: 本地模型工具选择器 —— 语义二次筛选
 # ════════════════════════════════════════════════════════════════════════
 
 # 工具选择器专用的 system prompt ——
@@ -140,9 +142,9 @@ def _get_tool_selector_middleware(llm_service) -> LLMToolSelectorMiddleware:
     return _TOOL_SELECTOR_MIDDLEWARE
 
 
-# P1 工具的上下限：最少选 1 个，最多选 3 个
-_P1_MIN_TOOLS = 1
-_P1_MAX_TOOLS = 3
+# P2 工具的上下限：最少选 1 个，最多选 3 个
+_P2_MIN_TOOLS = 1
+_P2_MAX_TOOLS = 3
 
 
 async def _local_p1_tool_select(
@@ -152,15 +154,15 @@ async def _local_p1_tool_select(
     *,
     p2_ranked: list[str] | None = None,
 ) -> set[str]:
-    """P1 本地模型工具选择：从候选工具中选出最相关的。
+    """P2 本地模型工具选择：从候选工具中选出最相关的。
 
     优先使用本地模型（Qwen2.5-1.5B），本地不可用时返回原始候选集，
     由上层 fallback 到 LLMToolSelectorMiddleware。
 
     Args:
-        p2_ranked: P2 Embedding 排序后的工具列表（最相关在前），
-                   用于交叉校验——如果 P1 把 P2 得分最高的工具踢掉且分差大，
-                   强制保留 P2 top-1 作为安全兜底。
+        p2_ranked: P1 Embedding 排序后的工具列表（最相关在前），
+                   用于交叉校验——如果 P2 把 P1 得分最高的工具踢掉且分差大，
+                   强制保留 P1 top-1 作为安全兜底。
     """
     if len(tool_names) <= 2:
         return tool_names  # 已经足够少，无需再选
@@ -178,30 +180,30 @@ async def _local_p1_tool_select(
     if not result:
         return tool_names  # 解析失败时保留全部候选
 
-    # ── 交叉校验: P2 top-1 兜底 ──
-    # 如果 P1 把 P2 Embedding 得分最高的工具从结果中踢掉了，
-    # 说明小模型可能判断失误 —— 强制保留 P2 top-1
+    # ── 交叉校验: P1 top-1 兜底 ──
+    # 如果 P2 把 P1 Embedding 得分最高的工具从结果中踢掉了，
+    # 说明小模型可能判断失误 —— 强制保留 P1 top-1
     if p2_ranked and len(p2_ranked) >= 2:
         p2_top1 = p2_ranked[0]
         if p2_top1 in tool_names and p2_top1 not in result:
             logger.warning(
-                "P1 丢弃了 P2 top-1 工具，疑似小模型误判，追加回结果集",
+                "P2 丢弃了 P1 top-1 工具，疑似小模型误判，追加回结果集",
                 p2_top1=p2_top1,
                 p1_selected=sorted(result),
                 p2_ranked=p2_ranked[:3],
             )
             result.add(p2_top1)
 
-    # ── 数量约束: 至少 _P1_MIN_TOOLS 个，最多 _P1_MAX_TOOLS 个 ──
-    if len(result) > _P1_MAX_TOOLS:
-        # 优先保留 P2 排序靠前的
+    # ── 数量约束: 至少 _P2_MIN_TOOLS 个，最多 _P2_MAX_TOOLS 个 ──
+    if len(result) > _P2_MAX_TOOLS:
+        # 优先保留 P1 排序靠前的
         ranked = [n for n in (p2_ranked or []) if n in result]
-        result = set(ranked[:_P1_MAX_TOOLS])
+        result = set(ranked[:_P2_MAX_TOOLS])
 
     return result
 
 # ════════════════════════════════════════════════════════════════════════
-# P2: Embedding 语义匹配器 —— 用向量相似度做工具重排
+# P1: Embedding 语义匹配器 —— 用向量相似度做工具重排
 # ════════════════════════════════════════════════════════════════════════
 
 class EmbeddingToolMatcher:
@@ -211,7 +213,7 @@ class EmbeddingToolMatcher:
     1. 首次使用时，为所有工具描述预计算 embedding，构建 FAISS IndexHNSWFlat（O(log N) 搜索）
     2. 每次请求：计算用户 query 的向量，HNSW 近似搜索（L2 距离 → 余弦相似度）
     3. 叠加意图加权：P0 已匹配的工具 ×1.5 权重
-    4. 返回 Top-K，供 P1 middleware 做最终确认
+    4. 返回 Top-K，供 P2 middleware 做最终确认
 
     HNSW vs IndexFlatIP:
     - IndexFlatIP: O(N) 暴力搜索，适合 N<30
@@ -359,7 +361,7 @@ class EmbeddingToolMatcher:
 # System prompt
 # ════════════════════════════════════════════════════════════════════════
 
-_REACT_SYSTEM_PROMPT = """你是电商公司的智能客服助手，能够自主调用工具来帮助用户。
+_REACT_SYSTEM_PROMPT = """你是一个智能客服助手，能够自主调用工具来帮助用户。
 
 ## 工作流程
 1. 理解用户的意图和问题
@@ -403,7 +405,7 @@ class ReActAgent:
         llm_service: LLMService,
         tool_service: ToolService,
         embedding_service: EmbeddingService | None = None,
-        milvus_service: MilvusService | None = None,
+        milvus_service: VectorStoreService | None = None,
         max_iterations: int = 5,
         emotion_result: EmotionResult | None = None,
         input_truncated: bool = False,
@@ -422,7 +424,7 @@ class ReActAgent:
         # 构建全量工具池（所有业务工具 + RAG）
         self._all_tools = self._build_tools()
 
-        # P2: embedding 工具匹配器 —— 预先计算工具描述向量
+        # P1: embedding 工具匹配器 —— 预先计算工具描述向量
         self._tool_matcher: EmbeddingToolMatcher | None = None
         if self._embedding_service:
             self._tool_matcher = EmbeddingToolMatcher(
@@ -540,7 +542,7 @@ class ReActAgent:
         return knowledge_search
 
     # ════════════════════════════════════════════════════════════════════
-    # P0 + P2: 意图过滤 + Embedding 语义重排
+    # P0 + P1: 意图过滤 + Embedding 语义重排
     # ════════════════════════════════════════════════════════════════════
 
     async def _select_tools_for_intent(
@@ -550,8 +552,8 @@ class ReActAgent:
         三层工具精选流水线：
 
         P0：意图规则过滤 —— INTENT_TOOL_MAP 缩小候选池
-        P2：Embedding 语义重排 —— 余弦相似度 + 意图加权 → Top-3/5
-        P1：本地模型最终确认 —— Qwen2.5-1.5B 从候选选出最相关的
+        P1：Embedding 语义重排 —— 余弦相似度 + 意图加权 → Top-3/5
+        P2：本地模型最终确认 —— Qwen2.5-1.5B 从候选选出最相关的
 
         Args:
             action: 意图 action
@@ -574,11 +576,11 @@ class ReActAgent:
             tool_names=sorted(tool_names),
         )
 
-        # ── P2: Embedding 语义重排 ──
-        p2_ranked: list[str] = []  # P2 排序结果（最相关→最不相关），供 P1 交叉校验用
+        # ── P1: Embedding 语义重排 ──
+        p2_ranked: list[str] = []  # P1 排序结果（最相关→最不相关），供 P2 交叉校验用
         if self._tool_matcher and len(tool_names) > 1:
             try:
-                # "unknown" 意图：无规则依据，放宽 Top-K 让 P1 有更多选项可选
+                # "unknown" 意图：无规则依据，放宽 Top-K 让 P2 有更多选项可选
                 p2_top_k = 5 if (action is None or action == "unknown") else 4
                 ranked_names = await self._tool_matcher.rank(
                     user_query=user_query,
@@ -590,11 +592,11 @@ class ReActAgent:
                     p2_ranked = list(ranked_names)
                     tool_names = set(p2_ranked)
                 else:
-                    logger.warning("P2 重排返回空结果，保持 P0 候选集")
+                    logger.warning("P1 重排返回空结果，保持 P0 候选集")
             except Exception as e:
                 logger.warning(f"Embedding 重排失败，回退到 P0 结果: {e}")
 
-        # ── P1: 本地模型最终确认（优先本地，不可用则 fallback 到 middleware）──
+        # ── P2: 本地模型最终确认（优先本地，不可用则 fallback 到 middleware）──
         if self._tool_matcher and len(tool_names) > 2:
             tool_descs = self._skill_registry.tool_descriptions
             try:
@@ -606,7 +608,7 @@ class ReActAgent:
                 )
                 if selected and selected != tool_names:
                     logger.info(
-                        "P1 本地模型工具选择完成",
+                        "P2 本地模型工具选择完成",
                         before=sorted(tool_names),
                         after=sorted(selected),
                     )
@@ -614,7 +616,7 @@ class ReActAgent:
                 # 如果 local_p1 返回全量（本地模型不可用），
                 # 则保留在 _build_graph 中用 LLMToolSelectorMiddleware 兜底
             except Exception as e:
-                logger.warning(f"P1 本地模型工具选择失败，保留 P2 结果: {e}")
+                logger.warning(f"P2 本地模型工具选择失败，保留 P1 结果: {e}")
 
         # 从全量池中选取对应的 tool 对象
         filtered: List = []
@@ -642,12 +644,11 @@ class ReActAgent:
         构建 LangChain create_agent。
 
         三层工具过滤：
-        - P0 / P2 / P1(local)：已在 _select_tools_for_intent 中完成
-        - P1(fallback)：本地模型不可用时，LLMToolSelectorMiddleware 兜底
+        - P0 / P1 / P2(local)：已在 _select_tools_for_intent 中完成
+        - P2(fallback)：本地模型不可用时，LLMToolSelectorMiddleware 兜底
 
         Skill SOP 注入：
-        - 根据选中工具反向查找命中 skill，将正文内联到 system prompt
-        - 替代 deepagents SkillsMiddleware 渐进式披露，无额外 LLM 调用
+        - 根据选中工具反向查找命中 skill，将正文内联到 system prompt，无额外 LLM 调用
 
         Args:
             tools: 工具列表。None 时使用全量工具池。
@@ -658,7 +659,7 @@ class ReActAgent:
             raise RuntimeError("LLM 未初始化，无法构建 Agent")
         selected_tools = tools if tools is not None else self._all_tools
 
-        # P1 本地模型可用时已精准过滤，无需 middleware
+        # P2 本地模型可用时已精准过滤，无需 middleware
         # 工具数 > 3 说明本地模型没起作用，用 middleware 兜底
         middleware = []
         tool_count = len([t for t in selected_tools if not isinstance(t, dict)])
@@ -750,7 +751,7 @@ class ReActAgent:
         Returns:
             ChatResponse
         """
-        # ── P0 + P2: 按意图过滤 + Embedding 语义重排 ──
+        # ── P0 + P1: 按意图过滤 + Embedding 语义重排 ──
         selected_tools = await self._select_tools_for_intent(
             intent_result.action, user_query=request.message
         )

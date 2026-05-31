@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -25,29 +26,27 @@ class Settings(BaseSettings):
     
     # 火山引擎 Doubao API配置
     VOLCENGINE_API_KEY: str = ""
-    VOLCENGINE_EMBEDDING_ENDPOINT: str = "https://ark.cn-beijing.volces.com/api/v3/projects/default/embeddings"
     
     # 聊天模型配置（云端模型，用于 Agent 回答生成等复杂任务）
-    CHAT_MODEL: str = "qwen3.6-flash-2026-04-16"
+    CHAT_MODEL: str = Field(default="")
 
-    # P1 工具选择器专用模型（更轻量更快，qwen-turbo 延迟约为主模型 40%）
-    TOOL_SELECTOR_MODEL: str = "qwen3.6-flash-2026-04-16"
+    # P2 工具选择器专用模型（更轻量更快，qwen-turbo 延迟约为主模型 40%）
+    TOOL_SELECTOR_MODEL: str = Field(default="")
     
-    # P1 工具选择器本地模型路径（设置后优先用本地模型替代云端 API）
+    # P2 工具选择器本地模型路径（设置后优先用本地模型替代云端 API）
     # 推荐: Qwen2.5-1.5B-Instruct（速度和准确度的最佳平衡点）
     TOOL_SELECTOR_LOCAL_MODEL: str = ""  # 如 ./models/Qwen2.5-1.5B-Instruct
     TOOL_SELECTOR_LOCAL_DEVICE: str = "cpu"  # cpu | auto
     TOOL_SELECTOR_LOCAL_LOAD_IN_4BIT: bool = False
     
     # 本地小模型配置（用于参数抽取，transformers 直接加载，无需部署）
-    LOCAL_PARAM_MODEL: str = "./models/Qwen2.5-0.5B-Instruct"  # 轻量级中文模型，~1GB，CPU 可跑
+    LOCAL_PARAM_MODEL: str = Field(default="./models/Qwen2.5-0.5B-Instruct")  # 轻量级中文模型，~1GB，CPU 可跑
     LOCAL_PARAM_DEVICE: str = "auto"  # cpu | cuda | auto（auto 优先 GPU）
     LOCAL_PARAM_MAX_TOKENS: int = 256  # 参数抽取很短，256 足够
     LOCAL_PARAM_LOAD_IN_4BIT: bool = True  # 4bit 量化，节省内存（需 bitsandbytes）
     
-    # Embedding 提供者: local | volcengine
-    EMBEDDING_PROVIDER: str = "local"
-    EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
+    # Embedding 模型（本地 BGE/Sentence-Transformers）
+    EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-zh-v1.5")
 
     # BGE-Reranker 本地模型路径（用于 RAG 检索结果重排序）
     # 优先从 ModelScope 本地缓存加载（国内秒下），不存在则回退 HuggingFace 自动下载
@@ -97,7 +96,7 @@ class Settings(BaseSettings):
 
     # Step2 输入安全审查本地小模型配置
     # 开启后 Step2 优先用本地小模型做合规分类（省 API 费），非合规才升级云端 LLM 复核
-    STEP2_SAFETY_LOCAL_MODEL_ENABLED: bool = False
+    STEP1_SAFETY_LOCAL_MODEL_ENABLED: bool = False
 
     # Token 预估器配置（用于 Token 消耗限流）
     # Qwen3 全系列共用 tokenizer，指向本地 tokenizer.json 即可
