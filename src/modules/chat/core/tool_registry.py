@@ -1,12 +1,16 @@
 """
-Tool 服务 —— 意图命中后的业务函数定义、远程 API 调用、格式化
+Tool 服务 —— 意图命中后的业务函数定义、远程 API 调用（HTTP / MCP）、格式化
+
+远程调用优先级：MCP Client > HTTP REST > 本地 mock
 """
 from typing import Dict, Any, Optional
 import json
+
 import httpx
 
 from src.shared.logger import APILogger
 from src.core.config import config
+from src.modules.chat.core.mcp_client import get_mcp_client
 
 logger = APILogger("tool_service")
 
@@ -137,7 +141,18 @@ class ToolService:
         action: str,
         params: Optional[Dict[str, Any]] = None
     ) -> str:
-        """根据意图 action 路由到具体 tool 执行"""
+        """根据意图 action 路由到具体 tool 执行。
+
+        优先级：MCP Client（远程 MCP 协议）> 本地注册表 > HTTP REST API > 本地 mock
+        """
+        params = params or {}
+
+        # ── 优先级 1：MCP Client（通过 MCP 协议调用远程工具）──
+        mcp_result = await self._try_mcp_dispatch(action, params)
+        if mcp_result is not None:
+            return mcp_result
+
+        # ── 优先级 2：本地注册表（HTTP REST / mock）──
         self._ensure_registry()
         tool_fn = self._registry.get(action)
         if tool_fn is None:
@@ -147,6 +162,34 @@ class ToolService:
         logger.info(f"Tool调用", action=action, params=params)
         return await tool_fn(params)
 
+    # ── MCP Client 集成 ──────────────────────────────────────────
+
+    @staticmethod
+    async def _try_mcp_dispatch(action: str, params: Dict[str, Any]) -> Optional[str]:
+        """尝试通过 MCP Client 调用远程工具。
+
+        Returns:
+            工具执行结果字符串，如果 MCP 不可用或工具不存在则返回 None
+        """
+        if not config.MCP_CLIENT_ENABLED:
+            return None
+
+        try:
+            client = await get_mcp_client()
+        except Exception as e:
+            logger.warning(f"MCP Client 初始化失败: {e}")
+            return None
+
+        if not client.has_tool(action):
+            return None
+
+        logger.info(f"MCP tools/call", action=action, params=params)
+        try:
+            return await client.call_tool(action, params)
+        except Exception as e:
+            logger.error(f"MCP tools/call 失败: {action}: {e}，回退到本地/HTTP")
+            return None
+
     # ── 远程 API ──────────────────────────────────────────────────
 
     @staticmethod
@@ -154,7 +197,7 @@ class ToolService:
         action: str,
         params: Optional[Dict[str, Any]] = None
     ) -> str:
-        """调用远程业务API"""
+        """调用远程业务API。参数名按远端 API 契约映射。"""
         base_url = config.REMOTE_API_BASE_URL
         if not base_url:
             logger.warning(f"REMOTE_API_BASE_URL 未配置，无法调用远程API (action={action})")
@@ -167,14 +210,22 @@ class ToolService:
             "check-balance": "/api/account/balance",
             "coupon-inquiry": "/api/coupons/list",
         }
+        # 内部参数名 → 远端参数名映射（与远端 API 契约对齐）
+        param_mapping: Dict[str, Dict[str, str]] = {
+            "query-order": {"phone": "mobile"},
+        }
         endpoint = endpoint_map.get(action, f"/api/{action}")
         url = f"{base_url.rstrip('/')}{endpoint}"
         params = params or {}
 
-        logger.info(f"调用远程API", url=url, action=action, params=params)
+        # 参数名映射：内部名 → 远端名
+        mapping = param_mapping.get(action, {})
+        mapped_params = {mapping.get(k, k): v for k, v in params.items()}
+
+        logger.info(f"调用远程API", url=url, action=action, params=mapped_params)
 
         async with httpx.AsyncClient(timeout=config.REMOTE_API_TIMEOUT) as client:
-            response = await client.post(url, json={"action": action, **params})
+            response = await client.post(url, json={"action": action, **mapped_params})
             response.raise_for_status()
             data = response.json()
 

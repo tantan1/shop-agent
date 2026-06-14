@@ -117,6 +117,17 @@ class Settings(BaseSettings):
         "如需更精准的回答，建议精简描述后重新提问。\n\n"
     )
 
+    # MCP Server 配置
+    MCP_SERVER_NAME: str = "shop-agent"
+    MCP_ENABLED: bool = False  # 是否启用 MCP Server
+    MCP_TRANSPORT: str = "stdio"  # stdio | sse | streamable-http
+
+    # MCP Client 配置 —— Agent 作为 Client 消费远程 MCP Server 的工具
+    # JSON 数组，每个元素包含 name、url、headers（可选）
+    # 示例: '[{"name":"order-system","url":"http://localhost:3002/mcp"}]'
+    MCP_CLIENT_SERVERS: str = ""
+    MCP_CLIENT_ENABLED: bool = False  # 是否启用 MCP Client 模式
+
     @property
     def database_url(self) -> str:
         """构建数据库连接URL"""

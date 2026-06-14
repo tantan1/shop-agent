@@ -264,6 +264,17 @@ async def agent_chat(
         response = await chatagent_service.chat_with_agent(
             request, experiment_assignment=experiment_assignment
         )
+        # ── A2A 对话追踪：记录每条对话到内存存储 ──
+        try:
+            from src.modules.chat.a2a_routers import register_conversation_event
+            register_conversation_event(
+                conversation_id=response.conversation_id,
+                user_message=request.message,
+                assistant_message=response.message,
+                domain=request.domain,
+            )
+        except Exception:
+            pass
         return success_response(data=response.model_dump())
     except Exception as e:
         # 处理 TokenLimitExceeded
@@ -707,3 +718,24 @@ async def refresh_experiments(
     exp_service = ExperimentService.get_instance()
     exp_service.force_refresh()
     return success_response(data={"refreshed": True})
+
+
+# =============================================================================
+# Agent Card —— A2A 能力发现端点
+# =============================================================================
+
+from src.modules.chat.core.agent_card import build_agent_card  # 模块级导入，利用 lifespan 预热
+
+
+@router.get("/agent/card", summary="Agent Card（A2A 能力发现）", include_in_schema=True)
+async def agent_card():
+    """返回 A2A 标准 Agent Card（缓存命中，<1ms）。
+
+    外部系统通过此端点发现 Shop-Agent 的能力：
+    - skills 列表来自 skills/ 目录的 SKILL.md（与 MCP tools/list 同源）
+    - capabilities 声明流式/推送等协议支持
+
+    无需认证（等同于 /.well-known/agent-card.json）。
+    """
+    card = build_agent_card()
+    return card.model_dump(by_alias=True)

@@ -86,6 +86,55 @@ Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 
 - **local_model**：transformers 本地小模型 → 失败降级 llm
 - **llm**：Qwen structured output，最精准
 
+### 13. MCP 协议（Model Context Protocol）
+
+基于 FastMCP 框架将 ToolService 的 Skill 体系通过 MCP 协议对外暴露，使外部 AI 客户端（Claude Desktop / n8n / 其他 Agent 框架）可以调用本系统的业务工具。
+
+**核心原则：MCP 对外，不对内**
+- 外部 Client 通过 MCP JSON-RPC 调用工具
+- 内部 ReActAgent 与 `ToolService.dispatch()` 同进程直调，不走网络开销
+
+**协议能力**：
+- `tools/list` — 从 `SkillRegistry` 自动生成 tool 列表及参数 schema（由函数类型注解自动推断）
+- `tools/call` — 映射到 `ToolService.dispatch(action, params)`
+
+**传输模式**：支持 `stdio`（标准输入输出）和 `sse`（Server-Sent Events）两种 transport，通过 `MCP_TRANSPORT` 配置切换。默认使用 `stdio`，适合 Claude Desktop 等本地客户端。
+
+**配套参数抽取器：SchemaDrivenExtractor**
+- 结构层从 MCP `inputSchema` 动态驱动字段列表，语义层只存"字段类型 → 正则"映射
+- 三层解耦：`_PATTERNS`（语义正则）+ `_FIELD_ALIASES`（字段名映射）+ `mcp_schema`（结构驱动）
+- 新增字段 / 字段改名无需改抽取核心逻辑，只加一行 alias 即可
+
+**CLI 启动**：`python -m src.modules.chat.core.mcp_server [transport]`
+
+### 14. A2A 协议（Agent-to-Agent）
+
+自研 A2A 协议，使外部 Agent 系统能够以标准化的方式发现能力、提交异步任务、共享对话上下文。所有端点挂载在 `/a2a` 前缀下，无需外部 SDK 依赖。
+
+**能力发现**：
+- `GET /.well-known/agent-card.json` — 标准 A2A 能力发现端点（无需认证），动态从 `SkillRegistry` 和配置生成
+- `GET /api/v1/chatagent/agent/card` — API 前缀版本，返回 `AgentCard`（含 skills、capabilities、认证方式、速率限制、全部端点列表）
+- Agent Card 首次构建后缓存，命中 <1ms；启动时通过 `warmup_agent_card()` 预热
+
+**异步任务管理（`A2ATaskService`）**：
+- `POST /a2a/tasks/send` — 提交异步 Agent 任务，立即返回 `task_id`
+- `GET /a2a/tasks/{task_id}` — 轮询任务状态（pending → running → completed/failed/cancelled）
+- `POST /a2a/tasks/{task_id}/cancel` — 取消进行中的任务
+- `GET /a2a/tasks` — 分页列出所有任务
+- 后台通过 `asyncio.create_task` 异步执行，复用 `ChatAgentService.chat_with_agent()`
+
+**Webhook 回调通知（`A2AWebhookService`）**：
+- `POST /a2a/webhooks` — 注册回调订阅（支持 TTL 过期、事件过滤、HMAC 签名密钥）
+- `DELETE /a2a/webhooks/{subscription_id}` — 取消订阅
+- 任务完成后自动 `POST` 到 `callback_url`，附带 `X-A2A-Event` 和 `X-A2A-Signature`（HMAC-SHA256）头
+
+**对话上下文共享**：
+- `GET /a2a/conversations` — 列出对话摘要
+- `GET /a2a/conversations/{conversation_id}/messages` — 获取历史消息
+- 每次 Agent 对话完成自动注册到 A2A 内存存储，供其他 Agent 查询上下文
+
+**健康检查**：`GET /a2a/health` — 返回 LLM、Vector DB、Redis、MCP Server 等依赖状态
+
 ---
 
 ## 系统架构
@@ -154,9 +203,9 @@ flowchart TD
 | `src/core` | 全局配置管理（Pydantic Settings），含 LLM/Embedding/Milvus/意图识别/参数抽取/NebulaGraph/Token 限流等全部配置项；Token 预估器（基于 HF tokenizers 的 Qwen3 BPE 编码，LRU 缓存）；速率限制器（Redis 滑动窗口 + 内存降级，含请求次数与 Token 消耗双维度） |
 | `src/shared` | 异步数据库引擎（SQLAlchemy 2.0 + aiomysql）、统一异常体系（BusinessException/401/403/404/422/500）、结构化日志（structlog）、统一响应格式（BaseResponse） |
 | `src/modules/auth` | Bearer Token API Key 认证鉴权（HTTPBearer + FIXED_API_KEY 比对），含 `get_current_user` / `require_admin` 依赖 |
-| `src/modules/chat` | 智能客服核心模块 |
+| `src/modules/chat` | 智能客服核心模块，含 A2A 协议路由（`a2a_routers.py`） |
 | `src/modules/chat/agent` | Agent 编排（`AgentOrchestrator`）+ 通用执行器（`GeneralAgentExecutor`）+ ReAct Agent（`ReActAgent`）+ Skill 加载器（`SkillLoader` / `SkillRegistry`）+ 提示词管理（`PromptTemplateManager`）+ 纠纷协调器（`DisputeCoordinator`） |
-| `src/modules/chat/core` | LLM 服务、Embedding 服务（local BGE / volcengine 可选）、Milvus 混合检索服务、Redis 缓存服务、意图识别器（FAISS）、文档服务（SemanticChunker）、Reranker 服务（BGE-Reranker-base）、工具注册与服务（`ToolService`）、本地模型服务（`LocalModelService`）、内容安全过滤（`ContentFilterService`）、同义词归一化（`InputNormalizer`）、情绪检测（`SentimentService`）、NebulaGraph 图查询服务、参数抽取器（`LocalParamExtractor`） |
+| `src/modules/chat/core` | LLM 服务、Embedding 服务（local BGE / volcengine 可选）、Milvus 混合检索服务、Redis 缓存服务、意图识别器（FAISS）、文档服务（SemanticChunker）、Reranker 服务（BGE-Reranker-base）、工具注册与服务（`ToolService`）、本地模型服务（`LocalModelService`）、内容安全过滤（`ContentFilterService`）、同义词归一化（`InputNormalizer`）、情绪检测（`SentimentService`）、NebulaGraph 图查询服务、参数抽取器（`LocalParamExtractor` / `SchemaDrivenExtractor`）、MCP Server（`FastMCP`）、A2A 异步任务服务（`A2ATaskService`）、A2A Webhook 服务（`A2AWebhookService`）、Agent Card 构建器 |
 | `src/modules/items` | 企业信息查询（Enterprise 模型/Schema/Repository），路由注册为 `/reports` |
 | `src/modules/monitoring` | Prometheus 指标定义 + LangChain 回调 + Langfuse 回调 + SkyWalking 分布式追踪客户端 |
 
@@ -225,7 +274,7 @@ flowchart TD
 
 ### 参数抽取：本地优先逐级兜底
 
-配置 `LOCAL_PARAM_MODEL = "./models/Qwen2.5-0.5B-Instruct"`，支持 `auto`/`cpu` 设备选择、4bit 量化。通过 `LocalModelService` 封装（单例模式），用于意图命中后的参数抽取，支持 max_retries=2 的重试机制。同时作为 P1 工具选择本地兜底（TOOL_SELECTOR_LOCAL_MODEL 未单独配置时复用此模型）。
+配置 `LOCAL_PARAM_MODEL = "./models/Qwen2.5-0.5B-Instruct"`，支持 `auto`/`cpu` 设备选择、4bit 量化。通过 `LocalModelService` 单例封装，支持 `max_retries=2` 重试机制。同一模型还作为 P1 工具选择本地兜底（`TOOL_SELECTOR_LOCAL_MODEL` 未单独配置时复用）。
 
 ### NebulaGraph 图增强
 
@@ -289,7 +338,22 @@ flowchart TD
 
 ### Skill SOP 注入
 
-`SkillLoader` 从 `skills/` 目录递归扫描 `SKILL.md` 文件（YAML frontmatter + Markdown 正文），自动构建 `INTENT_TOOL_MAP`（P0 过滤用）和工具描述列表（P2 FAISS 索引用）。新增 Skill 只需创建新目录 + `SKILL.md`，无需改代码。运行时命中 Skill 后将 SOP 正文内联注入 ReAct Agent 的 system prompt（含情绪 tone 提示、输入截断提醒）。
+运行时命中 Skill 后将 SOP 正文内联注入 ReAct Agent 的 system prompt（含情绪 tone 提示、输入截断提醒），实现\"增加新业务只改配置\"。
+
+### MCP Server：工具体系对外开放
+
+基于 `mcp.server.fastmcp.FastMCP` 实现，`create_mcp_server()` 启动时自动扫描 `SkillRegistry` 中所有 Skill，通过 `_make_tool_fn()` 动态生成带类型注解的 async 工具函数（`exec()` 编译），使 FastMCP 能自动推断 `inputSchema` 并在 `tools/list` 响应中返回完整 JSON Schema：
+
+- **自动注册**：新增 Skill 只需在 `skills/` 目录下创建 `SKILL.md`，MCP Server 重启后自动暴露为新 Tool，零代码改动
+- **参数 Schema 管理**：Skill 的参数定义集中在 `_build_input_schema()` 中，MCP 客户端可通过 `tools/list` 获取参数结构用于自动生成 UI 表单
+- **配置项**：`MCP_ENABLED`（默认 `False`，按需开启）、`MCP_SERVER_NAME`（`"shop-agent"`）、`MCP_TRANSPORT`（`"stdio"` / `"sse"` / `"streamable-http"`）
+
+### A2A 协议：自研架构决策
+
+- **无外部 SDK 依赖**：不引入 Google A2A 等第三方包，基于 FastAPI + asyncio 自研完整协议栈，减少依赖链和版本耦合风险
+- **内存存储 → Redis 升级路径**：当前 `A2ATaskService` 和对话上下文均使用内存 dict 存储（`max_tasks=10000`），代码注释标注了 Redis 升级接口，业务量增长时可无缝切换
+- **Agent Card 加速**：首次构建后缓存，命中 <1ms；`warmup_agent_card()` 在 FastAPI startup 事件中预热，避免首个请求阻塞
+- **A2A vs MCP 定位差异**：A2A 面向服务间互操作（异步任务 + 上下文共享），MCP 面向工具调用（同步 tools/list + tools/call），两者互补
 
 ### 基础设施容器化
 

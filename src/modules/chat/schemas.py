@@ -1,4 +1,5 @@
-from typing import Optional, List, Dict, Any, Type
+from typing import Optional, List, Dict, Any, Type, Literal
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -179,21 +180,49 @@ class IntentResult(BaseModel):
 
 class QueryOrderParams(BaseModel):
     """查订单——从用户 query 中提取的参数"""
-    order_id: Optional[str] = Field(default=None, description="订单号，如 WB202405270001")
-    phone: Optional[str] = Field(default=None, description="手机号后四位")
-    status_filter: Optional[str] = Field(default=None, description="筛选状态: 待付款/已发货/派送中/已签收")
+    order_id: Optional[str] = Field(
+        default=None,
+        description="订单号，如 WB202405270001",
+        json_schema_extra={"semantic": "order_id"},
+    )
+    phone: Optional[str] = Field(
+        default=None,
+        description="手机号后四位",
+        json_schema_extra={"semantic": "phone"},
+    )
+    status_filter: Optional[str] = Field(
+        default=None,
+        description="筛选状态: 待付款/已发货/派送中/已签收",
+        json_schema_extra={"semantic": "order_status"},
+    )
 
 
 class CheckShippingParams(BaseModel):
     """查物流——从用户 query 中提取的参数"""
-    tracking_number: Optional[str] = Field(default=None, description="快递单号，如 SF1234567890")
-    order_id: Optional[str] = Field(default=None, description="订单号")
+    tracking_number: Optional[str] = Field(
+        default=None,
+        description="快递单号，如 SF1234567890",
+        json_schema_extra={"semantic": "tracking_number"},
+    )
+    order_id: Optional[str] = Field(
+        default=None,
+        description="订单号",
+        json_schema_extra={"semantic": "order_id"},
+    )
 
 
 class RequestReturnParams(BaseModel):
     """退货退款——从用户 query 中提取的参数"""
-    order_id: Optional[str] = Field(default=None, description="要退货的订单号")
-    reason: Optional[str] = Field(default=None, description="退货原因: 质量问题/不想要/发错货/其他")
+    order_id: Optional[str] = Field(
+        default=None,
+        description="要退货的订单号",
+        json_schema_extra={"semantic": "order_id"},
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description="退货原因: 质量问题/不想要/发错货/其他",
+        json_schema_extra={"semantic": "return_reason"},
+    )
 
 
 class CheckBalanceParams(BaseModel):
@@ -204,7 +233,11 @@ class CheckBalanceParams(BaseModel):
 
 class CouponInquiryParams(BaseModel):
     """查优惠券——从用户 query 中提取的参数"""
-    coupon_type: Optional[str] = Field(default=None, description="券类型: 满减券/折扣券/运费券")
+    coupon_type: Optional[str] = Field(
+        default=None,
+        description="券类型: 满减券/折扣券/运费券",
+        json_schema_extra={"semantic": "coupon_type"},
+    )
 
 
 # 意图 → 参数 Schema 注册表
@@ -273,6 +306,21 @@ __all__ = [
     "ExperimentCreateRequest",
     "ExperimentPauseRequest",
     "ExperimentValidateRequest",
+    # ── A2A Schemas ──
+    "AgentSkill",
+    "AgentAuth",
+    "AgentRateLimitInfo",
+    "AgentEndpoint",
+    "AgentCapabilities",
+    "AgentCard",
+    "A2ATaskRequest",
+    "A2ATaskStatusResponse",
+    "A2ATaskListResponse",
+    "WebhookSubscriptionRequest",
+    "WebhookSubscriptionResponse",
+    "A2AConversationSummary",
+    "A2AConversationListResponse",
+    "A2AHealthResponse",
 ]
 
 
@@ -319,4 +367,189 @@ class ExperimentValidateRequest(BaseModel):
     """分流均匀性验证请求"""
     id: str = Field(..., description="实验ID")
     sample_user_count: int = Field(default=10000, ge=1000, le=100000, description="模拟用户数（1000-100000）")
+
+
+# =============================================================================
+# Agent Card (A2A protocol) Schema — 增强版
+# =============================================================================
+
+class AgentSkill(BaseModel):
+    """Agent Card 中的单个技能声明。
+    与 A2A 协议兼容：id + name + description + tags + examples
+    """
+    id: str = Field(..., description="技能唯一标识（如 query-order）")
+    name: str = Field(..., description="技能展示名（如 订单查询）")
+    description: str = Field(..., description="技能描述")
+    tags: List[str] = Field(default_factory=list, description="标签")
+    examples: List[str] = Field(default_factory=list, description="触发示例")
+
+
+class AgentAuth(BaseModel):
+    """Agent 认证方式声明（A2A 协议增强）。"""
+    type: Literal["api_key_header", "bearer_token", "none"] = Field(
+        default="api_key_header", description="认证类型"
+    )
+    header_name: str = Field(default="X-API-Key", description="认证 Header 名称")
+    scopes: List[str] = Field(default_factory=list, description="权限范围")
+
+    class Config:
+        populate_by_name = True
+
+
+class AgentRateLimitInfo(BaseModel):
+    """Agent 速率限制信息（A2A 协议增强）。"""
+    requests_per_minute: int = Field(default=60, description="每分钟请求上限")
+    burst: int = Field(default=10, description="突发并发容量")
+
+
+class AgentEndpoint(BaseModel):
+    """Agent 可用端点声明（A2A 协议增强）。"""
+    method: str = Field(..., description="HTTP 方法: GET/POST/PATCH/DELETE")
+    path: str = Field(..., description="端点路径（如 /a2a/tasks/send）")
+    identifier: str = Field(default="", description="端点标识（用于唯一引用）")
+    description: str = Field(default="", description="端点描述")
+    content_type: str = Field(default="application/json", description="请求/响应 Content-Type")
+    requires_auth: bool = Field(default=True, description="是否需要认证")
+
+
+class AgentCapabilities(BaseModel):
+    """Agent 能力声明（A2A 协议标准字段）。"""
+    streaming: bool = Field(default=True, description="是否支持流式输出")
+    push_notifications: bool = Field(
+        default=False, alias="pushNotifications", description="是否支持推送通知"
+    )
+    async_tasks: bool = Field(
+        default=True, alias="asyncTasks", description="是否支持异步任务"
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+class AgentCard(BaseModel):
+    """Agent Card —— A2A 协议的能力发现入口。
+
+    标准端点：GET /.well-known/agent-card.json  或  GET /api/v1/chatagent/agent/card
+    协议参考：A2A (Agent-to-Agent) specification
+    """
+    name: str = Field(..., description="Agent 名称")
+    description: str = Field(..., description="Agent 描述")
+    url: str = Field(..., description="Agent 访问地址")
+    provider: str = Field(default="shop-agent", description="提供方标识")
+    version: str = Field(default="1.0.0", description="Agent 版本")
+    capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
+    skills: List[AgentSkill] = Field(default_factory=list, description="技能列表")
+    authentication: Optional[AgentAuth] = Field(default=None, description="认证方式声明")
+    rate_limit: Optional[AgentRateLimitInfo] = Field(default=None, description="速率限制信息")
+    endpoints: List[AgentEndpoint] = Field(default_factory=list, description="可用端点列表")
+    documentation_url: Optional[str] = Field(default=None, description="文档地址")
+
+    class Config:
+        populate_by_name = True
+
+
+# =============================================================================
+# A2A 异步任务 API Schema
+# =============================================================================
+
+class A2ATaskRequest(BaseModel):
+    """A2A 异步任务提交请求。"""
+    skill_id: Optional[str] = Field(
+        default=None, description="指定 skill（不传则自动路由意图）"
+    )
+    message: str = Field(
+        ..., min_length=1, max_length=5000, description="用户自然语言消息"
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        default=None, description="上下文透传（键值对）"
+    )
+    callback_url: Optional[str] = Field(
+        default=None, description="任务完成后回调的 Webhook URL"
+    )
+    conversation_id: Optional[str] = Field(default=None, description="对话 ID（多轮）")
+    domain: str = Field(default="ecommerce", description="业务领域")
+
+
+class A2ATaskStatusResponse(BaseModel):
+    """A2A 任务状态查询响应。"""
+    task_id: str = Field(..., description="任务唯一 ID")
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = Field(
+        ..., description="任务状态"
+    )
+    result: Optional[str] = Field(default=None, description="任务结果（completed 时填充）")
+    error: Optional[str] = Field(default=None, description="错误信息（failed 时填充）")
+    created_at: str = Field(..., description="创建时间 (ISO 8601)")
+    started_at: Optional[str] = Field(default=None, description="开始时间 (ISO 8601)")
+    completed_at: Optional[str] = Field(default=None, description="完成时间 (ISO 8601)")
+    conversation_id: Optional[str] = Field(default=None, description="关联对话 ID")
+    domain: str = Field(default="ecommerce", description="业务领域")
+
+
+class A2ATaskListResponse(BaseModel):
+    """A2A 任务列表响应。"""
+    total: int = Field(..., description="任务总数")
+    tasks: List[A2ATaskStatusResponse] = Field(default_factory=list, description="任务列表")
+
+
+# =============================================================================
+# A2A Webhook Schema
+# =============================================================================
+
+class WebhookSubscriptionRequest(BaseModel):
+    """Webhook 订阅请求。"""
+    url: str = Field(..., description="回调 URL")
+    events: List[str] = Field(
+        default_factory=lambda: ["task.completed", "task.failed"],
+        description="订阅事件列表: task.completed | task.failed | skill.error",
+    )
+    secret: Optional[str] = Field(
+        default=None, description="HMAC 签名密钥（用于验证回调来源）"
+    )
+    ttl_seconds: Optional[int] = Field(
+        default=86400, ge=60, le=604800, description="有效期秒数（默认 24h，最大 7 天）"
+    )
+
+
+class WebhookSubscriptionResponse(BaseModel):
+    """Webhook 订阅响应。"""
+    subscription_id: str = Field(..., description="订阅唯一 ID")
+    url: str = Field(..., description="回调 URL")
+    events: List[str] = Field(default_factory=list, description="订阅事件")
+    created_at: str = Field(..., description="创建时间 (ISO 8601)")
+    expires_at: Optional[str] = Field(default=None, description="过期时间 (ISO 8601)")
+
+
+# =============================================================================
+# A2A Conversation Schema
+# =============================================================================
+
+class A2AConversationSummary(BaseModel):
+    """A2A 对话摘要。"""
+    conversation_id: str = Field(..., description="对话 ID")
+    message_count: int = Field(default=0, description="消息数量")
+    created_at: str = Field(..., description="创建时间 (ISO 8601)")
+    last_active_at: str = Field(..., description="最近活跃时间 (ISO 8601)")
+    domain: str = Field(default="ecommerce", description="业务领域")
+    status: str = Field(default="active", description="状态: active | archived")
+
+
+class A2AConversationListResponse(BaseModel):
+    """A2A 对话列表响应。"""
+    total: int = Field(..., description="对话总数")
+    conversations: List[A2AConversationSummary] = Field(default_factory=list)
+
+
+class A2AHealthResponse(BaseModel):
+    """A2A 专用健康检查响应。"""
+    status: Literal["healthy", "degraded", "unhealthy"] = Field(
+        default="healthy", description="整体健康状态"
+    )
+    agent_name: str = Field(default="shop-agent", description="Agent 名称")
+    version: str = Field(default="1.0.0", description="版本")
+    uptime_seconds: float = Field(default=0, description="启动秒数")
+    dependencies: Dict[str, str] = Field(
+        default_factory=dict, description="依赖状态映射"
+    )
+    skills_count: int = Field(default=0, description="已加载 Skill 数量")
+    mcp_enabled: bool = Field(default=False, description="MCP Server 是否启用")
 

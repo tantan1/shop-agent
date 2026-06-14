@@ -39,3 +39,4 @@ jieba  # 中文分词，用于 RAGAS 评估脚本关键词重叠率计算
 tokenizers>=0.19.0  # HF Rust tokenizer，轻量 Token 预估（无 torch 依赖）
 bitsandbytes>=0.43.0  # 本地小模型 4bit 量化（节省约 75% 显存）
 apache-skywalking>=1.0.0  # 分布式链路追踪（APM），1.x API 与 0.x 不兼容
+mcp>=1.0.0  # MCP 协议 SDK，用于将 Skill 体系标准化暴露为 Agent-to-Tool 协议

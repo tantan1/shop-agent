@@ -125,7 +125,7 @@ class PipelineOverrides:
     retrieval_rrf_k: Optional[int] = None            # RRF 融合参数 k
 
     # --- LLM ---
-    llm_model: Optional[str] = None                  # 如 "qwen-max" vs "qwen3.6-plus"
+    llm_model: Optional[str] = None                  # 如 "qwen-max" vs "qwen3.6-plus-2026-04-02"
     llm_temperature: Optional[float] = None
     llm_max_tokens: Optional[int] = None
 
@@ -907,13 +907,13 @@ EXP_TEMPLATE_RERANKER_THRESHOLD = ExperimentDef(
 EXP_TEMPLATE_LLM_MODEL = ExperimentDef(
     id="exp_llm_model_001",
     name="LLM 模型对比实验",
-    description="对比 qwen3.6-plus (当前) vs qwen-max 对回答质量的影响",
+    description="对比 qwen3.6-plus-2026-04-02 (当前) vs qwen-max 对回答质量的影响",
     variants=[
         VariantDef(
             name="control_flash",
             variant_type=VariantType.CONTROL,
             traffic_percent=50,
-            pipeline_overrides=PipelineOverrides(llm_model="qwen3.6-plus"),
+            pipeline_overrides=PipelineOverrides(llm_model="qwen3.6-plus-2026-04-02"),
         ),
         VariantDef(
             name="treatment_max",

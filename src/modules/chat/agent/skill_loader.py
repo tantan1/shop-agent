@@ -32,9 +32,10 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Type, Union as UnionType
 
 import yaml
+from pydantic import BaseModel
 
 from src.shared.logger import APILogger
 
@@ -69,6 +70,7 @@ class SkillDef:
     allowed_tools: List[str] = field(default_factory=list)
     priority: int = 10
     body: str = ""  # frontmatter 后面的 Markdown 正文
+    params: Dict[str, Dict] = field(default_factory=dict)  # 工具参数定义，单一来源
 
 
 @dataclass
@@ -164,10 +166,51 @@ class SkillLoader:
         return self._registry
 
     @staticmethod
+    def _params_from_pydantic(model: Type[BaseModel]) -> Dict[str, Dict]:
+        """从 Pydantic 模型生成 params 字典（类型/必填/描述/semantic）。
+
+        params 的元数据来源：
+          - type:     从 field_info.annotation 推断 Python 类型 → JSON 类型
+          - required: 从 field_info.is_required() 推断
+          - description:  从 Field(description=...) 读取
+          - semantic: 从 Field(json_schema_extra={"semantic": ...}) 读取
+        """
+        result: Dict[str, Dict] = {}
+        _PY_TO_JSON = {str: "string", int: "integer", float: "number", bool: "boolean"}
+        # Optional[str] 的 annotation 会被 Pydantic 展开为 Union[str, None]；
+        # 这里直接用 model_fields 拿到已解析的 FieldInfo 来推断。
+        for fname, finfo in model.model_fields.items():
+            if not finfo.annotation:
+                continue
+            ann = finfo.annotation
+            # 处理 Optional[T] / Union[T, None] → 取 T
+            origin = getattr(ann, "__origin__", None)
+            args = getattr(ann, "__args__", ())
+            if origin is UnionType and args:
+                # 取第一个非 NoneType 的成员
+                inner = next((a for a in args if a is not type(None)), str)
+                py_type = inner
+            else:
+                py_type = ann
+
+            json_type = _PY_TO_JSON.get(py_type, "string")
+            entry: Dict = {
+                "type": json_type,
+                "required": finfo.is_required(),
+                "description": (finfo.description or ""),
+            }
+            extra = finfo.json_schema_extra or {}
+            if extra.get("semantic"):
+                entry["semantic"] = extra["semantic"]
+            result[fname] = entry
+        return result
+
+    @staticmethod
     def _parse_skill(path: Path) -> SkillDef:
         """解析单个 SKILL.md 文件的 YAML frontmatter + Markdown 正文。
 
-        正文供 _build_system_prompt 按意图内联注入到 system prompt。
+        params 不再从 YAML 读取，改为从 Pydantic 模型（schemas.INTENT_PARAM_SCHEMAS）生成。
+        原因：Pydantic 是 params 的单一数据源，SKILL.md 中的 params 块仅供人类浏览，代码忽略。
         """
         raw = path.read_text(encoding="utf-8")
 
@@ -200,6 +243,16 @@ class SkillLoader:
                     f"可能导致工具路由异常"
                 )
 
+        # ── params：从 Pydantic 模型生成（单一数据源）──
+        params_raw: Dict[str, Dict] = {}
+        try:
+            from src.modules.chat.schemas import INTENT_PARAM_SCHEMAS
+            model = INTENT_PARAM_SCHEMAS.get(name)
+            if model is not None:
+                params_raw = SkillLoader._params_from_pydantic(model)
+        except Exception as e:
+            logger.warning(f"无法从 Pydantic 模型生成 params (name={name}): {e}")
+
         return SkillDef(
             name=name,
             display_name=str(meta.get("display_name") or raw_name or name).strip(),
@@ -208,6 +261,7 @@ class SkillLoader:
             allowed_tools=_parse_tool_string(meta.get("allowed-tools", "")),
             priority=int(meta.get("priority", 10)),
             body=body,  # 正文供 _build_system_prompt 按意图内联注入
+            params=params_raw,  # 参数定义（来源：Pydantic 模型）
         )
 
 

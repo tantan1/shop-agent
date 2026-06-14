@@ -156,6 +156,26 @@ class LocalParamExtractor:
         return result
 
     # ========================================================================
+    # 语义类型 → 抽取方法映射（供 Schema 驱动抽取使用）
+    # ========================================================================
+
+    _SEMANTIC_MAP: Dict[str, classmethod] = {}
+
+    @classmethod
+    def _ensure_semantic_map(cls):
+        """懒加载语义类型映射表"""
+        if cls._SEMANTIC_MAP:
+            return
+        cls._SEMANTIC_MAP.update({
+            "order_id": cls._extract_order_id,
+            "phone": cls._extract_phone,
+            "tracking_number": cls._extract_tracking_number,
+            "order_status": lambda m: cls._match_keyword(m, cls._STATUS_MAP),
+            "return_reason": lambda m: cls._match_keyword(m, cls._RETURN_REASON_MAP),
+            "coupon_type": lambda m: cls._match_keyword(m, cls._COUPON_TYPE_MAP),
+        })
+
+    # ========================================================================
     # 统一入口
     # ========================================================================
 
@@ -163,7 +183,7 @@ class LocalParamExtractor:
 
     @classmethod
     def _ensure_extractors(cls):
-        """懒加载抽取器注册表"""
+        """懒加载抽取器注册表（旧 action-based 路径，向后兼容）"""
         if cls._EXTRACTORS:
             return
         cls._EXTRACTORS.update({
@@ -175,19 +195,41 @@ class LocalParamExtractor:
         })
 
     @classmethod
-    def extract(cls, message: str, action: str) -> Dict[str, Any]:
+    def extract(
+        cls,
+        message: str,
+        action: str = "",
+        params_schema: Optional[Dict[str, Dict]] = None,
+    ) -> Dict[str, Any]:
         """
-        根据意图 action 从用户消息中提取结构化参数。
+        从用户消息中提取结构化参数。
 
-        Args:
-            message: 用户原始消息
-            action:  意图 action (query-order / check-shipping / ...)
-
-        Returns:
-            参数字典，如 {"order_id": "WB202405270001"}；无匹配返回 {}
+        优先使用 params_schema（从 SKILL.md frontmatter 解析）驱动抽取，
+        根据每个参数的 semantic 标签匹配对应正则/关键词提取器。
+        无 params_schema 时回退到 action-based 抽取（兼容旧调用）。
         """
-        cls._ensure_extractors()
-        fn = cls._EXTRACTORS.get(action)
-        if fn is None:
-            return {}
-        return fn(message)
+        # 新方式：Schema 驱动
+        if params_schema:
+            cls._ensure_semantic_map()
+            result: Dict[str, Any] = {}
+            for param_name, param_def in params_schema.items():
+                if not isinstance(param_def, dict):
+                    continue
+                semantic = param_def.get("semantic")
+                if not semantic:
+                    continue
+                extractor = cls._SEMANTIC_MAP.get(semantic)
+                if extractor is None:
+                    continue
+                value = extractor(message)
+                if value:
+                    result[param_name] = value
+            return result
+
+        # 旧方式：action-based（向后兼容）
+        if action:
+            cls._ensure_extractors()
+            fn = cls._EXTRACTORS.get(action)
+            if fn is not None:
+                return fn(message)
+        return {}

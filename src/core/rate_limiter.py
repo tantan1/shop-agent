@@ -36,8 +36,11 @@ from src.shared.logger import APILogger
 
 logger = APILogger("rate_limiter")
 
-# 排除速率限制的路径（健康检查、文档、监控指标）
-_EXCLUDED_PATHS = ("/health", "/docs", "/redoc", "/openapi.json", "/metrics", "/monitoring/metrics")
+# 排除速率限制的路径（健康检查、文档、监控指标、A2A 发现端点）
+_EXCLUDED_PATHS = (
+    "/health", "/docs", "/redoc", "/openapi.json", "/metrics", "/monitoring/metrics",
+    "/.well-known/agent-card.json", "/a2a/health",
+)
 
 
 class RateLimiter:
@@ -53,12 +56,15 @@ class RateLimiter:
 
     def __init__(self):
         self._redis = None  # 懒加载，首次请求时初始化
+        self._redis_tried_and_failed = False  # 避免每次请求都重试 Redis 连接
 
     # ── Redis 懒加载 ──────────────────────────────────────────────────
 
     def _ensure_redis(self) -> bool:
         if self._redis is not None:
             return True
+        if self._redis_tried_and_failed:
+            return False  # 已尝试过且失败，不再阻塞后续请求
         try:
             import redis as redis_lib
             from src.modules.chat.config import chat_config
@@ -71,7 +77,7 @@ class RateLimiter:
             self._redis = redis_lib.Redis(
                 host=host, port=port, password=password, db=0,
                 decode_responses=True,
-                socket_connect_timeout=3, socket_timeout=3,
+                socket_connect_timeout=1, socket_timeout=1,
             )
             self._redis.ping()
             logger.info("速率限制器 Redis 连接成功")
@@ -79,6 +85,7 @@ class RateLimiter:
         except Exception:
             logger.warning("速率限制器 Redis 不可用，回落到内存降级（仅限单进程）")
             self._redis = None
+            self._redis_tried_and_failed = True
             return False
 
     # ── 核心逻辑 ──────────────────────────────────────────────────────

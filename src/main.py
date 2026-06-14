@@ -34,6 +34,7 @@ from src.modules.auth.routers import router as auth_router
 from src.modules.items.routers import router as reports_router
 from src.modules.chat.routers import router as chat_router
 from src.modules.chat.routers_mockapi import router as mockapi_router
+from src.modules.chat.a2a_routers import router as a2a_router
 from src.modules.monitoring.router import router as monitoring_router
 from src.modules.monitoring.metrics import app_info
 from src.core.rate_limiter import get_rate_limiter
@@ -45,6 +46,13 @@ from src.modules.monitoring.skywalking_client import (
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
     """应用生命周期管理"""
+    # ── 0. Agent Card 预热（必须最先执行，依赖最少，确保 /agent/card 端点立即可用）──
+    try:
+        from src.modules.chat.core.agent_card import warmup_agent_card
+        warmup_agent_card()
+    except Exception as e:
+        print(f"[startup] Agent Card 预热跳过: {e}")
+
     # 启动时执行
     configure_logging()  # 配置日志
     
@@ -106,7 +114,31 @@ async def lifespan(app_instance: FastAPI):
             print("[startup] 本地小模型预热跳过（加载失败）")
     except Exception as e:
         print(f"[startup] 本地小模型预热跳过: {e}")
-    
+
+    # ── MCP Server 挂载（如果 MCP_ENABLED=true） ──
+    try:
+        from src.core.config import config as _cfg
+        mcp_enabled = getattr(_cfg, "MCP_ENABLED", False)
+        if mcp_enabled:
+            from src.modules.chat.core.mcp_server import create_mcp_server
+            _mcp_port = getattr(_cfg, "FASTMCP_PORT", 3001) or 3001
+            _mcp_host = getattr(_cfg, "FASTMCP_HOST", "127.0.0.1") or "127.0.0.1"
+            _mcp_fastmcp = create_mcp_server(
+                streamable_http_path="/",
+                host=_mcp_host,
+                port=_mcp_port,
+            )
+            _mcp_app = _mcp_fastmcp.streamable_http_app()
+            app_instance.mount("/mcp", _mcp_app)
+            # 手动启动 SessionManager
+            _mcp_session_ctx = _mcp_fastmcp._session_manager.run()
+            await _mcp_session_ctx.__aenter__()
+            print(f"[startup] MCP Server 已挂载 http://{_mcp_host}:{_mcp_port}/mcp")
+        else:
+            print("[startup] MCP Server 已禁用（MCP_ENABLED=false）")
+    except Exception as e:
+        print(f"[startup] MCP Server 挂载跳过: {e}")
+
     yield
     
     # 关闭时清理
@@ -120,6 +152,14 @@ async def lifespan(app_instance: FastAPI):
 
     # 关闭 SkyWalking Agent
     shutdown_skywalking()
+    
+    # 关闭 MCP Server SessionManager
+    try:
+        if mcp_enabled:
+            await _mcp_session_ctx.__aexit__(None, None, None)
+            print("[shutdown] MCP Server SessionManager 已关闭")
+    except Exception:
+        pass
     
     # 卸载 instrumentation 以避免重复注册
     try:
@@ -164,7 +204,9 @@ instrumentator = Instrumentator(
         "/docs",
         "/redoc",
         "/openapi.json",
-        "/api/v1/monitoring/metrics"
+        "/api/v1/monitoring/metrics",
+        "/.well-known/agent-card.json",
+        "/a2a/health",
     ]
 )
 
@@ -178,6 +220,7 @@ app.include_router(reports_router, prefix=config.API_V1_PREFIX)
 app.include_router(chat_router, prefix=config.API_V1_PREFIX)
 app.include_router(mockapi_router, prefix=config.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=config.API_V1_PREFIX)
+app.include_router(a2a_router)  # A2A 端点不带 API 前缀，直接 /a2a/*
 
 
 @app.get("/health", include_in_schema=False)
@@ -192,6 +235,21 @@ async def health_check():
         },
         message="服务运行正常"
     )
+
+
+# Agent Card 已在 lifespan 中预热，直接导入使用
+from src.modules.chat.core.agent_card import build_agent_card as _build_card
+
+
+@app.get("/.well-known/agent-card.json", include_in_schema=False)
+async def well_known_agent_card():
+    """A2A 标准 Agent Card 端点（无需认证，<1ms 缓存命中）。
+
+    符合 A2A 协议规范：外部系统通过 GET /.well-known/agent-card.json
+    自动发现 Agent 的能力声明。
+    """
+    card = _build_card()
+    return card.model_dump(by_alias=True)
 
 
 if __name__ == "__main__":
