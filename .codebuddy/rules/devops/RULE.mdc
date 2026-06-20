@@ -1,0 +1,70 @@
+---
+description: 部署运维规范 - 环境定义、Docker、部署检查清单
+globs: "**/*"
+alwaysApply: false
+---
+
+# 部署运维规范
+
+## 环境定义
+
+| 环境 | 用途 | 域名示例 |
+|------|------|---------|
+| dev | 开发测试 | dev.shop.local |
+| test | QA测试 | test.shop.local |
+| staging | 预发布 | staging.shop.com |
+| prod | 生产环境 | shop.com |
+
+## 配置文件
+
+### 环境变量
+```
+# 开发环境
+NODE_ENV=development
+API_BASE_URL=http://localhost:8083
+
+# 生产环境
+NODE_ENV=production
+API_BASE_URL=https://api.shop.com
+```
+
+### 敏感信息
+- 不提交到代码仓库
+- 使用环境变量或密钥管理服务
+- 数据库密码、API密钥等
+
+## Docker 使用
+
+### 构建镜像
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 3000
+CMD ["npm", "run", "dev"]
+```
+
+## 部署检查清单
+
+- [ ] 环境变量配置
+- [ ] 数据库迁移执行
+- [ ] 服务健康检查
+- [ ] 日志配置
+- [ ] 监控告警配置
+
+## 日志规范
+
+### 日志级别
+- ERROR: 错误信息
+- WARN: 警告信息
+- INFO: 重要业务
+- DEBUG: 调试信息
+
+### 日志内容
+- 时间戳
+- 日志级别
+- 操作描述
+- 关键参数（脱敏）
+- 堆栈信息（异常）

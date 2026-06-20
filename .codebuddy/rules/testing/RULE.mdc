@@ -1,0 +1,65 @@
+---
+description: 测试规范 - 测试分层、命名规范、E2E测试、测试数据管理
+globs: "**/*.spec.ts,**/*.test.ts,**/*Test.java,**/*Test.py"
+alwaysApply: false
+---
+
+# 测试规范
+
+## 测试分层
+
+| 层级 | 名称 | 说明 |
+|------|------|------|
+| 单元测试 | Unit Test | 测试单个函数/方法 |
+| 集成测试 | Integration Test | 测试多个组件协作 |
+| E2E测试 | E2E Test | 测试完整业务流程 |
+
+## 命名规范
+
+### 测试文件
+- `*.spec.ts` (前端)
+- `*Test.java` (Java)
+- `test_*.py` (Python)
+
+### 测试用例
+- `should_xxx` 描述预期行为
+- `test_xxx` 描述动作
+
+## 测试覆盖
+
+### 核心业务必须覆盖
+- 用户认证流程
+- 订单创建流程
+- 支付流程
+- 数据 CRUD 操作
+
+## E2E 测试规范
+
+### 页面加载验证
+```typescript
+// 验证页面有内容加载
+await expect(page.locator('body')).toBeVisible();
+```
+
+### 表单验证
+```typescript
+await expect(page.locator('form')).toBeVisible();
+```
+
+### 登录测试
+```typescript
+// 使用通用选择器
+await page.locator('.login-btn').click();
+```
+
+## 测试数据
+
+- 使用独立测试数据
+- 测试后清理数据
+- 避免依赖外部服务
+
+## 断言规范
+
+- 优先验证页面加载
+- 使用通用选择器
+- 添加超时处理

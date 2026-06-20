@@ -1,0 +1,50 @@
+---
+description: 数据库设计规范 - 命名规范、表设计、字段类型、索引规范
+globs: "**/*.sql,**/*.java,**/*.py"
+alwaysApply: false
+---
+
+# 数据库设计规范
+
+## 命名规范
+
+| 类型 | 规则 | 示例 |
+|------|------|------|
+| 数据库 | 小写蛇形 | `shop_platform` |
+| 表名 | 小写蛇形 | `user_info` |
+| 列名 | 小写蛇形 | `create_time` |
+| 主键 | id | `id` |
+| 外键 | table_id | `user_id` |
+
+## 表设计规范
+
+### 公共字段
+```sql
+`id` BIGINT PRIMARY KEY AUTO_INCREMENT
+`create_time` DATETIME DEFAULT CURRENT_TIMESTAMP
+`update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+`is_deleted` TINYINT DEFAULT 0
+```
+
+### 索引
+- 主键自动建索引
+- 常用查询字段建索引
+- 避免建过多索引
+
+## 字段类型选择
+
+| 数据类型 | 选择 |
+|------|------|
+| 自增ID | BIGINT |
+| 状态 | TINYINT (0/1) |
+| 金额 | DECIMAL(10,2) |
+| 时间 | DATETIME |
+| 长文本 | TEXT |
+
+## 规范要点
+
+- 每个表必须有主键
+- 使用逻辑删除 (is_deleted)
+- 创建时间、更新时间自动管理
+- 避免存储敏感明文
+- 使用外键约束数据完整性

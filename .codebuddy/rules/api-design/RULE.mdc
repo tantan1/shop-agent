@@ -1,0 +1,76 @@
+---
+description: API 设计规范 - RESTful约定、命名规范、请求响应格式、错误码
+globs: "**/*.ts,**/*.java,**/*.py"
+alwaysApply: false
+---
+
+# API 设计规范
+
+## RESTful 约定
+
+| 方法 | 用途 | 路径 |
+|------|------|------|
+| GET | 获取资源 | /users, /users/:id |
+| POST | 创建资源 | /users |
+| PUT | 完整更新 | /users/:id |
+| PATCH | 部分更新 | /users/:id |
+| DELETE | 删除资源 | /users/:id |
+
+## 命名规范
+
+- 路径: 蛇形命名 `/user-info` → `/user-info`
+- 复数资源: `/users` 而非 `/user`
+- 层级: `/shops/{shopId}/products`
+
+## 请求规范
+
+### 查询参数
+- `pageNum`, `pageSize` - 分页
+- `keyword` - 搜索关键词
+- `sort`, `order` - 排序
+- `fields` - 字段选择
+
+### 请求体
+- 使用 DTO/Request 对象
+- 必填字段校验
+
+## 响应规范
+
+### 统一响应格式
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {}
+}
+```
+
+### 分页响应
+```json
+{
+  "code": 200,
+  "data": {
+    "list": [],
+    "total": 100,
+    "pageNum": 1,
+    "pageSize": 10
+  }
+}
+```
+
+## 错误码规范
+
+| 范围 | 说明 |
+|------|------|
+| 200 | 成功 |
+| 400 | 请求参数错误 |
+| 401 | 未认证 |
+| 403 | 无权限 |
+| 404 | 资源不存在 |
+| 500 | 服务器错误 |
+
+## 认证授权
+
+- 使用 JWT Token
+- Authorization: Bearer <token>
+- 敏感接口需登录验证

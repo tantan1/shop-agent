@@ -1,0 +1,179 @@
+---
+description: 前端代码规范 - Vue 3组件、API封装、Pinia Store、Element Plus
+globs: "**/*.{vue,ts,tsx}"
+alwaysApply: false
+---
+
+# Vue 3 前端企业级规范
+
+## 目录结构
+```
+src/
+├── api/          # API 接口
+├── components/   # 公共组件
+├── composables/  # 组合式函数
+├── layouts/     # 布局
+├── router/     # 路由
+├── stores/     # 状态管理
+├── styles/     # 样式
+├── utils/      # 工具函数
+└── views/     # 页面
+```
+
+## 组件规范
+```vue
+<template>
+  <div class="user-profile">
+    <el-card>
+      <template #header>
+        <span>{{ title }}</span>
+      </template>
+      <!-- 内容 -->
+    </el-card>
+  </div>
+</template>
+
+<script setup lang="ts">
+interface Props {
+  title: string
+  userId?: number
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  userId: 0
+})
+
+const emit = defineEmits<{
+  (e: 'update', value: string): void
+  (e: 'refresh'): void
+}>()
+</script>
+
+<style scoped lang="scss">
+.user-profile {
+  // 样式
+}
+</style>
+```
+
+## API 封装
+```typescript
+// api/user.ts
+import request from '@/utils/request'
+
+export function getUserById(id: number) {
+  return request.get(`/api/users/${id}`)
+}
+
+export function createUser(data: UserCreateDTO) {
+  return request.post('/api/users', data)
+}
+```
+
+## 类型定义
+```typescript
+// types/user.ts
+export interface User {
+  id: number
+  username: string
+  nickname?: string
+}
+
+export interface UserCreateDTO {
+  username: string
+  password: string
+}
+```
+
+## Request 封装
+```typescript
+// utils/request.ts
+import { ElMessage } from 'element-plus'
+
+const request = axios.create({
+  baseURL: '/api',
+  timeout: 10000
+})
+
+request.interceptors.response.use(
+  response => {
+    const { code, message, data } = response.data
+    if (code === 200) {
+      return data
+    }
+    ElMessage.error(message)
+    return Promise.reject(new Error(message))
+  },
+  error => {
+    ElMessage.error(error.message)
+    return Promise.reject(error)
+  }
+)
+
+export default request
+```
+
+## Pinia Store
+```typescript
+// stores/user.ts
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+export const useUserStore = defineStore('user', () => {
+  const user = ref<User | null>(null)
+  const token = ref<string>('')
+
+  async function login(username: string, password: string) {
+    const data = await loginApi(username, password)
+    token.value = data.token
+    user.value = data.user
+  }
+
+  function logout() {
+    user.value = null
+    token.value = ''
+  }
+
+  return { user, token, login, logout }
+})
+```
+
+## Element Plus 规范
+- 使用 ElMessage 而非 alert
+- 表单验证规则对象
+- 使用 ElDialog 对话框
+
+```typescript
+const rules = {
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' }
+  ],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    { min: 6, message: '密码长度不能少于6位', trigger: 'blur' }
+  ]
+}
+```
+
+## 错误处理
+```typescript
+try {
+  await getUserById(id)
+} catch (error) {
+  ElMessage.error('获取用户信息失败')
+}
+```
+
+## Loading 状态
+```typescript
+const loading = ref(false)
+
+async function fetchData() {
+  loading.value = true
+  try {
+    await getData()
+  } finally {
+    loading.value = false
+  }
+}
+```

@@ -1,0 +1,154 @@
+---
+description: Java 代码规范 - Spring Boot分层、命名、统一响应、异常处理
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Java Spring Boot 企业级规范
+
+## 分层结构
+```
+├── controller    # 接口层
+├── service     # 业务逻辑
+├── mapper     # 数据访问 (Mapper)
+├── entity     # 实体
+├── dto        # 数据传输对象
+├── vo        # 视图对象
+└── config    # 配置
+```
+
+## 命名规范
+- Controller: XxxController
+- Service: XxxService / XxxServiceImpl
+- Mapper: XxxMapper
+- Entity: Xxx
+- DTO: XxxDTO
+- VO: XxxVO
+
+## Controller 规范
+```java
+@RestController
+@RequestMapping("/api/users")
+@RequiredArgsConstructor
+@Tag(name = "用户管理", description = "用户相关接口")
+public class UserController {
+    private final UserService userService;
+
+    @Operation(summary = "获取用户详情")
+    @GetMapping("/{id}")
+    public Result<UserVO> getById(@PathVariable Long id) {
+        return Result.success(userService.getUserById(id));
+    }
+
+    @Operation(summary = "创建用户")
+    @PostMapping
+    public Result<Long> create(@Valid @RequestBody UserCreateDTO dto) {
+        return Result.success(userService.createUser(dto));
+    }
+}
+```
+
+## Service 规范
+- 使用接口 + 实现类
+- 方法事务注解 @Transactional
+- 业务逻辑封装
+- 日志记录
+
+```java
+@Service
+@RequiredArgsConstructor
+public class UserServiceImpl implements UserService {
+    private final UserMapper userMapper;
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public Long createUser(UserCreateDTO dto) {
+        // 业务逻辑
+        return userMapper.insert(user);
+    }
+}
+```
+
+## DTO 设计
+```java
+@Data
+public class UserCreateDTO {
+    @NotBlank(message = "用户名不能为空")
+    private String username;
+
+    @NotBlank(message = "密码不能为空")
+    @Size(min = 6, max = 20)
+    private String password;
+}
+```
+
+## VO 设计
+```java
+@Data
+public class UserVO {
+    private Long id;
+    private String username;
+    private String nickname;
+}
+```
+
+## 统一响应
+```java
+@Data
+public class Result<T> {
+    private Integer code;
+    private String message;
+    private T data;
+
+    public static <T> Result<T> success(T data) {
+        Result<T> result = new Result<>();
+        result.setCode(200);
+        result.setMessage("success");
+        result.setData(data);
+        return result;
+    }
+}
+```
+
+## 异常处理
+- 自定义业务异常 BusinessException
+- @RestControllerAdvice 全局异常处理
+- 异常包含错误码和消息
+
+```java
+@ExceptionHandler(BusinessException.class)
+public Result<Void> handleBusinessException(BusinessException e) {
+    return Result.error(e.getCode(), e.getMessage());
+}
+```
+
+## 常用注解
+| 场景 | 注解 |
+|------|------|
+| 参数校验 | @Valid |
+| 事务 | @Transactional |
+| 路径参数 | @PathVariable |
+| 请求参数 | @RequestParam |
+| 请求体 | @RequestBody |
+| 响应体 | @ResponseBody |
+
+## 日志规范
+- 使用 Lombok @Slf4j
+- 关键操作记录日志
+- 异常记录完整堆栈
+
+```java
+@Slf4j
+@Service
+public class UserServiceImpl {
+    public void createUser(UserCreateDTO dto) {
+        log.info("创建用户: {}", dto.getUsername());
+        try {
+            // 业务逻辑
+        } catch (Exception e) {
+            log.error("创建用户失败", e);
+            throw e;
+        }
+    }
+}
+```

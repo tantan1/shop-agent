@@ -1,0 +1,62 @@
+---
+description: 项目通用规范 - 项目结构、前后端约定、数据库约定、技术栈
+globs: "**/*.vue,**/*.ts,**/*.tsx,**/*.java,**/*.py"
+alwaysApply: false
+---
+
+# 项目通用规范
+
+## 项目结构
+
+| 目录 | 说明 |
+|------|------|
+| shop-mall | C端商城 (Nuxt.js 3) |
+| shop-merchant | B端商户后台 (Vue 3 + Vite) |
+| shop-admin-platform | 平台管理后台 (Vue 3 + Vite) |
+| shop-platform | 电商平台后端 (Java Spring Boot) |
+| shop-customer-service | 智能客服微服务 (Python FastAPI) |
+
+## API 代理配置
+
+```typescript
+// vite.config.ts
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8083',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api/, ''), // 配合后端 context-path: /api
+    },
+  },
+}
+```
+
+## 前后端约定
+
+- 后端: `server.servlet.context-path: /api`
+- 前端: 请求 `/api/*` → 代理到后端根路径
+- API 规范: RESTful，基础路径 `/api`
+
+## 数据库约定
+
+- MySQL: 8.0+
+- 统一数据库: shop_platform
+- 表名: 蛇形命名 (snake_case)
+- 公共字段: id, create_time, update_time
+
+## 技术栈
+
+### 前端
+- C端: Nuxt.js 3 + Element Plus
+- B端: Vue 3 + Vite + Element Plus
+- 状态管理: Pinia
+
+### 后端
+- Java: Spring Boot + MyBatis-Plus
+- Python: FastAPI
+
+## 代码规范
+
+- 遵循对应语言/框架的代码风格规范
+- 配置文件外部化，环境变量管理敏感信息
+- 避免硬编码

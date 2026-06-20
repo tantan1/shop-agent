@@ -1,0 +1,60 @@
+---
+description: Git 工作流规范 - 分支策略、提交规范、PR流程
+globs: "**/*"
+alwaysApply: false
+---
+
+# Git 工作流规范
+
+## 分支策略
+
+| 分支 | 用途 | 生命周期 |
+|------|------|---------|
+| main | 主分支 | 长期 |
+| develop | 开发分支 | 长期 |
+| feature/* | 功能开发 | 短期 |
+| hotfix/* | 紧急修复 | 短期 |
+| release/* | 发布准备 | 短期 |
+
+## 提交规范
+
+### 提交信息格式
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+### Type 类型
+- `feat`: 新功能
+- `fix`: 修复bug
+- `docs`: 文档
+- `style`: 代码格式
+- `refactor`: 重构
+- `test`: 测试
+- `chore`: 构建/工具
+
+### 示例
+```
+fix(user): 修复用户登录验证问题
+
+解决登录页验证码输入错误后无法刷新问题
+
+Closes #123
+```
+
+## 分支命名
+
+- 功能: `feature/user-login`
+- 修复: `fix/login-validation`
+- 发布: `release/v1.0.0`
+
+## 合规流程
+
+1. 从 develop 创建分支
+2. 开发并提交
+3. 创建 Pull Request
+4. 代码审查
+5. 合并到 develop

@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf /)",
+      "Bash(git push --force *)",
+      "Bash(chmod 777 *)",
+      "Bash(> /dev/sda*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(.git/**)",
+      "Edit(docker-compose.yml)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(docker *)",
+      "Bash(pip install *)",
+      "Bash(npm install *)",
+      "Bash(python -m pip *)",
+      "WebFetch(domain:*)",
+      "Edit(**/config.py)",
+      "Write(**/config.py)"
+    ],
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(npm run *)",
+      "Bash(python -m pytest *)",
+      "Bash(pip list)",
+      "Read(**)"
+    ]
+  }
+}
