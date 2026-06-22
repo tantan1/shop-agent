@@ -12,7 +12,7 @@
 - **情绪检测** — `SentimentService` 级联分类器（L1 关键词 <1ms → L2 本地模型 ~30ms → L3 云端 LLM 兜底），舆情风险（如"打12315"）立即升级不走后续管线
 - **Token 预算截断** — 用户输入超 `MAX_USER_MESSAGE_TOKENS` 时智能截断（`keep_both_ends` 策略，保留首 40%+尾 20%，中间插入省略标记）
 - **意图识别** — 基于 FAISS 向量匹配进行本地意图分类（`IntentRecognizer`），识别 `query-order`、`check-shipping`、`request-return`、`check-balance`、`coupon-inquiry` 五种业务意图，支持否定词过滤（含"退货政策/退款流程/怎么退"等咨询类模式 → 直接走 RAG）和 LLM 兜底模式
-- **路由分发** — 意图命中后，先做纠纷协调检测（情绪 angry + 退货意图 → `DisputeCoordinator` 三方协调），再根据复杂性检测分发：
+- **路由分发** — 意图命中后，先做纠纷协调检测（情绪 angry + 退货意图 → `DisputeCoordinator` 三方协调，含 **Redis 分布式锁**防重复执行），再根据复杂性检测分发：
   - **纠纷协调**：BuyerAgent（买方诉求）+ SellerAgent（卖方立场）并行分析 → MediatorAgent 调停裁决
   - **ReAct Agent**：多步意图（含推理/条件判断/退货类），由 `ReActAgent` 自主决策
   - **直接 Tool 调用**：简单意图，参数抽取后直接调用对应工具，零额外 LLM 开销
@@ -259,6 +259,14 @@ flowchart TD
 - **MediatorAgent**：串行等待两者结果后调停裁决（基于平台规则）
 
 所有 Agent 复用同一 LLM 实例，仅 prompt 不同。支持 Mock 事实数据（无远程 API 时自动降级）。
+
+**Redis 分布式锁防重**：纠纷协调流程执行前，通过 `RedisCacheService.acquire_lock()` 获取分布式锁（key = `dispute:{conversation_id}:{order_id}`，TTL 5 分钟）。若锁已被占用则直接返回"处理中"提示，防止以下场景的重复执行：
+- 用户连续快速点击发送按钮
+- 前端或网关自动重试
+- 消息队列 at-least-once 重复投递
+- 服务异常恢复后状态重放
+
+锁使用 Lua 脚本原子释放（仅 token 匹配时删除），防止误释放其他持有者的锁。Redis 不可用时锁降级为无锁通过，不阻塞主流程。
 
 ### Agent 安全设计
 

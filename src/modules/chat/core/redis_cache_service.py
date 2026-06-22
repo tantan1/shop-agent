@@ -2,12 +2,15 @@
 Redis 向量缓存服务
 使用 Redis Stack 的向量相似度搜索（VSS）功能
 存储最近对话历史和高频问题，实现问题去重
+
+同时提供分布式锁能力，用于防止纠纷协调等关键流程的重复执行。
 """
 
 import hashlib
 import json
 import re
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -25,6 +28,18 @@ QUESTION_EMBEDDINGS_KEY = f"{KEY_PREFIX}question_embeddings"  # 向量索引
 CONVERSATION_HISTORY_KEY = f"{KEY_PREFIX}conversation:{{conversation_id}}"  # 对话历史
 FREQUENT_QUESTIONS_KEY = f"{KEY_PREFIX}frequent_questions"  # 高频问题
 QUESTION_CACHE_KEY = f"{KEY_PREFIX}question_cache"  # 问题缓存（用于快速查找）
+
+# ── 分布式锁 ──────────────────────────────────────────────────────────
+LOCK_KEY_PREFIX = f"{KEY_PREFIX}lock:"
+
+# Lua 脚本：原子释放锁（仅当持有者 token 匹配时删除）
+_RELEASE_LOCK_SCRIPT = """
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+else
+    return 0
+end
+"""
 
 # 配置（从 chat_config 读取，无配置时使用默认值）
 MAX_RECENT_CONVERSATIONS = 5  # 最近对话数量
@@ -631,6 +646,71 @@ class RedisCacheService:
             logger.error(f"清理过期对话失败: {str(e)}")
             return 0
     
+    # =========================================================================
+    # 分布式锁（用于防止关键流程重复执行）
+    # =========================================================================
+
+    async def acquire_lock(self, lock_name: str, ttl_seconds: int = 60) -> str | None:
+        """获取分布式锁。
+
+        使用 Redis ``SET key value NX EX ttl`` 原子操作实现，
+        返回一个唯一的 lock_token（UUID），锁持有者凭 token 才能释放锁。
+
+        Args:
+            lock_name: 锁名称（会自动加上 ``LOCK_KEY_PREFIX`` 前缀）
+            ttl_seconds: 锁的 TTL，超时后自动释放，防止死锁（默认 60s）
+
+        Returns:
+            锁令牌（UUID hex 字符串），获取失败返回 ``None``
+        """
+        if not self.is_available:
+            logger.warning(f"Redis 不可用，分布式锁降级通过: {lock_name}")
+            return None
+
+        lock_key = f"{LOCK_KEY_PREFIX}{lock_name}"
+        lock_token = uuid.uuid4().hex
+
+        try:
+            acquired = self._client.set(lock_key, lock_token, nx=True, ex=ttl_seconds)
+            if acquired:
+                logger.debug(f"分布式锁获取成功: {lock_name}, token={lock_token[:8]}...")
+                return lock_token
+            else:
+                logger.warning(f"分布式锁获取失败（已被占用）: {lock_name}")
+                return None
+        except redis.RedisError as e:
+            logger.error(f"分布式锁获取异常，降级通过: {lock_name}, {str(e)}")
+            return None
+
+    async def release_lock(self, lock_name: str, lock_token: str) -> bool:
+        """释放分布式锁。
+
+        使用 Lua 脚本保证原子性：仅当锁的当前值与 token 匹配时才删除，
+        防止误释放其他持有者的锁。
+
+        Args:
+            lock_name: 锁名称
+            lock_token: 获取锁时返回的令牌
+
+        Returns:
+            是否成功释放
+        """
+        if not self.is_available or not lock_token:
+            return False
+
+        lock_key = f"{LOCK_KEY_PREFIX}{lock_name}"
+
+        try:
+            result = self._client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token)
+            if result:
+                logger.debug(f"分布式锁释放成功: {lock_name}")
+            else:
+                logger.debug(f"分布式锁释放跳过（token 不匹配或已过期）: {lock_name}")
+            return bool(result)
+        except redis.RedisError as e:
+            logger.error(f"分布式锁释放异常: {lock_name}, {str(e)}")
+            return False
+
     def close(self) -> None:
         """关闭 Redis 连接"""
         if self._client:

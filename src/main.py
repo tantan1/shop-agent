@@ -35,6 +35,7 @@ from src.modules.items.routers import router as reports_router
 from src.modules.chat.routers import router as chat_router
 from src.modules.chat.routers_mockapi import router as mockapi_router
 from src.modules.chat.a2a_routers import router as a2a_router
+from src.modules.chat.digital_human.digital_human_router import router as digital_human_router
 from src.modules.monitoring.router import router as monitoring_router
 from src.modules.monitoring.metrics import app_info
 from src.core.rate_limiter import get_rate_limiter
@@ -221,6 +222,7 @@ app.include_router(chat_router, prefix=config.API_V1_PREFIX)
 app.include_router(mockapi_router, prefix=config.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=config.API_V1_PREFIX)
 app.include_router(a2a_router)  # A2A 端点不带 API 前缀，直接 /a2a/*
+app.include_router(digital_human_router, prefix=config.API_V1_PREFIX)
 
 
 @app.get("/health", include_in_schema=False)

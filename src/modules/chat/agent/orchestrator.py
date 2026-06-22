@@ -549,33 +549,80 @@ class AgentOrchestrator:
             emotion_result=emotion_result,
             intent_action=intent_result.action,
         ):
-            logger.info(
-                "触发纠纷协调流程",
-                action=intent_result.action,
-                emotion=emotion_result.level.name if emotion_result else "unknown",
-                params=intent_result.params,
-            )
-            t0 = _time.perf_counter()
-            dispute_coordinator = self._ensure_dispute_coordinator()
-            response = await dispute_coordinator.resolve(
-                request=request,
-                emotion_result=emotion_result,
-                conversation_id=conversation_id,
-                domain=domain,
-                intent_steps=intent_steps,
-                order_id=intent_result.params.get("order_id") if intent_result.params else None,
-                langfuse_handler=langfuse_handler,
-            )
-            t_dispute = (_time.perf_counter() - t0) * 1000
-            t_total = (_time.perf_counter() - t_handler_start) * 1000
-            logger.debug(
-                "Agent编排耗时统计 [remote_api→dispute]",
-                duration_total_ms=round(t_total, 1),
-                duration_params_ms=round(t_params, 1),
-                duration_dispute_ms=round(t_dispute, 1),
-                action=intent_result.action,
-            )
-            return response
+            order_id = intent_result.params.get("order_id") if intent_result.params else None
+
+            # ── 分布式锁：防止纠纷协调流程重复执行 ──
+            # 锁 key = dispute:{conversation_id}:{order_id}
+            # 同一会话 + 同一订单的纠纷协调任务全局唯一，避免用户刷新/重试
+            # 或异常恢复时重复触发（如 FastAPI 重试、消息队列 at-least-once 投递）
+            lock_name = f"dispute:{conversation_id}:{order_id or 'unknown'}"
+            lock_token: str | None = None
+            if self._redis_cache_service and self._redis_cache_service.is_available:
+                lock_token = await self._redis_cache_service.acquire_lock(
+                    lock_name,
+                    ttl_seconds=300,  # 纠纷协调包含多轮 LLM 调用，预留 5 分钟
+                )
+                if lock_token is None:
+                    logger.warning(
+                        "纠纷协调流程已在执行中，跳过重复触发",
+                        conversation_id=conversation_id,
+                        order_id=order_id,
+                        lock_name=lock_name,
+                    )
+                    return ChatResponse(
+                        message="您的问题正在处理中，请稍候片刻，我们正在为您核实相关信息…",
+                        conversation_id=conversation_id,
+                        steps=intent_steps + [{
+                            "step_name": "纠纷协调-分布式锁",
+                            "step_order": len(intent_steps),
+                            "status": "skipped",
+                            "output_data": {
+                                "reason": "lock_busy",
+                                "lock_name": lock_name,
+                                "detail": "同一纠纷协调任务正在执行中",
+                            },
+                        }],
+                        documents_used=[],
+                        safety_passed=True,
+                        stream_available=True,
+                        domain=domain,
+                        status="processing",
+                    )
+
+            try:
+                logger.info(
+                    "触发纠纷协调流程",
+                    action=intent_result.action,
+                    emotion=emotion_result.level.name if emotion_result else "unknown",
+                    params=intent_result.params,
+                    lock_name=lock_name,
+                    lock_acquired=lock_token is not None,
+                )
+                t0 = _time.perf_counter()
+                dispute_coordinator = self._ensure_dispute_coordinator()
+                response = await dispute_coordinator.resolve(
+                    request=request,
+                    emotion_result=emotion_result,
+                    conversation_id=conversation_id,
+                    domain=domain,
+                    intent_steps=intent_steps,
+                    order_id=order_id,
+                    langfuse_handler=langfuse_handler,
+                )
+                t_dispute = (_time.perf_counter() - t0) * 1000
+                t_total = (_time.perf_counter() - t_handler_start) * 1000
+                logger.debug(
+                    "Agent编排耗时统计 [remote_api→dispute]",
+                    duration_total_ms=round(t_total, 1),
+                    duration_params_ms=round(t_params, 1),
+                    duration_dispute_ms=round(t_dispute, 1),
+                    action=intent_result.action,
+                )
+                return response
+            finally:
+                # ── 释放分布式锁 ──
+                if lock_token and self._redis_cache_service:
+                    await self._redis_cache_service.release_lock(lock_name, lock_token)
 
         # ---- 复杂性门控 ----
         if intent_result.complexity == "multi_step":

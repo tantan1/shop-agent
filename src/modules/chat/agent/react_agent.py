@@ -19,13 +19,32 @@ Skill SOP 注入：
 - 启动时：SkillLoader 读取 frontmatter + 正文（body）存入 SkillRegistry
 - 运行时：P0/P1/P2 确定工具后，反向查找命中 skill，将正文内联注入 system prompt
 - 无额外 LLM 调用开销，无 prompt injection 风险（SOP 在 system role）
+
+Agent Rules 注入（仿 Claude Code rules/ 机制）：
+- 所有规则定义在 agent-rules/*.md 文件中，支持 YAML frontmatter 声明作用域
+- 新增/修改规则只需编辑 .md 文件，重启服务即生效
+- 启动时一次性加载所有 .md 并缓存
+- 每次请求按意图 + 工具过滤，只注入匹配的规则（避免 token 浪费和语义污染）
+- 与 Skill SOP 分层：Rules = 通用行为约束，Skill SOP = 场景操作指引
+
+规则作用域声明（YAML frontmatter）：
+  ---
+  intents: [request-return, query-order]   # 只在指定意图下生效
+  tools: [request-return]                  # 只在对应工具被选中时生效
+  always: false                            # 设为 false 时不再全局注入
+  ---
+  三者 AND 关系：全部满足才注入。不写 frontmatter 默认 always: true（全局规则）。
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Set, Union
+
+import yaml
 
 import faiss
 import numpy as np
@@ -358,6 +377,136 @@ class EmbeddingToolMatcher:
 
 
 # ════════════════════════════════════════════════════════════════════════
+# Agent Rules 加载器 —— 仿 Claude Code rules/ 机制，支持 YAML frontmatter 作用域过滤
+# ════════════════════════════════════════════════════════════════════════
+
+_RULES_DIR = Path(__file__).resolve().parents[4] / "agent-rules"
+
+
+@dataclass
+class Rule:
+    """单条 Agent 规则的结构化表示。
+
+    从 agent-rules/*.md 的 YAML frontmatter + Markdown 正文解析而来。
+    """
+    name: str                    # 文件名（不含扩展名），如 "agent-behavior"
+    body: str                    # 去掉一级标题后的 Markdown 正文
+    intents: set[str] = field(default_factory=set)   # 作用域：仅这些意图下生效
+    tools: set[str] = field(default_factory=set)     # 作用域：仅这些工具被选中时生效
+    always: bool = True          # 无 frontmatter 或未声明 always 时默认全局
+
+
+_RULES: list[Rule] | None = None  # 启动时加载后缓存，不热更新
+
+
+def _load_rules() -> list[Rule]:
+    """扫描 agent-rules/*.md，解析 YAML frontmatter + Markdown 正文。
+
+    返回结构化 Rule 列表。启动时缓存，不热更新。
+    与 SKILL.md 的 YAML frontmatter 格式保持一致（三横线分隔）。
+
+    无 frontmatter 的 .md 默认 always=True（全局规则），兼容已有规则文件。
+    """
+    global _RULES
+    if _RULES is not None:
+        return _RULES
+
+    _RULES = []
+    if not _RULES_DIR.is_dir():
+        logger.info("agent-rules/ 目录不存在，跳过规则加载")
+        return _RULES
+
+    for md_file in sorted(_RULES_DIR.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8").strip()
+            if not content:
+                continue
+
+            # 解析 YAML frontmatter（与 SKILL.md 一致的三横线分隔）
+            frontmatter: dict = {}
+            body = content
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    try:
+                        frontmatter = yaml.safe_load(parts[1]) or {}
+                    except yaml.YAMLError:
+                        logger.warning(f"规则文件 YAML frontmatter 解析失败: {md_file}")
+                    body = parts[2].strip()
+
+            # 去掉 markdown 一级标题（文件名即规则名）
+            lines = body.split("\n")
+            if lines and lines[0].startswith("# "):
+                lines = lines[1:]
+            body = "\n".join(lines).strip()
+
+            if not body:
+                continue
+
+            _RULES.append(Rule(
+                name=md_file.stem,
+                body=body,
+                intents=set(frontmatter.get("intents", []) or []),
+                tools=set(frontmatter.get("tools", []) or []),
+                always=frontmatter.get("always", not frontmatter),  # 无 frontmatter → 全局
+            ))
+        except Exception:
+            logger.warning(f"读取规则文件失败: {md_file}")
+
+    # 日志：区分全局规则 vs 作用域规则
+    global_rules = [r for r in _RULES if r.always]
+    scoped_rules = [r for r in _RULES if not r.always]
+    logger.info(
+        f"已加载 {len(_RULES)} 条 Agent 规则",
+        global_count=len(global_rules),
+        scoped_count=len(scoped_rules),
+        global_names=[r.name for r in global_rules],
+        scoped_names=[r.name for r in scoped_rules],
+    )
+    return _RULES
+
+
+def _filter_rules(
+    rules: list[Rule],
+    intent: str | None,
+    tool_names: set[str],
+) -> str:
+    """根据当前意图和选中工具过滤规则，返回拼接后的规则文本。
+
+    过滤逻辑（AND 关系）：
+    - always=True → 始终注入
+    - intents 非空 → intent 必须在 intents 集合中
+    - tools 非空 → tool_names 与 tools 必须有交集（即至少一个匹配工具被选中）
+    - 三者都未声明（never=False 且 intents/tools 均为空）→ 等同于全局规则
+
+    Args:
+        rules: 结构化 Rule 列表
+        intent: 当前意图 action（如 "request-return"、"query-order"）
+        tool_names: 当前选中的工具名称集合
+
+    Returns:
+        过滤后拼接的规则文本，无匹配时返回空字符串
+    """
+    blocks: list[str] = []
+    for rule in rules:
+        # 全局规则始终注入
+        if rule.always:
+            blocks.append(rule.body)
+            continue
+
+        # intent 匹配：未声明 intents 的不限制
+        intent_match = (not rule.intents) or (intent in rule.intents)
+
+        # tool 匹配：未声明 tools 的不限制
+        tool_match = (not rule.tools) or bool(rule.tools & tool_names)
+
+        if intent_match and tool_match:
+            blocks.append(rule.body)
+
+    return "\n\n---\n\n".join(blocks) if blocks else ""
+
+
+# ════════════════════════════════════════════════════════════════════════
 # System prompt
 # ════════════════════════════════════════════════════════════════════════
 
@@ -639,7 +788,7 @@ class ReActAgent:
 
     # ── Agent 构建 ────────────────────────────────────────────────────
 
-    def _build_graph(self, tools: List | None = None, checkpointer=None):
+    def _build_graph(self, tools: List | None = None, checkpointer=None, intent: str | None = None):
         """
         构建 LangChain create_agent。
 
@@ -650,9 +799,13 @@ class ReActAgent:
         Skill SOP 注入：
         - 根据选中工具反向查找命中 skill，将正文内联到 system prompt，无额外 LLM 调用
 
+        Agent Rules 过滤：
+        - 按 intent + tool_names 只注入匹配的作用域规则 + 全局规则
+
         Args:
             tools: 工具列表。None 时使用全量工具池。
             checkpointer: LangGraph checkpointer（用于 Time Travel）。None 时不启用。
+            intent: 当前意图 action（用于按需注入 Agent Rules）。None 时仅注入全局规则。
         """
         llm = self._llm_service.qwen_llm
         if llm is None:
@@ -666,9 +819,9 @@ class ReActAgent:
         if tool_count > 3:
             middleware = [_get_tool_selector_middleware(self._llm_service)]
 
-        # 动态拼装 system prompt（base 核心指令 + 命中 skill 的 SOP）
+        # 动态拼装 system prompt（base 核心指令 + Agent Rules + 命中 skill 的 SOP）
         tool_names = {getattr(t, "name", "") for t in selected_tools}
-        prompt = self._build_system_prompt(tool_names)
+        prompt = self._build_system_prompt(tool_names, intent=intent)
 
         graph = create_agent(
             model=llm,
@@ -680,13 +833,27 @@ class ReActAgent:
         # 设置 graph 级默认 recursion_limit，防止无穷循环
         return graph.with_config({"recursion_limit": self._max_iterations * 2 + 2})
 
-    def _build_system_prompt(self, tool_names: set[str]) -> str:
-        """动态拼装 system prompt：base 核心指令 + 情绪 tone + 命中 skill 的 SOP 正文。
+    def _build_system_prompt(self, tool_names: set[str], intent: str | None = None) -> str:
+        """动态拼装 system prompt：base 核心指令 + Agent Rules + 情绪 tone + 命中 skill 的 SOP 正文。
 
         按 tool_name → skill.allowed_tools 反向查找，注入对应的操作指引。
         不注入 knowledge_search 的 SOP（它不是业务 skill）。
+
+        Agent Rules 仿 Claude Code rules/ 机制：
+        启动时扫描 agent-rules/*.md，每次请求按 intent + tool_names 过滤，
+        只注入匹配的作用域规则 + 全局规则（注入的规则量随场景自适应）。
+        新增/修改规则只需编辑 .md 文件，重启生效。
         """
         prompt = _REACT_SYSTEM_PROMPT  # 纯静态核心指令
+
+        # ── Agent Rules（按 intent + 工具过滤，只注入相关规则）──
+        rules_text = _filter_rules(
+            _load_rules(),
+            intent=intent,
+            tool_names=tool_names,
+        )
+        if rules_text:
+            prompt += "\n\n## 行为规则（来自 agent-rules/）\n" + rules_text
 
         # ── 情绪驱动的回复语气（在 base prompt 之后、SOP 之前）──
         if self._emotion_result and self._emotion_result.level != EmotionLevel.NEUTRAL:
@@ -782,7 +949,7 @@ class ReActAgent:
 
         # 使用共享的 MemorySaver 启用 checkpointer（人在回路的 interrupt() 必需）
         memory_saver = MemorySaver()
-        agent_graph = self._build_graph(tools=selected_tools, checkpointer=memory_saver)
+        agent_graph = self._build_graph(tools=selected_tools, checkpointer=memory_saver, intent=intent_result.action)
 
         # 构造增强消息（意图上下文作为提示）
         params_str = ""

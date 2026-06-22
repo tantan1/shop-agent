@@ -28,6 +28,13 @@ from mcp.server.fastmcp import FastMCP
 
 from src.modules.chat.agent.skill_loader import get_skill_registry, SkillDef
 from src.modules.chat.core.tool_registry import ToolService
+from src.core.permissions import (
+    ClientInfo,
+    get_client_accessible_tools,
+    set_current_client,
+    clear_current_client,
+)
+from src.core.config import config as app_config
 from src.shared.logger import APILogger
 
 logger = APILogger("mcp_server")
@@ -64,13 +71,16 @@ def _normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {k: v for k, v in params.items() if v not in (None, "")}
 
 
-def _make_tool_fn(action: str, schema: dict, ts: ToolService):
+def _make_tool_fn(action: str, schema: dict, ts: ToolService, client: ClientInfo | None = None):
     """动态生成带类型注解的工具函数，使 FastMCP 能自动推断 inputSchema。
 
     原理：FastMCP.add_tool() 从函数签名的参数类型注解生成 JSON Schema。
     因此我们需要为每个 tool 动态创建一个签名为
         async def fn(param1: str|None = None, param2: str|None = None) -> str
     的函数。
+
+    当 client 不为 None 且 PERMISSION_ENABLED 为 True 时，
+    在 dispatch 前注入调用方上下文并在 dispatch 后清除。
     """
     props = schema.get("properties", {})
 
@@ -79,13 +89,19 @@ def _make_tool_fn(action: str, schema: dict, ts: ToolService):
         async def _no_param_fn() -> str:
             logger.info("MCP tools/call", action=action)
             try:
-                return await ts.dispatch(action, {})
+                if client is not None and app_config.PERMISSION_ENABLED:
+                    set_current_client(client)
+                result = await ts.dispatch(action, {})
+                return result
             except Exception as e:
                 logger.error("MCP tool 执行失败", action=action, error=str(e))
                 return json.dumps(
                     {"error": f"工具 {action} 执行失败: {str(e)}"},
                     ensure_ascii=False,
                 )
+            finally:
+                if client is not None and app_config.PERMISSION_ENABLED:
+                    clear_current_client()
         _no_param_fn.__name__ = action.replace("-", "_")
         return _no_param_fn
 
@@ -105,12 +121,15 @@ def _make_tool_fn(action: str, schema: dict, ts: ToolService):
 
     body_parts.extend([
         f"_logger.info('MCP tools/call', action=action, params=clean_params)",
+        f"if _client is not None and _perm_enabled: _set_current_client(_client)",
         "try:",
         f"    result = await _ts.dispatch(action, clean_params)",
         f"    return result",
         "except Exception as _e:",
         f"    _logger.error('MCP tool 执行失败', action=action, error=str(_e))",
         f"    return json.dumps({{'error': f'工具 {{action}} 执行失败: {{str(_e)}}'}}, ensure_ascii=False)",
+        "finally:",
+        f"    if _client is not None and _perm_enabled: _clear_current_client()",
     ])
 
     body_source = "\n".join("    " + line for line in body_parts)
@@ -119,7 +138,14 @@ def _make_tool_fn(action: str, schema: dict, ts: ToolService):
         f"{body_source}\n"
     )
 
-    namespace = {"_ts": ts, "_logger": logger}
+    namespace = {
+        "_ts": ts,
+        "_logger": logger,
+        "_client": client,
+        "_set_current_client": set_current_client,
+        "_clear_current_client": clear_current_client,
+        "_perm_enabled": app_config.PERMISSION_ENABLED,
+    }
     exec(fn_source, namespace)
     fn = namespace["_fn"]
     fn.__name__ = action.replace("-", "_")
@@ -132,6 +158,7 @@ def create_mcp_server(
     host: str = "127.0.0.1",
     port: int = 3001,
     streamable_http_path: str = "/",
+    client_info: Optional[ClientInfo] = None,
 ) -> FastMCP:
     """创建 MCP Server 实例，自动注册所有 Skill 对应的 Tool。
 
@@ -141,6 +168,10 @@ def create_mcp_server(
         host:                  SSE/HTTP 模式监听地址
         port:                  SSE/HTTP 模式监听端口
         streamable_http_path:  Streamable HTTP 端点路径（挂载时设 "/"，独立运行时用默认 "/mcp"）
+        client_info:           调用方身份信息。传入时：
+                               - tools/list 只返回该调用方有权访问的工具
+                               - tools/call 注入 client 上下文以触发 dispatch 层权限校验
+                               为 None 时行为与旧版完全一致（全量工具 + 无权限校验）
 
     Returns:
         FastMCP 实例，可直接 .run(transport="stdio"/"streamable-http") 或接入 FastAPI
@@ -150,9 +181,19 @@ def create_mcp_server(
     registry = get_skill_registry()
     registered_count = 0
 
+    # ── 基于调用方身份过滤可注册的工具 ──
+    if client_info is not None and app_config.PERMISSION_ENABLED:
+        allowed = get_client_accessible_tools(client_info)
+    else:
+        allowed = None  # None = 不过滤，全量注册
+
     for skill in registry.skills:
+        if allowed is not None and skill.name not in allowed:
+            logger.info(f"MCP 工具过滤（权限不足）: {skill.name}", client=client_info.client_id if client_info else "N/A")
+            continue
+
         input_schema = _build_input_schema(skill)
-        tool_fn = _make_tool_fn(skill.name, input_schema, ts)
+        tool_fn = _make_tool_fn(skill.name, input_schema, ts, client=client_info)
 
         mcp.add_tool(
             tool_fn,
@@ -165,6 +206,7 @@ def create_mcp_server(
     logger.info(
         f"MCP Server 初始化完成: {server_name}",
         tool_count=registered_count,
+        client=client_info.client_id if client_info else "anonymous",
     )
     return mcp
 

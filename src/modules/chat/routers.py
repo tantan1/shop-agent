@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, Request
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.shared.database import get_db
-from src.modules.auth.dependencies import verify_api_key
+from src.modules.auth.dependencies import verify_api_key, get_current_client
+from src.core.permissions import ClientInfo
 from src.core.rate_limiter import get_rate_limiter
 from src.modules.chat.services import ChatAgentService
 from src.modules.chat.schemas import (
@@ -189,53 +190,11 @@ async def agent_chat(
     request: ChatRequest,
     req: Request,
     _: None = Depends(verify_api_key),
+    current_client: ClientInfo = Depends(get_current_client),
     chatagent_service: ChatAgentService = Depends(get_chatagent_service),
     _rl: None = Depends(get_rate_limiter().dependency(max_requests=15, window_seconds=60)),
 ):
-    """
-    使用通用 Agent 进行多步骤对话
-
-    Agent 流程：
-    1. 需求分析 - 分析用户购物需求，提取关键信息
-    2. 合规检查 - 检查商品信息是否合规
-    3. 商品检索 - 使用 RAG 组件从知识库检索相关商品
-    4. 商品推荐 - 基于检索结果生成推荐回复
-
-    支持的领域 (domain 参数):
-    - ecommerce: 电商客服（默认）
-    - medical: 医疗客服
-    - customer_service: 通用客服
-    - general: 通用助手
-
-    HTTP 请求示例:
-    ```bash
-    curl -X POST 'http://localhost:8000/api/chatagent/agent/chat' \\
-      -H 'X-API-Key: your-api-key' \\
-      -H 'Content-Type: application/json' \\
-      -d '{
-        "message": "我想买一款续航久的无线耳机",
-        "stream": false,
-        "domain": "ecommerce"
-      }'
-    ```
-
-    响应示例:
-    ```json
-    {
-      "code": 200,
-      "message": "success",
-      "data": {
-        "message": "根据您的需求，为您推荐...",
-        "conversation_id": "conv_1234567890",
-        "steps": [...],
-        "documents_used": [...],
-        "safety_passed": true,
-        "stream_available": true,
-        "domain": "ecommerce"
-      }
-    }
-    ```
-    """
+    
     # ── 设置 Token 限流上下文 ──
     try:
         from src.core.config import config as core_config
@@ -277,6 +236,20 @@ async def agent_chat(
             pass
         return success_response(data=response.model_dump())
     except Exception as e:
+        # 处理工具权限不足
+        if "ToolPermissionError" in type(e).__name__:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "code": 403,
+                    "message": "error",
+                    "data": {
+                        "error": str(e),
+                        "permission_denied": True,
+                    },
+                },
+            )
         # 处理 TokenLimitExceeded
         if "TokenLimitExceeded" in type(e).__name__:
             from fastapi.responses import JSONResponse

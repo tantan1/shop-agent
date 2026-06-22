@@ -10,9 +10,25 @@ import httpx
 
 from src.shared.logger import APILogger
 from src.core.config import config
+from src.core.permissions import (
+    get_current_client,
+    check_tool_permission,
+)
 from src.modules.chat.core.mcp_client import get_mcp_client
 
 logger = APILogger("tool_service")
+
+
+class ToolPermissionError(PermissionError):
+    """工具权限不足异常"""
+
+    def __init__(self, tool_name: str, role: str, client_id: str):
+        self.tool_name = tool_name
+        self.role = role
+        self.client_id = client_id
+        super().__init__(
+            f"权限不足：调用方 {client_id}（角色 {role}）无权调用工具 '{tool_name}'"
+        )
 
 
 class ToolService:
@@ -146,6 +162,16 @@ class ToolService:
         优先级：MCP Client（远程 MCP 协议）> 本地注册表 > HTTP REST API > 本地 mock
         """
         params = params or {}
+
+        # ── 权限检查：基于角色的工具访问控制 ──
+        if config.PERMISSION_ENABLED:
+            client = get_current_client()
+            if client is not None and not check_tool_permission(client, action):
+                raise ToolPermissionError(
+                    tool_name=action,
+                    role=client.role.value,
+                    client_id=client.client_id,
+                )
 
         # ── 优先级 1：MCP Client（通过 MCP 协议调用远程工具）──
         mcp_result = await self._try_mcp_dispatch(action, params)

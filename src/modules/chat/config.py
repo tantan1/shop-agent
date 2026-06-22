@@ -75,6 +75,16 @@ class ChatConfig:
     # L3 LLM 归一化（默认关闭，需 API 调用）
     synonym_normalize_llm_enabled: bool = config.SYNONYM_NORMALIZE_LLM_ENABLED
 
+    # TTS 配置
+    tts_provider: str = config.TTS_PROVIDER
+    baidu_tts_api_key: str = config.BAIDU_TTS_API_KEY
+    baidu_tts_secret_key: str = config.BAIDU_TTS_SECRET_KEY
+
+    # 数字人配置
+    avatar_provider: str = config.AVATAR_PROVIDER
+    baidu_avatar_api_key: str = config.BAIDU_AVATAR_API_KEY
+    baidu_avatar_secret_key: str = config.BAIDU_AVATAR_SECRET_KEY
+
 
 chat_config = ChatConfig()
 

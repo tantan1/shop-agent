@@ -128,6 +128,19 @@ class Settings(BaseSettings):
     MCP_CLIENT_SERVERS: str = ""
     MCP_CLIENT_ENABLED: bool = False  # 是否启用 MCP Client 模式
 
+    # 基于角色的工具权限控制（默认关闭，生产环境按需开启）
+    PERMISSION_ENABLED: bool = False
+
+    # TTS 配置
+    TTS_PROVIDER: str = "edge"  # edge | baidu
+    BAIDU_TTS_API_KEY: str = ""
+    BAIDU_TTS_SECRET_KEY: str = ""
+
+    # 数字人配置
+    AVATAR_PROVIDER: str = "static"  # static | baidu
+    BAIDU_AVATAR_API_KEY: str = ""
+    BAIDU_AVATAR_SECRET_KEY: str = ""
+
     @property
     def database_url(self) -> str:
         """构建数据库连接URL"""
