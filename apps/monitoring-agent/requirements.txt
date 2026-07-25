@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+httpx
+prometheus-client
+python-dotenv
+redis
+psycopg2-binary
+kubernetes>=28.1.0

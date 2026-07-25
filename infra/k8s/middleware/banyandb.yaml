@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: banyandb-data
+  namespace: shop-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banyandb
+  namespace: shop-agent
+  labels: { app: banyandb }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: banyandb } }
+  template:
+    metadata: { labels: { app: banyandb } }
+    spec:
+      containers:
+      - name: banyandb
+        image: apache/skywalking-banyandb:0.8.0
+        args:
+        - standalone
+        - --stream-root-path=/data/stream
+        - --measure-root-path=/data/measure
+        - --metadata-root-path=/data/metadata
+        - --property-root-path=/data/property
+        - --logging-level=info
+        ports:
+        - { containerPort: 17900, name: data }
+        - { containerPort: 17912, name: metadata }
+        - { containerPort: 17913, name: liaison }
+        - { containerPort: 6060, name: pprof }
+        volumeMounts:
+        - { name: data, mountPath: /data }
+        resources: { requests: { cpu: "250m", memory: "768Mi" }, limits: { cpu: "1", memory: "2Gi" } }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: banyandb-data }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: banyandb, namespace: shop-agent }
+spec:
+  selector: { app: banyandb }
+  ports:
+  - { name: data, port: 17900, targetPort: 17900 }
+  - { name: metadata, port: 17912, targetPort: 17912 }
+  - { name: liaison, port: 17913, targetPort: 17913 }

@@ -1,0 +1,41 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["venv", ".git", "__pycache__", "*.pyc"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+
+# 统一覆盖率配置：source 指向包名，omit 测试与生成物。
+# CI 中每个 app 输出 coverage.xml(Cobertura) + coverage.json 供合并汇总。
+[tool.coverage.run]
+source = ["monitoring_agent"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "monitoring_agent/__main__.py",
+]
+sigterm = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"

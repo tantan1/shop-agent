@@ -2,142 +2,140 @@
 
 基于 **RAG（检索增强生成）** 与 **Agent 编排** 构建的智能客服平台，面向电商场景提供 AI 对话服务。
 
+## 多应用架构
+
+```mermaid
+flowchart LR
+    Client[客户端 / Web] --> ShopAgent[智能客服核心<br/>shop-agent]
+    
+    ShopAgent --> OrderService[订单业务服务<br/>order-service]
+    ShopAgent --> Monitoring[监控代理<br/>monitoring-agent]
+    
+    ShopAgent --> Gateway
+    Monitoring --> Gateway
+    
+    Gateway --> LLM[云端大模型<br/>通义千问]
+    
+    subgraph 数据与基础设施
+        direction TB
+        Infra[向量数据库 / Redis / MySQL / 对象存储 / 监控栈]
+    end
+    
+    ShopAgent --> Infra
+    OrderService --> Infra
+    Monitoring --> Infra
+```
+
+| 应用 | 职责 | 技术栈 |
+|------|------|--------|
+| `apps/shop-agent` | 智能客服核心服务（Agent 编排、RAG、ReAct、MCP/A2A 协议） | Python 3.10+, FastAPI, LangChain/LangGraph |
+| `apps/gateway` | LLM 统一网关（路由、负载均衡、故障转移、限流），所有 LLM 流量的唯一出口 | Python 3.10+, LiteLLM Router |
+| `apps/monitoring-agent` | 监控与可观测性代理 | Python 3.10+ |
+| `apps/order-service` | 订单/物流/售后业务服务 | Rust |
+
 ## 功能概览
 
 ### 1. Agent 编排与路由
 
 系统采用 **Orchestrator 模式**（`AgentOrchestrator`），按以下流程统一处理请求：
 
-- **输入归一化** — 同义词归一化 `SynonymNormalizer`（L1 静态映射 <1ms + L2 文本标准化，默认开启；L3 LLM 兜底按配置关闭）
-- **情绪检测** — `SentimentService` 级联分类器（L1 关键词 <1ms → L2 本地模型 ~30ms → L3 云端 LLM 兜底），舆情风险（如"打12315"）立即升级不走后续管线
-- **Token 预算截断** — 用户输入超 `MAX_USER_MESSAGE_TOKENS` 时智能截断（`keep_both_ends` 策略，保留首 40%+尾 20%，中间插入省略标记）
-- **意图识别** — 基于 FAISS 向量匹配进行本地意图分类（`IntentRecognizer`），识别 `query-order`、`check-shipping`、`request-return`、`check-balance`、`coupon-inquiry` 五种业务意图，支持否定词过滤（含"退货政策/退款流程/怎么退"等咨询类模式 → 直接走 RAG）和 LLM 兜底模式
-- **路由分发** — 意图命中后，先做纠纷协调检测（情绪 angry + 退货意图 → `DisputeCoordinator` 三方协调，含 **Redis 分布式锁**防重复执行），再根据复杂性检测分发：
-  - **纠纷协调**：BuyerAgent（买方诉求）+ SellerAgent（卖方立场）并行分析 → MediatorAgent 调停裁决
-  - **ReAct Agent**：多步意图（含推理/条件判断/退货类），由 `ReActAgent` 自主决策
+- **输入归一化** — 同义词归一化 `SynonymNormalizer`（静态映射 <1ms + 文本标准化，默认开启；LLM 兜底按配置关闭）
+- **情绪检测** — `SentimentService` 级联分类器（关键词 <1ms → 本地模型 ~30ms → 云端 LLM 兜底），舆情风险立即升级不走后续管线
+- **Token 预算截断** — 用户输入超限时智能截断（`keep_both_ends` 策略，保留首尾内容）
+- **意图识别** — 基于向量匹配的本地意图分类，识别订单查询、物流查询、退货退款、余额查询、优惠券查询五种业务意图，支持否定词过滤（咨询类模式直接走 RAG）和 LLM 兜底模式
+- **路由分发** — 意图命中后，先做纠纷协调检测，再根据复杂性分发：
+  - **纠纷协调**：买方诉求 + 卖方立场并行分析 → 调停裁决，含分布式锁防重复执行
+  - **ReAct Agent**：多步意图（含推理/条件判断/退货类），Agent 自主决策
   - **直接 Tool 调用**：简单意图，参数抽取后直接调用对应工具，零额外 LLM 开销
-- **RAG Agent 兜底**：未命中意图的通用问答，走 `GeneralAgentExecutor` 的 4 步流水线（问题理解 → 内容审查 → 知识检索 → 回答生成）
-- **人在回路**：退款审批场景，Agent 自动暂停返回 `waiting_for_confirmation` 状态，管理员通过 `/agent/refund/confirm` 确认或拒绝
+  - **RAG Agent 兜底**：未命中意图的通用问答，走 4 步流水线（问题理解 → 内容审查 → 知识检索 → 回答生成）
+- **人在回路**：退款审批场景，Agent 自动暂停返回待确认状态，管理员通过接口确认或拒绝
 
 ### 2. ReAct Agent（工具调用 + RAG 融合）
 
 基于 LangChain `create_agent` + LangGraph `MemorySaver` 的 ReAct 循环，配套三层工具选择策略：
 
-- **P0 意图前置过滤**：`INTENT_TOOL_MAP`（Skill 注册表自动构建）→ 缩减候选工具池到 2-5 个
-- **P2 FAISS 语义重排**：用户 query × 工具描述 HNSW 向量相似度 + 意图加权 ×1.5 → Top-3/5
-- **P1 本地模型确认**：本地小模型（`LocalModelService`，加载 `LOCAL_PARAM_MODEL` 配置的模型）从 Top-3/5 中选出最相关的工具，含 P2 交叉校验（P1 丢弃 P2 top-1 时强制补回）；不可用时回退到 `LLMToolSelectorMiddleware` 云端兜底
+- **P0 意图前置过滤**：Skill 注册表自动构建候选映射 → 缩减候选工具池
+- **P1 语义重排**：用户 query × 工具描述向量相似度 + 意图加权 → Top-K
+- **P2 本地模型确认**：本地小模型从候选集中选出最相关的工具，不可用时回退到云端兜底
 
-Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 `skills/*/SKILL.md` 加载 YAML frontmatter + Markdown 正文到 `SkillRegistry`，运行时命中 Skill 后将 SOP 正文注入 system prompt，实现"增加新业务只改配置"。
+Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 `skills/*/SKILL.md` 加载定义到注册表，运行时命中 Skill 后将 SOP 注入 system prompt，实现"增加新业务只改配置"。
 
 ### 3. RAG 智能对话
 
 支持两种 RAG 路径：
-- **简单 RAG**（`/chat`）：Embedding → Milvus 向量检索 → LLM 生成，含输入归一化 + 输出内容安全过滤
-- **Agent RAG**（`/agent/chat` − `GeneralAgentExecutor`）：4 步流水线：
-  - Step 1 问题理解/改写（默认禁用，ecommerce domain）
-  - Step 2 内容安全审查（默认禁用，含本地小模型优先 + 云端 LLM 复核的双层策略）
-  - Step 3 知识检索（Milvus 2.6 原生混合检索 Dense + Sparse BM25 + NebulaGraph 图查询并行）
-  - Step 4 回答生成 + 规则质量评估（基于回答长度、检索上下文完整性、低质量模式检测打分）+ 输出安全过滤
-- **预计算向量复用**：execute() 入口预计算 question embedding，供 step3 检索复用，避免重复调用 Embedding API
-- **BGE-Reranker 重排序**：`RerankerService` 对检索结果按相关性重新打分和低相关截断（同步 CPU 推理通过 `loop.run_in_executor` 放入线程池）
-- **LLM 相关性过滤**：检索结果经 LLM 判断语义相关性，过滤无关文档（最多传 20 条给 LLM）
-- **NebulaGraph 图查询增强**：商品关系图谱（同品牌/兼容配件/替代品）与 Milvus 检索并行执行，结果注入 step4 prompt，解决纯向量检索无法处理的"同品牌有什么""这个商品有什么配件"类问题
+
+- **简单 RAG**：Embedding → 向量检索 → LLM 生成，含输入归一化 + 输出内容安全过滤
+- **Agent RAG**：4 步流水线：
+  - Step 1 问题理解/改写（默认禁用）
+  - Step 2 内容安全审查（默认禁用，含本地优先 + 云端复核的双层策略）
+  - Step 3 知识检索（混合检索 + 图查询并行）
+  - Step 4 回答生成 + 规则质量评估 + 输出安全过滤
+
+增强能力：
+- **预计算向量复用**：入口预计算 question embedding，供检索复用，避免重复调用 Embedding API
+- **Reranker 重排序**：对检索结果按相关性重新打分和截断，失败时不阻塞主流程
+- **LLM 相关性过滤**：检索结果经语义相关性判断，过滤无关文档
+- **图查询增强**：商品关系图谱与向量检索并行执行，结果注入 prompt，解决纯向量检索无法处理的关联推荐问题
 
 ### 4. 文档知识库管理
 
-支持向 Milvus 向量知识库导入文档，提供单条插入（`POST /chatagent/documents`）、批量插入（`POST /chatagent/documents/batch`）和文件上传（`POST /chatagent/documents/upload`，支持 `.txt` / `.md` / `.csv` / `.json` / `.xml` / `.html` / `.py` / `.java` 等常见文本格式）三种方式。内部两层切分策略：`SemanticChunker` 语义切分（`percentile` 模式，阈值 85）→ Token 安全兜底（超限 chunk 用 `RecursiveCharacterTextSplitter` 二次切分）。
+支持向向量知识库导入文档，提供单条插入、批量插入和文件上传三种方式。内部两层切分策略：语义切分 → Token 安全兜底二次切分。
 
 ### 5. 商品嵌入与搜索
 
-支持将商品标题向量化存入 Milvus（`POST /chatagent/items/embed`），批量嵌入（`POST /chatagent/items/embed/batch`），及文件上传嵌入（`POST /chatagent/items/embed/file`，`.txt/.tsv/.csv`）。支持 Milvus 混合检索搜索商品（`POST /chatagent/items/search`），按 item_id 去重。
+支持将商品标题向量化存入向量数据库，批量嵌入，及文件上传嵌入。支持混合检索搜索商品，按商品 ID 去重。
 
 ### 6. 企业信息查询
 
-基于 MySQL 的 `Enterprise` 模型（企业名称/信用代码/法人/注册资本/经营范围/经营状态/风险等级等），Repository 层支持模糊匹配、精确匹配、地区/行业筛选等多维度查询，路由前缀为 `/reports`（`src/modules/items`）。
+基于关系数据库的企业信息模型，Repository 层支持模糊匹配、精确匹配、地区/行业筛选等多维度查询。
 
 ### 7. 问题缓存去重
 
-基于 Redis Stack 的向量相似度搜索（`RedisCacheService`），支持 SHA256 精确哈希匹配与向量余弦相似度匹配双重策略。缓存回答经质量评估（规则打分 ≥ 6）后存储。同时支持对话历史存储（按 conversation_id 分 key，24 小时过期）和高频问题统计（Sorted Set），包含问题脱敏处理（移除电话号码、邮箱、身份证号、详细地址）。
+基于 Redis 的向量相似度搜索，支持精确哈希匹配与向量余弦相似度匹配双重策略。缓存回答经质量评估后存储。同时支持对话历史存储和高频问题统计，包含问题脱敏处理。
 
 ### 8. 内容安全过滤
 
-`ContentFilterService` 纯规则引擎（零 LLM 成本），提供：
+纯规则引擎（零 LLM 成本），提供：
 - **输入过滤**：拦截明显恶意/非法内容 + Prompt Injection 检测
-- **输出过滤**：按领域（medical/ecommerce/customer_service/general）配置 block/replace 关键词表，LLM 输出在返回用户前强制扫描
-- 纵深防御位置：编排器入口 → Agent step2 输入审查 → 执行器输出过滤
+- **输出过滤**：按领域配置关键词表，LLM 输出在返回用户前强制扫描
+- 纵深防御位置：编排器入口 → Agent 输入审查 → 执行器输出过滤
 
-### 9. Prometheus 可观测性
+### 9. 可观测性
 
-通过 `prometheus-fastapi-instrumentator` 自动暴露 HTTP 请求指标（排除 /health、/docs 等路径），同时定义了业务自定义指标（API 调用、数据库查询、Milvus 检索、Embedding 请求、Redis 缓存、Agent 对话轮次、Token 消耗、异常统计），并实现 LangChain 标准回调处理器（`PrometheusCallbackHandler`）追踪 LLM 调用、Embedding 请求、Agent 执行、Tool 调用等事件。
+- **Prometheus**：自动暴露 HTTP 请求指标，业务自定义指标（API 调用、数据库查询、向量检索、Embedding 请求、缓存、Agent 对话、Token 消耗、异常统计），LangChain 标准回调处理器追踪 LLM/Agent/Tool 事件
+- **SkyWalking**：gRPC 上报分布式链路追踪，与 Prometheus 互补，不可用时优雅降级
+- **Langfuse**：全链路追踪 LLM 调用、Agent 执行、意图识别、参数抽取、工具匹配，shutdown 时 flush 确保数据不丢失
 
-### 10. SkyWalking 分布式链路追踪
+### 10. 参数抽取
 
-通过 `skywalking_client` 集成 Apache SkyWalking Python Agent（gRPC 上报），为每个 HTTP 请求创建 EntrySpan 记录响应状态/耗时/异常，与 Prometheus 指标监控互补。优雅降级：SkyWalking 不可用时不影响主业务。
+支持四种模式，逐级兜底：
+- **local_strict**：纯正则 + 关键词，毫秒级，零 API，不降级
+- **local**：正则 → 失败降级本地模型 → 失败降级 LLM（默认）
+- **local_model**：本地小模型 → 失败降级 LLM
+- **llm**：结构化输出，最精准
 
-### 11. Langfuse 全链路追踪
+### 11. MCP 协议（Model Context Protocol）
 
-通过 `langfuse.langchain.CallbackHandler` + `propagate_attributes()` 上下文管理器（v4.x 规范）实现 LLM 调用、Agent 执行、意图识别、参数抽取、工具匹配等全链路追踪，每个请求创建独立 trace（session_id / tags / trace_name），应用 shutdown 时 flush 确保数据不丢失。
+基于 FastMCP 框架将 Skill 体系通过 MCP 协议对外暴露，使外部 AI 客户端可以调用本系统的业务工具。
 
-### 12. 参数抽取
-
-支持四种模式（`PARAM_EXTRACTION_MODE`），逐级兜底：
-- **local_strict**：纯正则 + 关键词（毫秒级，零 API），不降级
-- **local**：正则 → 失败降级 local_model → 失败降级 llm（默认）
-- **local_model**：transformers 本地小模型 → 失败降级 llm
-- **llm**：Qwen structured output，最精准
-
-### 13. MCP 协议（Model Context Protocol）
-
-基于 FastMCP 框架将 ToolService 的 Skill 体系通过 MCP 协议对外暴露，使外部 AI 客户端（Claude Desktop / n8n / 其他 Agent 框架）可以调用本系统的业务工具。
-
-**核心原则：MCP 对外，不对内**
-- 外部 Client 通过 MCP JSON-RPC 调用工具
-- 内部 ReActAgent 与 `ToolService.dispatch()` 同进程直调，不走网络开销
-
-**协议能力**：
-- `tools/list` — 从 `SkillRegistry` 自动生成 tool 列表及参数 schema（由函数类型注解自动推断）
+- **核心原则：MCP 对外，不对内** — 外部 Client 通过 JSON-RPC 调用，内部同进程直调
+- `tools/list` — 从 Skill 注册表自动生成 tool 列表及参数 schema
 - `tools/call` — 映射到 `ToolService.dispatch(action, params)`
+- 传输模式：`stdio` / `sse` / `streamable-http`，默认 `stdio`
 
-**传输模式**：支持 `stdio`（标准输入输出）和 `sse`（Server-Sent Events）两种 transport，通过 `MCP_TRANSPORT` 配置切换。默认使用 `stdio`，适合 Claude Desktop 等本地客户端。
+### 12. A2A 协议（Agent-to-Agent）
 
-**配套参数抽取器：SchemaDrivenExtractor**
-- 结构层从 MCP `inputSchema` 动态驱动字段列表，语义层只存"字段类型 → 正则"映射
-- 三层解耦：`_PATTERNS`（语义正则）+ `_FIELD_ALIASES`（字段名映射）+ `mcp_schema`（结构驱动）
-- 新增字段 / 字段改名无需改抽取核心逻辑，只加一行 alias 即可
+自研 A2A 协议，使外部 Agent 系统能够以标准化的方式发现能力、提交异步任务、共享对话上下文。
 
-**CLI 启动**：`python -m src.modules.chat.core.mcp_server [transport]`
-
-### 14. A2A 协议（Agent-to-Agent）
-
-自研 A2A 协议，使外部 Agent 系统能够以标准化的方式发现能力、提交异步任务、共享对话上下文。所有端点挂载在 `/a2a` 前缀下，无需外部 SDK 依赖。
-
-**能力发现**：
-- `GET /.well-known/agent-card.json` — 标准 A2A 能力发现端点（无需认证），动态从 `SkillRegistry` 和配置生成
-- `GET /api/v1/chatagent/agent/card` — API 前缀版本，返回 `AgentCard`（含 skills、capabilities、认证方式、速率限制、全部端点列表）
-- Agent Card 首次构建后缓存，命中 <1ms；启动时通过 `warmup_agent_card()` 预热
-
-**异步任务管理（`A2ATaskService`）**：
-- `POST /a2a/tasks/send` — 提交异步 Agent 任务，立即返回 `task_id`
-- `GET /a2a/tasks/{task_id}` — 轮询任务状态（pending → running → completed/failed/cancelled）
-- `POST /a2a/tasks/{task_id}/cancel` — 取消进行中的任务
-- `GET /a2a/tasks` — 分页列出所有任务
-- 后台通过 `asyncio.create_task` 异步执行，复用 `ChatAgentService.chat_with_agent()`
-
-**Webhook 回调通知（`A2AWebhookService`）**：
-- `POST /a2a/webhooks` — 注册回调订阅（支持 TTL 过期、事件过滤、HMAC 签名密钥）
-- `DELETE /a2a/webhooks/{subscription_id}` — 取消订阅
-- 任务完成后自动 `POST` 到 `callback_url`，附带 `X-A2A-Event` 和 `X-A2A-Signature`（HMAC-SHA256）头
-
-**对话上下文共享**：
-- `GET /a2a/conversations` — 列出对话摘要
-- `GET /a2a/conversations/{conversation_id}/messages` — 获取历史消息
-- 每次 Agent 对话完成自动注册到 A2A 内存存储，供其他 Agent 查询上下文
-
-**健康检查**：`GET /a2a/health` — 返回 LLM、Vector DB、Redis、MCP Server 等依赖状态
+- **能力发现**：`GET /.well-known/agent-card.json` 无需认证，动态生成，首次构建后缓存
+- **异步任务管理**：提交任务立即返回 `task_id`，后台异步执行，支持取消
+- **Webhook 回调通知**：任务完成后自动 POST 到回调地址，含 HMAC 签名
+- **对话上下文共享**：列出对话摘要、获取历史消息，供其他 Agent 查询
+- **健康检查**：返回 LLM、Vector DB、Redis、MCP Server 等依赖状态
 
 ---
 
-## 系统架构
+## shop-agent架构
 
 ### 编排队列
 
@@ -146,7 +144,7 @@ flowchart TD
     A[用户请求] --> B[AgentOrchestrator.chat_with_agent]
 
     B --> C[输入归一化<br/>SynonymNormalizer]
-    C --> C1[L1 静态同义词表 &lt;1ms]
+    C --> C1[L1 静态同义词表 <1ms]
     C --> C2[L2 文本标准化<br/>全角→半角、繁→简]
 
     C1 --> D
@@ -156,7 +154,7 @@ flowchart TD
     D --> D1["keep_both_ends 策略"]
 
     D1 --> E[情绪检测<br/>SentimentService]
-    E --> E1[L1 关键词 &lt;1ms]
+    E --> E1[L1 关键词 <1ms]
     E --> E2[L2 本地模型 ~30ms<br/>舆情风险立即升级]
 
     E1 --> F
@@ -164,7 +162,7 @@ flowchart TD
 
     F[意图识别<br/>IntentRecognizer]
     F --> F1[否定词过滤 → RAG 兜底]
-    F --> F2[FAISS 向量匹配 → call_remote_api]
+    F --> F2[向量匹配 → call_remote_api]
     F --> F3[默认 → rag_answer]
 
     F1 --> G
@@ -200,13 +198,13 @@ flowchart TD
 
 | 模块 | 职责 |
 |------|------|
-| `src/core` | 全局配置管理（Pydantic Settings），含 LLM/Embedding/Milvus/意图识别/参数抽取/NebulaGraph/Token 限流等全部配置项；Token 预估器（基于 HF tokenizers 的 Qwen3 BPE 编码，LRU 缓存）；速率限制器（Redis 滑动窗口 + 内存降级，含请求次数与 Token 消耗双维度） |
-| `src/shared` | 异步数据库引擎（SQLAlchemy 2.0 + aiomysql）、统一异常体系（BusinessException/401/403/404/422/500）、结构化日志（structlog）、统一响应格式（BaseResponse） |
-| `src/modules/auth` | Bearer Token API Key 认证鉴权（HTTPBearer + FIXED_API_KEY 比对），含 `get_current_user` / `require_admin` 依赖 |
-| `src/modules/chat` | 智能客服核心模块，含 A2A 协议路由（`a2a_routers.py`） |
-| `src/modules/chat/agent` | Agent 编排（`AgentOrchestrator`）+ 通用执行器（`GeneralAgentExecutor`）+ ReAct Agent（`ReActAgent`）+ Skill 加载器（`SkillLoader` / `SkillRegistry`）+ 提示词管理（`PromptTemplateManager`）+ 纠纷协调器（`DisputeCoordinator`） |
-| `src/modules/chat/core` | LLM 服务、Embedding 服务（local BGE / volcengine 可选）、Milvus 混合检索服务、Redis 缓存服务、意图识别器（FAISS）、文档服务（SemanticChunker）、Reranker 服务（BGE-Reranker-base）、工具注册与服务（`ToolService`）、本地模型服务（`LocalModelService`）、内容安全过滤（`ContentFilterService`）、同义词归一化（`InputNormalizer`）、情绪检测（`SentimentService`）、NebulaGraph 图查询服务、参数抽取器（`LocalParamExtractor` / `SchemaDrivenExtractor`）、MCP Server（`FastMCP`）、A2A 异步任务服务（`A2ATaskService`）、A2A Webhook 服务（`A2AWebhookService`）、Agent Card 构建器 |
-| `src/modules/items` | 企业信息查询（Enterprise 模型/Schema/Repository），路由注册为 `/reports` |
+| `src/core` | 全局配置管理、Token 预估器、速率限制器 |
+| `src/shared` | 异步数据库引擎、统一异常体系、结构化日志、统一响应格式 |
+| `src/modules/auth` | Bearer Token API Key 认证鉴权 |
+| `src/modules/chat` | 智能客服核心模块，含 A2A 协议路由 |
+| `src/modules/chat/agent` | Agent 编排、通用执行器、ReAct Agent、Skill 加载器、提示词管理、纠纷协调器 |
+| `src/modules/chat/core` | LLM 服务、Embedding 服务、向量检索服务、Redis 缓存服务、意图识别器、文档服务、Reranker 服务、工具注册与服务、本地模型服务、内容安全过滤、同义词归一化、情绪检测、图查询服务、参数抽取器、MCP Server、A2A 任务服务、A2A Webhook 服务、Agent Card 构建器 |
+| `src/modules/items` | 企业信息查询，路由前缀 `/reports` |
 | `src/modules/monitoring` | Prometheus 指标定义 + LangChain 回调 + Langfuse 回调 + SkyWalking 分布式追踪客户端 |
 
 ---
@@ -215,166 +213,221 @@ flowchart TD
 
 ### 大模型：通义千问（Qwen）
 
-通过 OpenAI 兼容模式接入阿里云 DashScope（`dashscope.aliyuncs.com/compatible-mode/v1`），默认模型为 `qwen3.6-flash-2026-04-16`。`LLMService` 采用单例模式，Agent 步骤 4 回答生成使用 `temperature=0.3`。P1 工具选择器云端兜底模型同样使用 `qwen3.6-flash-2026-04-16`。
+通过 OpenAI 兼容模式接入阿里云 DashScope，默认模型为 `qwen3.7-plus-2026-05-26`。`LLMService` 采用单例模式，Agent 回答生成使用 `temperature=0.3`。
 
 ### 嵌入模型：本地 BGE（可切换云端）
 
-默认使用本地 `BAAI/bge-small-zh-v1.5`（sentence-transformers），通过 `EMBEDDING_PROVIDER=local` 配置。考虑到全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存），统一不加指令前缀。
+默认使用本地 `BAAI/bge-small-zh-v1.5`，通过配置切换。全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存）统一不加指令前缀。
 
-### 意图识别：FAISS 本地优先
+### 意图识别：本地向量优先
 
-默认使用本地 FAISS 向量匹配（`INTENT_RECOGNITION_MODE=local`），使用类级别共享的 `faiss.IndexFlatIP` 索引（BGE 归一化向量，内积 = 余弦相似度），5 种业务意图各 4 条示例短语，相似度阈值 0.65。支持否定词过滤（含"退货政策/退款流程/怎么退/如何退/退货条件"等 10 种模式）、复杂性检测（含"为什么/怎么办/帮我处理/能不能"等 15 种触发模式 + 退货类永走 Agent + 边缘分数阈值 0.85）。支持 `llm` 模式兜底。
+默认使用本地向量匹配，5 种业务意图各若干示例短语，支持否定词过滤（咨询类模式直接走 RAG）、复杂性检测（退货类永走 Agent）和 LLM 兜底。
 
-### Milvus 混合检索策略
+### 混合检索策略
 
-使用 Milvus 2.6 原生混合检索（Dense HNSW + Sparse BM25），RRF 融合（`rrf_k=60`），COSINE 相似度度量。Reranker 开启时从 Milvus 多取 `top_k * 4` 条供 BGE-Reranker 重排序。检索结果经 LLM 相关性过滤（最多 20 条）。Step 1 预计算的 question embedding 复用于 step 3 首条查询，避免重复调用 Embedding API。Milvus HNSW 参数经消融实验调优：`efSearch=32`（非默认 50），`efConstruction=64`。
+使用原生混合检索（Dense HNSW + Sparse BM25），RRF 融合，开启 Reranker 时多取候选供重排序。检索结果经语义相关性过滤。预计算的 question embedding 复用于检索，避免重复调用 Embedding API。
 
-### BGE-Reranker 重排序
+### Reranker 重排序
 
-`RerankerService` 基于 `BAAI/bge-reranker-base` CrossEncoder 对 Milvus 检索结果重新打分，支持相关性阈值截断和 Top-K 截取。同步 CPU 推理通过 `asyncio.to_thread` / `loop.run_in_executor` 放入线程池，避免阻塞事件循环。Rerank 失败时不阻塞主流程，保留原始检索结果。
+基于 `BAAI/bge-reranker-base` CrossEncoder 对检索结果重新打分，支持相关性阈值截断和 Top-K 截取。CPU 推理放在独立线程池执行，避免阻塞事件循环。Rerank 失败时不阻塞主流程，保留原始检索结果。
 
 ### 同义词归一化：三级设计
 
-`InputNormalizer` 在编排器入口处统一处理用户输入：
-- **L1 静态同义词表**（<1ms）：将"不想要了/退了吧/申请退款"等变体归一化为标准术语，覆盖电商核心场景
+编排器入口处统一处理用户输入：
+- **L1 静态同义词表**（<1ms）：将常见变体归一化为标准术语
 - **L2 文本标准化**：全角→半角、繁体→简体、多余空格/标点清理
-- **L3 LLM 归一化**：调用 LLM 覆盖长尾表达（默认关闭，`SYNONYM_NORMALIZE_LLM_ENABLED=False`）
+- **L3 LLM 归一化**：调用 LLM 覆盖长尾表达（默认关闭）
 
 95% 的 case 在 L1+L2 完成，零 LLM 成本。
 
 ### 情绪检测：级联分类器
 
-`SentimentService` 三级级联：
+三级级联：
 - **L1 关键词**（<1ms）：匹配明确情绪信号
-- **L2 本地模型**（~30ms）：零样本分类，复用 `LocalModelService`
+- **L2 本地模型**（~30ms）：零样本分类
 - **L3 云端 LLM**（~300ms）：边界情况兜底，极少触发
 
-情绪等级 >= `DISAPPOINTED`（失望/愤怒/舆情风险）建议升级，`EMERGENCY`（"我要打12315"）强制立即升级并跳过后续管线。含 Session 情绪跟踪器（滑动窗口 + 趋势方向，支持预测性升级）。
+情绪等级超过阈值建议升级，紧急舆情风险强制立即升级并跳过后续管线。含 Session 情绪跟踪器（滑动窗口 + 趋势方向）。
 
 ### 纠纷协调器：多 Agent 三方协调
 
-`DisputeCoordinator` 在检测到愤怒情绪 + 退货意图时触发：
+检测到愤怒情绪 + 退货意图时触发：
 - **FactCollector**：收集客观事实（查订单/查物流/查政策）
-- **BuyerAgent** ∥ **SellerAgent**：并行分析买方诉求与卖方立场（互不依赖，降低延迟）
-- **MediatorAgent**：串行等待两者结果后调停裁决（基于平台规则）
+- **BuyerAgent ∥ SellerAgent**：并行分析买方诉求与卖方立场
+- **MediatorAgent**：串行等待两者结果后调停裁决
 
 所有 Agent 复用同一 LLM 实例，仅 prompt 不同。支持 Mock 事实数据（无远程 API 时自动降级）。
 
-**Redis 分布式锁防重**：纠纷协调流程执行前，通过 `RedisCacheService.acquire_lock()` 获取分布式锁（key = `dispute:{conversation_id}:{order_id}`，TTL 5 分钟）。若锁已被占用则直接返回"处理中"提示，防止以下场景的重复执行：
-- 用户连续快速点击发送按钮
-- 前端或网关自动重试
-- 消息队列 at-least-once 重复投递
-- 服务异常恢复后状态重放
+**分布式锁防重**：执行前获取分布式锁（TTL 5 分钟），防止重复执行。锁使用原子释放，Redis 不可用时降级为无锁通过。
 
-锁使用 Lua 脚本原子释放（仅 token 匹配时删除），防止误释放其他持有者的锁。Redis 不可用时锁降级为无锁通过，不阻塞主流程。
+### 安全设计
 
-### Agent 安全设计
-
-四层纵深防御（`ContentFilterService` + Step2 LLM 审查 + Step4 输出过滤）：
-- **输入过滤**（编排器入口）：规则引擎极保守拦截（仅阻断明显违法/色情/Prompt Injection），零 LLM 成本
-- **Step2 输入审查**（`GeneralAgentExecutor`）：默认禁用（ecommerce domain）。启用时分两级——本地小模型优先（省 API 费），失败/判非合规时升级云端 LLM 复核（防误拦）。结构化输出失败降级 JSON 解析 → 敏感关键词兜底
-- **输出过滤**（Step4 回答生成后）：强制规则引擎扫描 LLM 输出，block 关键词直接拦截，replace 关键词脱敏
-- **审查异常保守策略**：审查步骤 LLM 异常时默认高风险（`is_safe=False`），确保安全优先
+四层纵深防御：
+- **输入过滤**（编排器入口）：规则引擎极保守拦截，零 LLM 成本
+- **Agent 输入审查**：默认禁用，启用时分两级——本地优先，失败升级云端复核
+- **输出过滤**：强制规则引擎扫描 LLM 输出，block 关键词直接拦截，replace 关键词脱敏
+- **审查异常保守策略**：审查步骤异常时默认高风险，确保安全优先
 
 ### 文本分块策略
 
-使用 `langchain_experimental.text_splitter.SemanticChunker` 作为主切分策略（`percentile` 模式，阈值 85），通过向量相似度检测话题边界进行语义切分。超限 chunk 用 `RecursiveCharacterTextSplitter`（`chunk_size=3276, chunk_overlap=200`，分隔符 `["\n\n", "\n", "。", ".", " ", ""]`）做 Token 安全兜底。Embedding 模型最大输入 4096 tokens，取 80% 安全余量（3276 chars）。
+语义切分作为主切分策略，通过向量相似度检测话题边界。超限 chunk 用 Token 安全兜底二次切分。Embedding 模型最大输入 4096 tokens，取 80% 安全余量。
 
 ### 参数抽取：本地优先逐级兜底
 
-配置 `LOCAL_PARAM_MODEL = "./models/Qwen2.5-0.5B-Instruct"`，支持 `auto`/`cpu` 设备选择、4bit 量化。通过 `LocalModelService` 单例封装，支持 `max_retries=2` 重试机制。同一模型还作为 P1 工具选择本地兜底（`TOOL_SELECTOR_LOCAL_MODEL` 未单独配置时复用）。
+配置本地小模型路径，支持自动/CPU 设备选择、4bit 量化。同一模型还作为工具选择本地兜底。
 
-### NebulaGraph 图增强
+### 图增强
 
-商品关系图谱（同品牌/兼容配件/替代品），图查询与 Milvus 检索并行执行（不增加端到端延迟），结果注入 step4 prompt。处理了三大工程陷阱：边方向缺失（补齐 REVERSELY）、nGQL 管道在 nebula3 上的 Thrift 断言异常、LLM 看不懂简短标签需完整自然语言描述。未启用或查询无结果时返回空字符串静默降级。
+商品关系图谱（同品牌/兼容配件/替代品），图查询与向量检索并行执行（不增加端到端延迟），结果注入回答生成 prompt。未启用或查询无结果时静默降级。
 
 ### 统一异常体系
 
-分层异常类：`BusinessException(400)` → `AuthenticationException(401)` / `AuthorizationException(403)` / `NotFoundException(404)` / `ValidationException(422)` / `DatabaseException(500)`。通过 FastAPI 三层异常处理器注册（业务异常 → HTTP 异常 → 通用异常），统一拦截并返回 `ErrorResponse` 格式。
+分层异常类：业务异常(400) → 认证(401) / 授权(403) / 未找到(404) / 校验(422) / 数据库(500)。统一拦截并返回标准格式。
 
 ### 统一响应格式
 
-所有接口返回统一结构：
-```json
-{ "success": true, "code": 200, "message": "操作成功", "data": {...} }
-```
-通过 `success_response()` / `error_response()` 构建，基于 Pydantic `BaseResponse` / `SuccessResponse` / `ErrorResponse` 模型。
+所有接口返回统一结构，基于 Pydantic 模型构建。
 
 ### 结构化日志与脱敏
 
-使用 `structlog` 实现 JSON 格式结构化日志（开发环境可选彩色控制台输出）。关键设计：
-
-- `logging_middleware`：FastAPI 中间件自动记录每个请求的方法、URL、客户端 IP、User-Agent、状态码、处理耗时
-- `APILogger`：封装业务事件（`log_business_event`）、API 调用（`log_api_call`）、数据库操作（`log_database_operation`）的专用日志方法
-- **日志脱敏**：API Key 仅记录前 8 位（`api_key[:8] + "****"`）
+JSON 格式结构化日志，FastAPI 中间件自动记录每个请求的方法、URL、客户端 IP、User-Agent、状态码、处理耗时。API Key 仅记录前 8 位。
 
 ### 速率限制与 Token 消耗管控
 
-两层限流（`RateLimiter`）：
-- **请求次数限流**：Redis 滑动窗口 + 内存降级，全局中间件（排除 /health、/docs 等路径），Agent 端点额外 15req/60s 依赖注入限流
-- **Token 消耗限流**：基于 HF `tokenizers` Rust 引擎（Qwen3 全系列共用 BPE 词表，零 torch 依赖），Pre-check → LLM 调用 → Post-report 三阶段，`@lru_cache(maxsize=8192)` 缓存常用文本编码（命中率 >80%）
+两层限流：
+- **请求次数限流**：Redis 滑动窗口 + 内存降级
+- **Token 消耗限流**：基于 tokenizers 引擎，Pre-check → 调用 → Post-report 三阶段，LRU 缓存常用文本编码
 
-`TokenEstimator` 仅需 `tokenizer.json`（~10MB），微秒级估算。用户输入超 `MAX_USER_MESSAGE_TOKENS` 时使用 `keep_both_ends` 策略智能截断。
+用户输入超限时使用 `keep_both_ends` 策略智能截断。
 
 ### 对话历史管理
 
-基于 Redis 的对话历史存储（`RedisCacheService`）：
-- 按 `conversation_id` 分 key，每条消息截断到 4096 字符防撑爆 Redis
-- 24 小时过期，`max_history_turns` 控制返回条数
-- Step4 prompt 构建时从 Redis 获取历史，每条截断到 300 字符，限制 `max_history_turns` 条
-- Redis 不可用时返回空历史静默降级
+基于 Redis 的对话历史存储：
+- 按会话 ID 分 key，每条消息截断防撑爆 Redis
+- 过期时间控制，最大返回条数限制
+- 回答生成时从 Redis 获取历史，截断后注入 prompt
+- 不可用时返回空历史静默降级
 
 ### Token 消耗优化
 
-- 每篇检索文档截断到 800 字符后传给 LLM（`_MAX_DOC_CHARS = 800`）
-- 对话历史每条截断到 300 字符
-- LLM 相关性过滤最多传 20 条文档给 LLM 判断
-- Step 4 prompt 中多个占位符（product_info/knowledge_base/context）复用同一 `rag_context` 值
-- Prompt token 预算守卫：生成前估算 prompt tokens，超限时逐篇丢弃 RAG 文档 → 极端情况全部丢弃 RAG，纯 LLM 常识回答
-- `GeneralAgentExecutor.execute()` 预计算一次 question embedding，复用于缓存检查 + step3 检索
+- 检索文档截断后传给 LLM
+- 对话历史每条截断后注入
+- 相关性过滤限制文档数量
+- 回答生成 prompt 中多个占位符复用同一检索上下文
+- Prompt token 预算守卫：生成前估算，超限时逐篇丢弃检索文档，极端情况全部丢弃，纯模型常识回答
+- 入口预计算一次 question embedding，复用于缓存检查 + 检索
 
 ### 单品单例服务模式
 
-`LLMService`、`EmbeddingService`、`MilvusService`、`RedisCacheService`、`RerankerService`、`LocalModelService`、`ContentFilterService` 均采用单例模式（通过 `get_instance()` 实现），避免重复初始化连接和模型加载。
+LLM 服务、Embedding 服务、向量数据库服务、Redis 缓存服务、Reranker 服务、本地模型服务、内容安全过滤服务均采用单例模式，避免重复初始化连接和模型加载。
 
 ### 人在回路：退款审批
 
-`ReActAgent` 处理退款请求时，tool 函数正常返回字符串（非 `raise`/`interrupt()`），通过 `_pending_approval` 标志位 + 模块级 `_INTERRUPT_STORE` 字典传递中断上下文。Agent 返回 `status="waiting_for_confirmation"` 含 `interrupt_data`（order_id / reason），管理员通过 `POST /chatagent/agent/refund/confirm` 审批：
-- **确认**：直接 dispatch 退款操作 → 返回结果
-- **拒绝**：返回取消失败消息
-- 防御重复调用：LLM 重复调 request-return 时忽略并返回"已在处理中"
+处理退款请求时，通过状态标志位传递中断上下文。Agent 返回待确认状态含订单号/原因，管理员确认或拒绝。防御重复调用。
 
 ### Skill SOP 注入
 
-运行时命中 Skill 后将 SOP 正文内联注入 ReAct Agent 的 system prompt（含情绪 tone 提示、输入截断提醒），实现\"增加新业务只改配置\"。
+运行时命中 Skill 后将 SOP 正文内联注入 system prompt（含情绪 tone 提示、输入截断提醒），实现"增加新业务只改配置"。
 
 ### MCP Server：工具体系对外开放
 
-基于 `mcp.server.fastmcp.FastMCP` 实现，`create_mcp_server()` 启动时自动扫描 `SkillRegistry` 中所有 Skill，通过 `_make_tool_fn()` 动态生成带类型注解的 async 工具函数（`exec()` 编译），使 FastMCP 能自动推断 `inputSchema` 并在 `tools/list` 响应中返回完整 JSON Schema：
-
-- **自动注册**：新增 Skill 只需在 `skills/` 目录下创建 `SKILL.md`，MCP Server 重启后自动暴露为新 Tool，零代码改动
-- **参数 Schema 管理**：Skill 的参数定义集中在 `_build_input_schema()` 中，MCP 客户端可通过 `tools/list` 获取参数结构用于自动生成 UI 表单
-- **配置项**：`MCP_ENABLED`（默认 `False`，按需开启）、`MCP_SERVER_NAME`（`"shop-agent"`）、`MCP_TRANSPORT`（`"stdio"` / `"sse"` / `"streamable-http"`）
+基于 FastMCP 实现，启动时自动扫描 Skill 注册表中所有 Skill，动态生成带类型注解的 async 工具函数：
+- **自动注册**：新增 Skill 只需在 `skills/` 目录下创建定义文件，重启后自动暴露为新 Tool
+- **参数 Schema 管理**：Skill 的参数定义集中管理，客户端可通过 `tools/list` 获取参数结构
+- **配置项**：`MCP_ENABLED`（默认 `False`）、`MCP_SERVER_NAME`、`MCP_TRANSPORT`
 
 ### A2A 协议：自研架构决策
 
-- **无外部 SDK 依赖**：不引入 Google A2A 等第三方包，基于 FastAPI + asyncio 自研完整协议栈，减少依赖链和版本耦合风险
-- **内存存储 → Redis 升级路径**：当前 `A2ATaskService` 和对话上下文均使用内存 dict 存储（`max_tasks=10000`），代码注释标注了 Redis 升级接口，业务量增长时可无缝切换
-- **Agent Card 加速**：首次构建后缓存，命中 <1ms；`warmup_agent_card()` 在 FastAPI startup 事件中预热，避免首个请求阻塞
+- **无外部 SDK 依赖**：基于 FastAPI + asyncio 自研完整协议栈
+- **内存存储 → 升级路径**：当前使用内存存储，代码注释标注了持久化升级接口
+- **Agent Card 加速**：首次构建后缓存，命中 <1ms；启动时预热，避免首个请求阻塞
 - **A2A vs MCP 定位差异**：A2A 面向服务间互操作（异步任务 + 上下文共享），MCP 面向工具调用（同步 tools/list + tools/call），两者互补
 
 ### 基础设施容器化
 
 通过 `docker-compose.yml` 一键编排以下服务：
 
-- **etcd**（`quay.io/coreos/etcd:v3.5.25`）— Milvus 元数据存储
-- **MinIO**（`minio/minio:RELEASE.2024-12-18T13-15-44Z`）— Milvus 对象存储 + Langfuse bucket
-- **Milvus Standalone**（`milvusdb/milvus:v2.6.14`）— 向量数据库，端口 19530
-- **Redis Stack**（`redis/redis-stack-server:7.2.0-v14`）— 向量缓存 + 对话历史 + 速率限制，端口 6379
-- **Prometheus** — 监控指标采集，端口 9090
-- **Grafana** — 可视化仪表盘，端口 3001（映射到容器 3000）
-- **Langfuse Worker + Web**（`docker.io/langfuse/langfuse:3`）— LLM 追踪平台，Web 端口 3000
+- **etcd** — 元数据存储
+- **MinIO** — 对象存储
+- **Milvus Standalone** — 向量数据库
+- **Redis Stack** — 向量缓存 + 对话历史 + 速率限制
+- **Prometheus** — 监控指标采集
+- **Grafana** — 可视化仪表盘
+- **Langfuse** — LLM 追踪平台
 - **ClickHouse** — Langfuse 分析数据库
 - **PostgreSQL** — Langfuse 主数据库
 
-所有服务均配置健康检查，Milvus 依赖 etcd + MinIO，Langfuse 依赖 postgres + minio + redis + clickhouse。
+所有服务均配置健康检查。
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.10+
+- Rust 1.70+（order-service）
+- Docker & Docker Compose
+- NVIDIA GPU + CUDA 11.8+（本地模型/微调可选）
+
+### 安装
+
+1. 克隆仓库并进入项目目录
+2. 启动基础设施：etcd、MinIO、Milvus、Redis Stack、监控栈等
+3. 安装 shop-agent 依赖
+4. 配置环境变量：填入 API Key、数据库地址、Redis 地址等
+5. 启动服务
+
+### 验证
+
+- 健康检查：访问 `/api/chatagent/health`
+- 智能对话（Agent 路由）：POST `/api/chatagent/agent/chat`
+- 简单 RAG：POST `/api/chatagent/chat`
+
+### 运行测试
+
+各应用目录下运行测试命令。
+
+---
+
+## 版本与兼容性
+
+| 组件 | 版本/要求 |
+|------|-----------|
+| Python | 3.10+ |
+| FastAPI | 0.100+ |
+| LangChain | 0.1+ |
+| LangGraph | 0.0+ |
+| Milvus | 2.6+ |
+| Redis Stack | 7.2+ |
+| Rust (order-service) | 1.70+ |
+| NVIDIA Driver | 525+（本地模型推理） |
+| CUDA | 11.8+（本地模型推理） |
+
+---
+
+## 本地模型微调
+
+参数抽取模型使用 LLaMA-Factory 做 QLoRA 微调。
+
+### 训练 / 评测流程
+
+1. 生成基础训练集
+2. 训练 + 合并 LoRA + 评测对比 base vs sft
+3. 单独跑评测（模型已存在时）
+
+### GPU 验证
+
+判断 GPU 是否真正参与训练/推理，以 `nvidia-smi` 为准。
+
+判断标准：
+- `Memory-Usage` 显存占几 GB → 模型已加载到 GPU
+- `GPU-Util` 在训练 steps 阶段呈 50%–95% 抖动 → GPU 在算
+
+> Windows 任务管理器默认显示 **"3D"** 引擎占用率，CUDA 计算跑在独立的 **Cuda / Compute** 引擎上。需切换显示才能看到真实负载。
+
+### 训练提速配置
+
+- `per_device_train_batch_size: 8` + `gradient_accumulation_steps: 4`（有效 batch 仍为 32）
+- `preprocessing_num_workers: 4`（Windows 安全）
+- **注意**：`dataloader_num_workers > 0` 在 Windows + spawn 多进程下会因 transformers 局部闭包无法 pickle 而崩溃，故保持默认 0。

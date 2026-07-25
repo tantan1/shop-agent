@@ -1,0 +1,218 @@
+# LiteLLM Proxy 配置：LLM 流量网关（出口不变量 / 整体切换到 LiteLLM 后接替 apps/gateway 的路由与治理）。
+#
+# 对应仓库出口不变量（apps/gateway/tests/test_2b01_structure.py / test_2b02_routing.py）：
+#   gpt-*            → Azure 主 + OpenAI 同模型跨厂商备选（order 1 → 2）
+#   claude*          → AWS Bedrock（未配凭证时同上仅自身，避免静默直连第三方）
+#   qwen*(非本地统一) → 阿里百炼 DashScope（dashscope provider, compatible-mode）
+#   qwen3-unified / local/* / param / tool_select → vLLM（本地 GPU，served 名 qwen3-unified）
+#   mock*            → mock-llm（压测/联调用，独立 Go 上游）
+#   MOCK_CLOUD_OVERRIDE=1 → 使用 infra/litellm/litellm_config.mock.yaml（云端 API 全部改路由 mock）
+#
+# 所有密钥经环境变量注入（os.environ/ 语法，机器上线时由 secret 提供，不入库）。
+
+model_list:
+  # ── 云端：gpt-* → Azure 主 + OpenAI 供应商备（同模型跨厂商，order 1 → 2）─
+  # （与 gateway _backend_for_raw 的 m.startswith("gpt-") 分支一致：链 = azure → openai）
+  - model_name: "gpt-*"
+    litellm_params:
+      model: "azure/gpt-4o"
+      api_key: "os.environ/AZURE_OPENAI_API_KEY"
+      api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
+      api_version: "2024-08-01-preview"
+      order: 1
+      base_model: "azure/gpt-4o"
+  - model_name: "gpt-*"
+    litellm_params:
+      model: "openai/gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+      api_base: "os.environ/OPENAI_BASE_URL"
+      order: 2
+      base_model: "openai/gpt-4o"
+
+  # ── 云端：qwen*（非 qwen3-unified）→ 阿里百炼 DashScope（compatible-mode）─
+  # 精确名 qwen3-unified（下方本地组）优先于本通配，与 gateway 判断顺序一致。
+  - model_name: "qwen*"
+    litellm_params:
+      model: "dashscope/qwen3.7-plus-2026-05-26"
+      api_key: "os.environ/TONGYI_API_KEY"
+      api_base: "os.environ/TONGYI_API_BASE"
+      base_model: "dashscope/qwen3.7-plus-2026-05-26"
+
+  # ── 云端：claude* → AWS Bedrock（未配知凭证时回退 openai，避免静默直连第三方）─
+  # 与 apps/gateway/gateway/router.py::_backend_for_raw 的 claude 分支保持一致：
+  # primary = bedrock（AWS），chain 追加 openai_base_url 作为同模型跨厂商备选。
+  - model_name: "claude*"
+    litellm_params:
+      model: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+      order: 1
+      base_model: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
+  - model_name: "claude*"
+    litellm_params:
+      model: "openai/claude-3-5-sonnet-20241022"
+      api_key: "os.environ/OPENAI_API_KEY"
+      api_base: "os.environ/OPENAI_BASE_URL"
+      order: 2
+      base_model: "openai/claude-3-5-sonnet-20241022"
+
+  # ── 本地：vLLM qwen3-unified（统一 served 名，部署见 docker-compose.vllm.yml）─
+  # 路由键 qwen3-unified / local/* / param / tool_select 均指向同一 deployment。
+  # wildcard 组：以 model_name="local/*" 建组，vLLM 侧 served_model_name=qwen3-unified。
+  - model_name: "qwen3-unified"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      # 本地模型：不参与成本统计（vLLM 由 GPU 自持）
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "local/*"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "models/*"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "param"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "tool_select"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # ── mock*：压测 / 联调上游（apps/mock-llm，gateway 以 m.startswith("mock") 判定）─
+  - model_name: "mock*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # 其余未匹配 model：默认 openai（与 gateway 一致：其余 → openai）
+  - model_name: "*"
+    litellm_params:
+      model: "openai/gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+      api_base: "os.environ/OPENAI_BASE_URL"
+      order: 1
+      base_model: "openai/gpt-4o"
+
+# 治理（litellm 原生 guardrail 替代原 gateway 的注入/PII/合规三道）：pre_call 入境 + post_call 出境。
+guardrails:
+  - guardrail_name: "injection-report"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "pre_call"
+      # 入境：提示词注入检测（系统指令逃逸 / jailbreak 等），命中即 BLOCK（fail-closed）
+      categories:
+        - category: "prompt_injection_jailbreak"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "prompt_injection_system_prompt"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "prompt_injection_malicious_code"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "prompt_injection_data_exfiltration"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "prompt_injection_sql"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"
+      blocked_words:
+        - { keyword: "ignore previous instructions", action: "BLOCK", description: "system-prompt-evasion" }
+        - { keyword: "act as the system", action: "BLOCK", description: "role-usurpation" }
+
+  - guardrail_name: "pii-mask"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "post_call"
+      # 出境 PII 脱敏：整块加权识别 → MASK（对应原 gateway PII 引擎）
+      patterns:
+        - pattern_type: "prebuilt"
+          pattern_name: "us_ssn"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "email"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "us_phone"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "credit_card"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "generic_api_key"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "passport_china"
+          action: "MASK"
+
+  - guardrail_name: "compliance-block"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "pre_call"
+      # 06 合规护栏：确定性违禁/敏感话题字典，命中断言 BLOCK（fail-closed）。
+      # 内置固定示例词（电商域）；生产可从 GUARDRAILS_BLOCKLIST 环境变量覆盖。
+      categories:
+        - category: "harm_toxic_abuse"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "harmful_illegal_weapons"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "harmful_violence"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "medium"
+        - category: "harmful_self_harm"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"
+
+        - category: "harmful_child_safety"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"
+      # 中文命中的法定违禁语（示例），与 apps/gateway compliance 字典对齐；生产在此扩展
+      blocked_words:
+        - { keyword: "毒品", action: "BLOCK", description: "illegal-drugs" }
+        - { keyword: "枪支", action: "BLOCK", description: "illegal-weapons" }
+        - { keyword: "色情", action: "BLOCK", description: "pornography" }
+        - { keyword: "赌博", action: "BLOCK", description: "gambling" }
+        - { keyword: "诈骗", action: "BLOCK", description: "fraud" }
+        - { keyword: "刷单", action: "BLOCK", description: "fake-orders" }
+        - { keyword: "假货", action: "BLOCK", description: "counterfeit" }
+        - { keyword: "翻墙", action: "BLOCK", description: "vpn-evasion" }
+
+general_settings:
+  # 认证：管理端 master_key（所有请求体 require master key；业务服务经条款使用对应 key）
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  # 连接数 / 超时等对外
+  database_url: "os.environ/DATABASE_URL"   # postgres，承接 DB 化管理端（共享/命锁）
+  otel: false
+  enable_guardrails_logging: true

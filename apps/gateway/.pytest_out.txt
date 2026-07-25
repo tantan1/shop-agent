@@ -1,0 +1,36 @@
+............F.                                                           [100%]
+================================== FAILURES ===================================
+_____________________ test_e2e_stream_passthrough[stream] _____________________
+
+mock_upstream = ('http://127.0.0.1:56537', {'calls': 2, 'last_request_body': {'messages': [{'content': 'hi', 'role': 'user'}], 'model': 'gpt-4o'}})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000017C0A2CE210>
+
+    @pytest.mark.parametrize("mock_upstream", ["stream"], indirect=True)
+    def test_e2e_stream_passthrough(mock_upstream, monkeypatch):
+        """��ʽ SSE ��ʵ͸�����ҳ��� PII ������������"""
+        base_url, _ = mock_upstream
+        _point_gateway_to(monkeypatch, base_url)
+        client = _client()
+        r = client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+        )
+>       assert r.status_code == 200, r.text
+E       AssertionError: {"error": "all backends unavailable", "model": "gpt-4o"}
+E       assert 503 == 200
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\test_2b11_e2e_mock_server.py:257: AssertionError
+---------------------------- Captured stderr call -----------------------------
+[92m17:21:29 - LiteLLM:WARNING[0m: utils.py:2722 - register_model: model=74384121d105f73f0288a1d927a8e40a7c41d415b498ce130646ef10182fb9d8 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+------------------------------ Captured log call ------------------------------
+WARNING  LiteLLM:utils.py:2722 register_model: model=74384121d105f73f0288a1d927a8e40a7c41d415b498ce130646ef10182fb9d8 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+============================== warnings summary ===============================
+tests/test_2b02_routing.py::test_no_fallback_when_primary_ok
+  E:\workspace\shop-agent\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_2b11_e2e_mock_server.py::test_e2e_stream_passthrough[stream]
+1 failed, 13 passed, 1 warning in 9.13s

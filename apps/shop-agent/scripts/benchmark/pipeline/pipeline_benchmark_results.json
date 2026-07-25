@@ -1,0 +1,27 @@
+{
+  "p0": {
+    "narrowed_rate": 0.8654,
+    "narrowed_hits": 45,
+    "narrowed_misses": 7,
+    "fallbacks": 48,
+    "keyword_coverage": 0.52
+  },
+  "p0p1": {
+    "top1_hit_rate": 0.75,
+    "top1_hits": 75,
+    "top2_hit_rate": 0.85,
+    "top2_hits": 85,
+    "p1_salvages": 33
+  },
+  "p2": {
+    "hit_rate": 0.8,
+    "hits": 80,
+    "p50_latency_ms": 157.0,
+    "p99_latency_ms": 312.0
+  },
+  "config": {
+    "samples": 100,
+    "tools": 5,
+    "stage": "all"
+  }
+}

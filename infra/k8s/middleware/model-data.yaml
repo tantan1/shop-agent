@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-data
+  namespace: shop-agent
+  labels: { app: model-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi   # bge-small-zh (~130MB) + bge-reranker-base (~1.1GB)，留足余量
+  storageClassName: "${STORAGE_CLASS}"   # OKE: oci-bv / 本机: standard

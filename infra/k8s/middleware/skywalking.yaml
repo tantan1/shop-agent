@@ -1,0 +1,109 @@
+# SkyWalking 可观测（BanyanDB 存储 + OAP + UI）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banyandb
+  namespace: shop-agent
+  labels: { app: banyandb }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: banyandb } }
+  template:
+    metadata: { labels: { app: banyandb } }
+    spec:
+      containers:
+      - name: banyandb
+        image: ${SKYWALKING_BANYANDB_IMAGE}
+        args: ["standalone", "--stream-root-path=/tmp/stream", "--measure-root-path=/tmp/measure", "--metadata-root-path=/tmp/metadata", "--property-root-path=/tmp/property", "--logging-level=info"]
+        ports: [{ containerPort: 17900 }, { containerPort: 17912 }, { containerPort: 17913 }, { containerPort: 6060 }]
+        resources: { requests: { cpu: "250m", memory: "512Mi" }, limits: { cpu: "500m", memory: "1Gi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: banyandb, namespace: shop-agent }
+spec:
+  selector: { app: banyandb }
+  ports:
+  - { name: data, port: 17900, targetPort: 17900 }
+  - { name: metadata, port: 17912, targetPort: 17912 }
+  - { name: liaison, port: 17913, targetPort: 17913 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywalking-oap
+  namespace: shop-agent
+  labels: { app: skywalking-oap }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: skywalking-oap } }
+  template:
+    metadata: { labels: { app: skywalking-oap } }
+    spec:
+      containers:
+      - name: oap
+        image: ${SKYWALKING_OAP_IMAGE}
+        env:
+        - { name: SW_STORAGE, value: "banyandb" }
+        - { name: SW_STORAGE_BANYANDB_TARGETS, value: "banyandb:17912" }
+        # 开启原生 gRPC receiver（兼容 SkyWalking Python/Java/Go 客户端 v3 API）
+        - { name: SW_RECEIVER_DEFAULT, value: "default" }
+        # 开启 OTLP receiver（traces 必需），使 OTel Gateway 的 otlp/skywalking exporter 可送达。
+        # 注意：
+        #   1) enabledHandlers 默认只有 otlp-metrics,otlp-logs；必须显式加 otlp-traces 才能收 span。
+        #   2) OTel receiver 绑定在 receiver-sharing-server，其 gRPC/HTTP 端口默认 0（禁用），
+        #      须显式设 SW_RECEIVER_GRPC_PORT=4317 / 4318 才会监听（SkyWalking OTLP gRPC=4317, HTTP=4318）。
+        - { name: SW_OTEL_RECEIVER_ENABLED, value: "true" }
+        - { name: SW_OTEL_RECEIVER_ENABLED_HANDLERS, value: "otlp-metrics,otlp-logs,otlp-traces" }
+        - { name: SW_RECEIVER_GRPC_PORT, value: "4317" }
+        - { name: SW_RECEIVER_SHARING_REST_PORT, value: "4318" }
+        # OTLP traces handler 内部会把 OTLP span 转发到 receiver-zipkin（服务依赖/拓扑归并）；
+        # 不启用 zipkin receiver 会报 "receiver-zipkin missing"。显式启用（端口 9411）。
+        - { name: SW_RECEIVER_ZIPKIN, value: "default" }
+        # OTLP trace 以 Zipkin 格式存储，须启用 query-zipkin（Zipkin v2 查询 API，端口 9412，context path /zipkin）
+        # 才能从 OAP 检索 OTLP trace。
+        - { name: SW_QUERY_ZIPKIN, value: "default" }
+        # 压 JVM 堆上限（内存优化）：默认 Xmx 过大导致 OAP 常驻 ~3.5GB；显式限制后 ~2GB
+        - { name: JAVA_OPTS, value: "-Xmx1536m" }
+        ports: [{ containerPort: 11800 }, { containerPort: 12800 }, { containerPort: 4317 }, { containerPort: 4318 }, { containerPort: 9411 }, { containerPort: 9412 }, { containerPort: 3100 }]
+        resources: { requests: { cpu: "500m", memory: "1Gi" }, limits: { cpu: "2", memory: "2560Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: skywalking-oap, namespace: shop-agent }
+spec:
+  selector: { app: skywalking-oap }
+  ports:
+  - { name: grpc, port: 11800, targetPort: 11800 }
+  - { name: http, port: 12800, targetPort: 12800 }
+  - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+  - { name: otlp-http, port: 4318, targetPort: 4318 }
+  - { name: zipkin, port: 9411, targetPort: 9411 }
+  - { name: zipkin-query, port: 9412, targetPort: 9412 }
+  - { name: logql, port: 3100, targetPort: 3100 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywalking-ui
+  namespace: shop-agent
+  labels: { app: skywalking-ui }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: skywalking-ui } }
+  template:
+    metadata: { labels: { app: skywalking-ui } }
+    spec:
+      containers:
+      - name: ui
+        image: ${SKYWALKING_UI_IMAGE}
+        env: [{ name: SW_OAP_ADDRESS, value: "http://skywalking-oap:12800" }]
+        ports: [{ containerPort: 8080 }]
+        resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "250m", memory: "512Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: skywalking-ui, namespace: shop-agent }
+spec:
+  selector: { app: skywalking-ui }
+  ports: [{ port: 8080, targetPort: 8080 }]

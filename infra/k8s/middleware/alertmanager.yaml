@@ -1,0 +1,66 @@
+# Alertmanager（阶段六 6.2）：统一告警中枢。
+# 接收 Prometheus / Loki ruler 的告警，按 channel 路由到 monitoring-agent /ingest/alert（RCA 被叫醒）。
+# webhook 携带 Bearer <MONITORING_WEBHOOK_TOKEN>，与 monitoring-agent 的 _auth_ok 校验一致。
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: alertmanager-config, namespace: shop-agent }
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'channel']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'monitoring-agent'
+    receivers:
+      - name: 'monitoring-agent'
+        webhook_configs:
+          - url: 'http://monitoring-agent:80/ingest/alert'
+            send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials: '${MONITORING_WEBHOOK_TOKEN}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: shop-agent
+  labels: { app: alertmanager }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: alertmanager } }
+  template:
+    metadata: { labels: { app: alertmanager } }
+    spec:
+      containers:
+      - name: alertmanager
+        image: ${ALERTMANAGER_IMAGE}
+        args: ["--config.file=/etc/alertmanager/alertmanager.yml", "--web.listen-address=:9093"]
+        ports: [{ containerPort: 9093 }]
+        readinessProbe:
+          httpGet: { path: /-/ready, port: 9093 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: { path: /-/healthy, port: 9093 }
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        volumeMounts:
+        - { name: config, mountPath: /etc/alertmanager }
+        resources: { requests: { cpu: "50m", memory: "128Mi" }, limits: { cpu: "200m", memory: "512Mi" } }
+      volumes:
+      - name: config
+        configMap: { name: alertmanager-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: shop-agent
+spec:
+  selector: { app: alertmanager }
+  ports: [{ port: 9093, targetPort: 9093 }]

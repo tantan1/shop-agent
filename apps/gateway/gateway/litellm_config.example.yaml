@@ -1,0 +1,98 @@
+# LiteLLM Router model_list 生产级示例（01 §4 / 02 §4）
+# 配 GATEWAY_LITELLM_CONFIG_PATH 指向本文件即由 Router 接管路由/负载均衡/重试/fallback。
+# 未配该路径时，网关按 config.build_model_list()（legacy 字段）自动生成等价 model_list。
+#
+# 字段说明：
+#   model_name         : 网关对业务暴露的路由键（与 proxy 收到的 model 字段对齐）
+#   litellm_params.model : 实际上游模型名（裸名，配合 custom_llm_provider）
+#   litellm_params.custom_llm_provider : 显式 provider，避免未知模型名推断失败
+#   litellm_params.api_base : 上游 OpenAI 兼容端点
+#   litellm_params.api_key  : 上游密钥（生产用 env 注入，勿硬编码）
+#   同 model_name 多条 deployment => Router 自动负载均衡 + 故障转移（02 §4 语义）
+
+model_list:
+  # 本地 GPU 统一模型（vLLM 提供 qwen3-unified served-model-name）
+  - model_name: qwen3-unified
+    litellm_params:
+      model: qwen3-unified
+      custom_llm_provider: openai
+      api_base: http://vllm-qwen3:8000/v1
+  - model_name: tool_select
+    litellm_params:
+      model: qwen3-unified
+      custom_llm_provider: openai
+      api_base: http://vllm-qwen3:8000/v1
+  - model_name: param
+    litellm_params:
+      model: qwen3-unified
+      custom_llm_provider: openai
+      api_base: http://vllm-qwen3:8000/v1
+  - model_name: local/*
+    litellm_params:
+      model: qwen3-unified
+      custom_llm_provider: openai
+      api_base: http://vllm-qwen3:8000/v1
+  - model_name: models/*
+    litellm_params:
+      model: qwen3-unified
+      custom_llm_provider: openai
+      api_base: http://vllm-qwen3:8000/v1
+
+  # 压测/联调 mock 上游（独立 Go 服务）
+  - model_name: mock
+    litellm_params:
+      model: mock
+      custom_llm_provider: openai
+      api_base: http://mock-llm:8080/v1
+  - model_name: mock*
+    litellm_params:
+      model: mock
+      custom_llm_provider: openai
+      api_base: http://mock-llm:8080/v1
+
+  # gpt-*：Azure 主 + openai 同模型跨厂商备选（02 §4 故障转移）
+  - model_name: gpt-*
+    litellm_params:
+      model: gpt-4o
+      custom_llm_provider: azure
+      api_base: ${AZURE_OPENAI_BASE_URL}
+      api_key: ${AZURE_OPENAI_API_KEY}
+  - model_name: gpt-*
+    litellm_params:
+      model: gpt-4o
+      custom_llm_provider: openai
+      api_base: https://api.openai.com/v1
+      api_key: ${OPENAI_API_KEY}
+
+  # claude*：Bedrock（未配回退 openai）
+  - model_name: claude*
+    litellm_params:
+      model: anthropic.claude-v2
+      custom_llm_provider: bedrock
+      api_base: ${BEDROCK_BASE_URL}
+      api_key: ${BEDROCK_API_KEY}
+
+  # qwen*（除 qwen3-unified）：百炼（openai 兼容）
+  - model_name: qwen*
+    litellm_params:
+      model: qwen3.7-plus-2026-05-26
+      custom_llm_provider: openai
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: ${TONGYI_API_KEY}
+
+  # 默认兜底
+  - model_name: default
+    litellm_params:
+      model: gpt-4o
+      custom_llm_provider: openai
+      api_base: https://api.openai.com/v1
+      api_key: ${OPENAI_API_KEY}
+
+# Router 级设置（可被 env GATEWAY_LITELLM_ROUTING_STRATEGY / NUM_RETRIES / TIMEOUT_SEC 覆盖）
+router_settings:
+  routing_strategy: simple-shuffle   # simple-shuffle | least-busy | latency-based-routing
+  num_retries: 2                     # 故障转移重试（替代原网关手写 fallback_chain）
+  timeout: 180                       # 单次上游超时（秒）
+  # 上下文窗口超限时降级到更大上下文模型（可选）
+  # context_window_fallback_dict:
+  #   gpt-3.5-turbo: gpt-3.5-turbo-16k

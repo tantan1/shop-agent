@@ -1,0 +1,16 @@
+# GPU 版 Ollama：独立 Docker 容器以 nvidia runtime 直跑（--gpus all -p 11434:11434），
+# 本文件在 k8s 里建一个 ExternalName Service 指向 host.docker.internal，
+# 使集群内应用可继续用 DNS 名 `ollama:11434` 访问，且不走 k8s 节点 GPU（CPU 压力为 0）。
+# 说明：Docker Desktop 的 host.docker.internal 由 pod 网络层透明转发到宿主发布端口。
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: shop-agent
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434

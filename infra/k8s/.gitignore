@@ -1,0 +1,3 @@
+# 本机一键部署的本地变量与日志（含占位密钥，勿提交）
+local.env
+applylocal*.log

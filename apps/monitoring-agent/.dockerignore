@@ -1,0 +1,11 @@
+# 本地测试与覆盖率产物
+__pycache__/
+.benchmarks/
+.pytest_cache/
+.coverage
+
+# 测试代码
+tests/
+
+# 容器内不使用的配置
+.env

@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: shop-agent
+  labels:
+    app: order-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: order-service }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: order-service }
+    spec:
+      containers:
+      - name: order-service
+        image: ${IMAGE_PREFIX}order-service:${IMAGE_TAG}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+        ports: [{ containerPort: 8080 }]
+        env:
+        # DATABASE_URL 为完整拼接串，由 CI 在注入 secret 时构造 ORDER_DATABASE_URL
+        - name: DATABASE_URL
+          valueFrom: { secretKeyRef: { name: app-secrets, key: ORDER_DATABASE_URL } }
+        - name: RUST_LOG
+          value: "info"
+        # ── SkyWalking 链路追踪 ──
+        # 注意：Rust 应用需集成 skywalking Rust crate（或 skywalking-ffi）才生效；
+        # 此处 env 保持与 shop-agent 一致，代码就绪后即可直接使用。
+        - { name: SW_AGENT_NAME, value: "order-service" }
+        - { name: SW_AGENT_COLLECTOR_BACKEND_SERVICES, value: "skywalking-oap:11800" }
+        - { name: SW_AGENT_SAMPLE_RATE, value: "1" }
+        - { name: SW_AGENT_ENABLED, value: "true" }
+        # ── OTel 可观测（备选方案：通过 otel-gateway → SkyWalking OAP）──
+        - { name: OTEL_SERVICE_NAME, value: "order-service" }
+        - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-gateway:4317" }
+        - { name: OTEL_TRACES_EXPORTER, value: "otlp" }
+        - { name: OTEL_METRICS_EXPORTER, value: "none" }
+        livenessProbe:
+          httpGet: { path: /health, port: 8080 }
+          initialDelaySeconds: 15
+          periodSeconds: 15
+        readinessProbe:
+          httpGet: { path: /health, port: 8080 }
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests: { cpu: "100m", memory: "128Mi" }
+          limits:   { cpu: "250m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: shop-agent
+spec:
+  selector: { app: order-service }
+  ports: [{ port: 80, targetPort: 8080 }]

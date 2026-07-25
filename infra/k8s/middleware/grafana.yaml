@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: shop-agent
+  labels: { app: grafana }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grafana } }
+  template:
+    metadata: { labels: { app: grafana } }
+    spec:
+      containers:
+      - name: grafana
+        image: ${GRAFANA_IMAGE}
+        env:
+        - { name: GF_SECURITY_ADMIN_USER, value: "admin" }
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_INIT_USER_PASSWORD } }
+        - { name: GF_UNIFIED_ALERTING_ENABLED, value: "true" }
+        - { name: GF_ALERTING_ENABLED, value: "true" }
+        ports: [{ containerPort: 3000 }]
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/grafana }
+        - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
+        # provider 配置（告诉 Grafana 从 /var/lib/grafana/dashboards 加载 *.json）
+        - { name: dashboards-provider, mountPath: /etc/grafana/provisioning/dashboards }
+        # dashboard JSON 文件（provider 的 options.path 指向这里）
+        - { name: dashboards-json, mountPath: /var/lib/grafana/dashboards }
+        # Loki 日志看板（单独目录，避免 subPath 与 dashboards-json 目录卷冲突）
+        - name: dashboards-loki
+          mountPath: /var/lib/grafana/dashboards-loki
+          readOnly: true
+        resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "250m", memory: "512Mi" } }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: grafana-data }
+      - name: datasources
+        configMap: { name: grafana-datasources }
+      - name: dashboards-provider
+        configMap: { name: grafana-dashboards-provider }
+      - name: dashboards-json
+        configMap: { name: grafana-dashboard-shop-agent }
+      - name: dashboards-loki
+        configMap: { name: grafana-dashboard-loki-logs }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: shop-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: "${STORAGE_CLASS}"   # OKE: oci-bv / 本机: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: shop-agent
+spec:
+  selector: { app: grafana }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-api-token
+  namespace: shop-agent
+type: Opaque
+stringData:
+  # Grafana 服务账号 token（含 alert:write 权限），供 monitoring-agent 推送 RCA。
+  # 由 CI/手动注入；此处占位。
+  GRAFANA_API_KEY: "${GRAFANA_API_KEY}"

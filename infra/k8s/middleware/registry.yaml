@@ -1,0 +1,36 @@
+# 本地私有镜像仓库（registry:2）。
+# 目的：根治 Docker Desktop K8s 的镜像缓存坑（节点 containerd 按 tag 缓存 digest，
+# IfNotPresent 遇同名 tag 拿旧镜像）。改用「push 进仓库 + imagePullPolicy: Always」，
+# 每次都是真拉新 digest，tag 可保持 local 不变。
+# 用法（见 apply-local.sh step_build）：
+#   宿主: docker tag <name>:<tag> localhost:30500/<name>:<tag> && docker push localhost:30500/<name>:<tag>
+#   集群: image: registry:5000/<name>:<tag>（k8s pod 走集群 DNS，Always 必拉新）
+# CI/OKE 不受影响：deploy.yml 用自己的 IMAGE_PREFIX=${OCIR_REGISTRY}/ 覆盖。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: shop-agent
+  labels: { app: registry }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: registry } }
+  template:
+    metadata: { labels: { app: registry } }
+    spec:
+      containers:
+      - name: registry
+        image: ${REGISTRY_IMAGE}
+        ports: [{ containerPort: 5000 }]
+        env:
+        - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true" }
+        resources: { requests: { cpu: "50m", memory: "128Mi" }, limits: { cpu: "200m", memory: "256Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: registry, namespace: shop-agent }
+spec:
+  type: LoadBalancer
+  selector: { app: registry }
+  ports:
+  - { name: http, port: 5000, targetPort: 5000, nodePort: 30500 }

@@ -1,0 +1,91 @@
+# OTel Collector Agent（DaemonSet：每节点一个，就近抓取 pod 日志 + 就近脱敏）。
+# 分层：filelog(json_parser 拆字段) → redaction（就近脱敏，主防线）→ transform（字段级 PII + trace_id 映射）→ batch → otlp(→gateway)。
+# 说明：filelog receiver 的 operators 用 json_parser 将 JSON body 拆为 attributes；
+#       redaction 是 processor，blocked_values 覆盖的敏感值（身份证/手机号/邮箱）会被遮蔽。
+# 本机 K8s 为 containerd，pod 日志在 /var/log/pods/*/*/*.log。
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: otel-agent-config, namespace: shop-agent }
+data:
+  config.yaml: |
+    receivers:
+      filelog:
+        include: [/var/log/pods/*/*/*.log]
+        start_at: beginning
+        include_file_path: true
+        include_file_name: false
+        operators:
+          # 容器日志行（containerd）形如：2026-08-06T05:42:57.765983Z stdout F {...json}
+          # 必须先用 regex_parser 剥掉 "<ts> <stream> F" 前缀，json_parser 才能解析 body。
+          - type: regex_parser
+            parse_from: body
+            regex: '^(?P<timestamp>\S+)\s+(?P<stream>stdout|stderr)\s+F\s*(?P<msg>.*)$'
+            timestamp:
+              parse_from: attributes.timestamp
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z07:00'
+          # 将剥出的 JSON 字符串拆为日志 attributes
+          - type: json_parser
+            parse_from: attributes.msg
+    processors:
+      transform:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              # 仅当日志确实带 service 字段时才提升为 resource service.name；
+              # 否则保留默认（避免把无关日志误标成某服务的 service_name）。
+              - set(resource.attributes["service.name"], attributes["service"]) where attributes["service"] != nil
+              # 字段级 PII 脱敏（defense-in-depth，字段名命中则值直接屏蔽；
+              # 与 redaction 基于值的正则不同，这是基于键名的确定性脱敏）
+              - set(attributes["user_id"], "**redacted**") where attributes["user_id"] != nil
+              - set(attributes["email"], "**redacted**") where attributes["email"] != nil
+              - set(attributes["phone"], "**redacted**") where attributes["phone"] != nil
+              - set(attributes["api_key"], "**redacted**") where attributes["api_key"] != nil
+              - set(attributes["password"], "**redacted**") where attributes["password"] != nil
+              - set(attributes["token"], "**redacted**") where attributes["token"] != nil
+              - set(attributes["credit_card"], "**redacted**") where attributes["credit_card"] != nil
+              # 将 JSON attribute 中的 trace_id/span_id 映射到 OTel 日志顶层字段，
+              # 使 Loki 原生支持 {trace_id="..."} 过滤（日志↔trace 全链关联）
+              - set(trace_id, attributes["trace_id"]) where attributes["trace_id"] != nil
+              - set(span_id, attributes["span_id"]) where attributes["span_id"] != nil
+              # 同步脱敏后的 msg 回写到 body，body 已被 redaction 掩码
+              - set(body, attributes["msg"]) where attributes["msg"] != nil
+      redaction:
+        allow_all_keys: true
+        blocked_values:
+          - '\d{17}[\dXx]'       # 身份证
+          - '1[3-9]\d{9}'        # 手机号
+          - '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'  # 邮箱
+          - '\d{16,19}'          # 银行卡号
+        summary: silent
+      batch:
+        send_batch_size: 1000
+        timeout: 5s
+    exporters:
+      otlp:
+        endpoint: otel-gateway:4317
+        tls: { insecure: true }
+    service:
+      telemetry:
+        metrics:
+          address: 0.0.0.0:8888
+      pipelines:
+        logs:
+          receivers: [filelog]
+          # redaction 先于 transform，确保 body 重写时拿到的 msg 已经是掩码后的
+          processors: [redaction, transform, batch]
+          exporters: [otlp]
+---
+# 供 Prometheus 抓取 agent 指标的头less Service：
+# 无 clusterIP，DNS 解析到每个 agent Pod 的 IP:8888（多节点时各抓各的）
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-agent
+  namespace: shop-agent
+spec:
+  clusterIP: None
+  selector: { app: otel-agent }
+  ports:
+  - { name: metrics, port: 8888, targetPort: 8888 }

@@ -1,0 +1,41 @@
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=bd08520f9891f190b63030f5d52895dd7e84b067f75cc1c074e798ffcc34a250 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=openai/qwen3-unified not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=e7355801eb737b38b692702841345f8839e3ce2e2c2a7dcf52a24615ee3767f7 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=708ee18fb2d4878bab01e93edd1bafd323c6afd56fed7bd14d85f388fab8a2aa not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=9a12037dc58960372a92f933c47f8e332de7f8101e0c791d7693f10386ee9b8c not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=c8fb814f880bddd9dc4a01b6590976ab4c57f812d27d097034b33f79ad98838d not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=b3f860d0c4b2c3fccc6cf4c1a7364f4acf57e6e0da0437238dfa9acb8a9101e1 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=openai/mock not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=e666fb28cfdb47d964e9e2dfa68c5ba08edc60c84d9141d2878f1a31f8035def not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=73313211c0c0c90f167bb60ecd74ecf8f8deefb8e517dc2e58a05dd4c6079ffa not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=126e8a91d0314286aedea06d0ae359911df17ae66e45f2954d88bedbd1e16488 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=9a801c803b278cf73b0e805bc2c52b6903e04e5e31a5cd27c102ce98263ae8fd not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=openai/claude-3 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=9c6ca91f52be3546ed875adf706d32d215771901833f9b11bf6227d0d4029d3a not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=openai/qwen3.7-plus-2026-05-26 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM:WARNING: utils.py:2722 - register_model: model=b54b219b76e32d4546ca4658f2de1ea193eddc26cc11aab739b32009893b6052 not in built-in cost map and no prefix/region variant matched; cache cost fields will default to 0. To track cache cost, add cache_creation_input_token_cost and cache_read_input_token_cost to model_info
+17:03:12 - LiteLLM Router:INFO: router.py:943 - Routing strategy: simple-shuffle
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "E:\workspace\shop-agent\apps\gateway\tests\conftest.py", line 29, in reload_gateway
+    m = importlib.import_module(f"gateway.{n}")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\importlib\__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1206, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1178, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1149, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "E:\workspace\shop-agent\apps\gateway\gateway\main.py", line 60, in <module>
+    _demo_index = (_demo_dir / "index.html").read_text(encoding="utf-8")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\pathlib.py", line 1058, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\pathlib.py", line 1044, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'gateway\\static\\demo\\index.html'

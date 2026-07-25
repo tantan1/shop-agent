@@ -1,0 +1,10 @@
+------------------------------ Captured log call ------------------------------
+============================== warnings summary ===============================
+tests/test_2b02_routing.py::test_no_fallback_when_primary_ok
+  E:\workspace\shop-agent\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_2b11_e2e_mock_server.py::test_e2e_stream_passthrough[stream]
+1 failed, 13 passed, 1 warning in 9.13s

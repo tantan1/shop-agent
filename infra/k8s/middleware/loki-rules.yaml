@@ -1,0 +1,36 @@
+# Loki ruler 告警规则（阶段六 6.1）。
+# 由 loki.yaml 的 Deployment 挂载到 /loki/rules（ruler.storage.local.directory），
+# 经 LogQL 触发 → alertmanager_url(http://alertmanager:9093) → monitoring-agent /ingest/alert。
+#
+# 注意：OTel 管道把日志字段 service 提升为 resource service.name → Loki 标签 service_name；
+#       日志字段 level 由 json_parser 拆为 attribute（非标签），需用 `| json` 管道过滤。
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: loki-rules, namespace: shop-agent }
+data:
+  logs-rules.yaml: |
+    groups:
+      - name: gateway-error
+        rules:
+          - alert: GatewayLogErrorHigh
+            expr: |
+              count_over_time({service_name="gateway"} | json level="error" [5m]) > 10
+            for: 5m
+            labels:
+              severity: P2
+              channel: gateway-logs
+            annotations:
+              summary: "网关日志错误率异常"
+              description: "gateway 近 5 分钟 ERROR 级别日志超过 10 条。结合 Prometheus GatewayDown/P99 指标交叉定位：是上游 LLM 调用失败、护栏拒绝还是注入攻击。"
+      - name: app-error
+        rules:
+          - alert: AppLogErrorHigh
+            expr: |
+              count_over_time({service_name=~"shop-agent|monitoring-agent|order-service"} | json level="error" [5m]) > 10
+            for: 5m
+            labels:
+              severity: P3
+              channel: app-logs
+            annotations:
+              summary: "业务服务日志错误率异常"
+              description: "shop-agent/monitoring-agent/order-service 近 5 分钟 ERROR 日志超过 10 条。建议结合 SkyWalking/Langfuse trace 定位失败链路。"

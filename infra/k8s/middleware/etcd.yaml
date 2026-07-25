@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd
+  namespace: shop-agent
+  labels: { app: etcd }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: etcd } }
+  template:
+    metadata: { labels: { app: etcd } }
+    spec:
+      containers:
+      - name: etcd
+        image: ${ETCD_IMAGE}
+        command:
+        - etcd
+        - -advertise-client-urls=http://etcd:2379
+        - -listen-client-urls=http://0.0.0.0:2379
+        - -listen-peer-urls=http://0.0.0.0:2380
+        - -data-dir=/etcd-data
+        - -initial-advertise-peer-urls=http://etcd:2380
+        - -initial-cluster=etcd=http://etcd:2380
+        - -initial-cluster-state=existing
+        - -initial-cluster-token=etcd-cluster
+        # 独立 metrics 端口，供 Prometheus 抓取
+        - -listen-metrics-urls=http://0.0.0.0:2381
+        env:
+        # etcdctl 默认使用 v3 API
+        - { name: ETCDCTL_API, value: "3" }
+        # ---- etcd 性能与稳定性调优（对齐 docker-compose 配置）----
+        # 自动按 revision 回收旧版本，防止 WAL/快照膨胀拖慢请求
+        - { name: ETCD_AUTO_COMPACTION_MODE, value: "revision" }
+        - { name: ETCD_AUTO_COMPACTION_RETENTION, value: "1000" }
+        # 后端存储配额 4GB，触发告警而非静默 OOM
+        - { name: ETCD_QUOTA_BACKEND_BYTES, value: "4294967296" }
+        # 增加快照间隔，减少频繁 compact 触发的 I/O 抖动
+        - { name: ETCD_SNAPSHOT_COUNT, value: "50000" }
+        ports: [{ containerPort: 2379 }, { containerPort: 2380 }, { containerPort: 2381 }]
+        volumeMounts:
+        - { name: data, mountPath: /etcd-data }
+        resources:
+          # etcd 对 CPU 敏感（请求处理串行），对内存敏感（bbbolt 缓存）。
+          # 原配置 250m/512Mi 远远不足，导致 7s+ 超时。
+          # 建议：CPU 至少 500m，内存至少 1Gi。
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "1000m", memory: "2Gi" }
+        livenessProbe:
+          exec:
+            command: ["etcdctl", "-w", "table", "endpoint", "health"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command: ["etcdctl", "-w", "table", "endpoint", "health"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: etcd-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etcd-data
+  namespace: shop-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: "${STORAGE_CLASS}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: shop-agent
+  labels: { app: etcd }
+spec:
+  selector: { app: etcd }
+  ports:
+  - { name: client, port: 2379, targetPort: 2379 }
+  - { name: peer, port: 2380, targetPort: 2380 }
+  - { name: metrics, port: 2381, targetPort: 2381 }

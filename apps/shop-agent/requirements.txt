@@ -1,0 +1,37 @@
+# shop-agent k8s 部署轻量依赖（不含 torch / ML 推理库）
+# 本地推理已走 Ollama，容器内不需要重型 ML 包
+fastapi[all]
+sqlalchemy[asyncio]
+aiomysql
+pydantic-settings
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+structlog
+colorama
+langchain==1.2.15
+langchain-openai
+langchain-community==0.4.1
+langfuse>=4.7.0
+python-dotenv>=1.0.0
+pymilvus==2.6.12
+pgvector==0.4.2
+psycopg2-binary>=2.9
+dashscope
+httpx
+redis>=4.5.0
+faiss-cpu
+numpy>=1.21.0
+prometheus-fastapi-instrumentator>=7.0.0
+prometheus-client>=0.21.0
+apache-skywalking>=1.0.0
+mcp>=1.20.0,<2.0.0
+# 统一 OTel trace（4.3 方案 A）：应用经 OTLP gRPC 上报到 otel-gateway，fan-out 到 SkyWalking OAP。
+# 与 apache-skywalking（SW6）并存，但传播统一走 W3C traceparent；SW agent 仅作旁路（可整体关闭）。
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-httpx
+# Remote debugging (VSCode attach to k8s/Docker container)
+debugpy>=0.13.0

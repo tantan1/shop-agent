@@ -1,0 +1,35 @@
+# 订单服务独立编排（Rust + 复用 pgvector PostgreSQL，与向量存储同源）
+services:
+  # 复用 pgvector（PostgreSQL 18 + pgvector 扩展），既服务向量存储也可承载订单业务库
+  pgvector:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: order-service-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    ports:
+      - "5434:5432"   # 仅本地调试暴露；容器内用 5432
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  order-service:
+    build: .
+    container_name: order-service
+    ports:
+      - "8088:8080"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@pgvector:5432/orders
+      RUST_LOG: info
+    depends_on:
+      pgvector:
+        condition: service_healthy
+
+volumes:
+  pgdata:

@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: shop-agent
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    # 告警规则：真实系统故障 → alert → Alertmanager → monitoring-agent /ingest/alert
+    rule_files:
+    - /etc/prometheus/*.rules.yml
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets: ["alertmanager:9093"]
+    scrape_configs:
+    - job_name: gateway
+      metrics_path: /metrics
+      static_configs: [{ targets: ["gateway:80"] }]
+    - job_name: monitoring-agent
+      metrics_path: /metrics
+      static_configs: [{ targets: ["monitoring-agent:80"] }]
+    - job_name: shop-agent
+      metrics_path: /metrics
+      static_configs: [{ targets: ["shop-agent:80"] }]
+    - job_name: prometheus
+      static_configs: [{ targets: ["localhost:9090"] }]
+    - job_name: otel-gateway
+      metrics_path: /metrics
+      static_configs: [{ targets: ["otel-gateway:8888"] }]
+    - job_name: otel-agent
+      metrics_path: /metrics
+      dns_sd_configs:
+      - names: ["otel-agent.shop-agent.svc.cluster.local"]
+        type: A
+        port: 8888
+    - job_name: etcd
+      metrics_path: /metrics
+      static_configs:
+      - targets: ["etcd:2381"]
+        labels:
+          service: 'etcd'
+  # 规则与 prometheus.yml 同属一个 ConfigMap（挂载到 /etc/prometheus），
+  # key 名 gateway.rules.yml 即为文件 /etc/prometheus/gateway.rules.yml。
+  gateway.rules.yml: |
+    groups:
+    - name: gateway_availability
+      rules:
+      # 真实故障 #1：gateway 进程挂掉 / Pod 被缩容 → Prometheus 抓取失败 up==0
+      - alert: GatewayDown
+        expr: up{job="gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service_name: gateway
+        annotations:
+          summary: "网关 Gateway 不可用（up==0）"
+          description: "Prometheus 连续 1 分钟无法抓取 gateway:80/metrics，gateway 进程可能已退出或 Pod 被缩容。所有经网关的 LLM 流量将失去出口。"
+
+      # 真实故障 #2：gateway 请求 P99 延迟飙升（上游模型/护栏延迟异常）
+      - alert: GatewayP99High
+        expr: histogram_quantile(0.99, sum(rate(gateway_request_latency_seconds_bucket[5m])) by (le)) > 5
+        for: 3m
+        labels:
+          severity: warning
+          service_name: gateway
+        annotations:
+          summary: "网关 P99 延迟超过 5s"
+          description: "gateway 请求 P99 延迟近 5 分钟持续超过 5 秒，可能影响实时交互体验。"
+
+      # 真实故障 #3：请求错误率升高（5xx / error 占比异常）
+      - alert: GatewayErrorRateHigh
+        expr: |
+          sum(rate(gateway_request_latency_seconds_count{status=~"5..|error"}[5m]))
+          /
+          sum(rate(gateway_request_latency_seconds_count[5m]))
+          > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service_name: gateway
+        annotations:
+          summary: "网关错误率超过 10%"
+          description: "gateway 近 5 分钟错误(5xx/error)占比超过 10%，可能存在上游或护栏故障。"
+
+    - name: monitoring_pipeline
+      rules:
+      # 监控自身链路中断：监控组件探活失败，意味着「无告警」可能是盲点
+      - alert: MonitoringAgentDown
+        expr: up{job="monitoring-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service_name: monitoring-agent
+        annotations:
+          summary: "监控 Agent 自身不可用"
+          description: "monitoring-agent 抓取失败，告警摄入与 RCA 链路中断，需优先恢复否则真实故障将无告警。"
+
+    - name: shop_agent_availability
+      rules:
+      # fail-soft 降级告警（方案 A）：Redis 作为可选依赖，挂掉时 shop-agent
+      # Pod 仍就绪、chat 可继续（仅丢失记忆/缓存）。因此改用细粒度指标
+      # shop_agent_redis_available 观测降级态，而非靠 Pod 摘除(up==0)。
+      # RCA 据拓扑把根因收敛到 redis，产出结构化修复动作（scale redis -> 1）。
+      - alert: ShopAgentRedisDegraded
+        expr: shop_agent_redis_available == 0
+        for: 1m
+        labels:
+          severity: warning
+          service_name: shop-agent
+        annotations:
+          summary: "shop-agent Redis 依赖降级（记忆/缓存失效）"
+          description: "shop-agent 的 Redis 依赖不可用超过 1 分钟。chat 仍可服务，但对话历史、问题去重、向量检索将降级（记忆丢失）。建议恢复 redis 副本。"
+
+      # Pod 级不可用（仅当 REDIS_CRITICAL=true 或进程崩溃时触发）：
+      # 此时 readiness 失败会摘除 Pod，up==0 才成立。保持 critical 等级。
+      - alert: ShopAgentDown
+        expr: up{job="shop-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service_name: shop-agent
+        annotations:
+          summary: "shop-agent 不可用（up==0）"
+          description: "Prometheus 连续 1 分钟无法抓取 shop-agent/metrics。可能原因：进程崩溃，或 REDIS_CRITICAL=true 时 Redis 不可达导致 Pod 被摘除。chat 接口不可达。"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: shop-agent
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: ${PROMETHEUS_IMAGE}
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus"
+        - "--storage.tsdb.retention.time=30d"
+        - "--web.enable-lifecycle"
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - mountPath: /etc/prometheus
+          name: config
+        - mountPath: /prometheus
+          name: data
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: prometheus-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: shop-agent
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: shop-agent
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: "standard"

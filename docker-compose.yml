@@ -7,14 +7,37 @@ services:
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
+      - ETCDCTL_API=3
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
-    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd-data
+    command: >
+      etcd
+      -advertise-client-urls=http://etcd:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      -listen-peer-urls=http://0.0.0.0:2380
+      -data-dir=/etcd-data
+      -initial-advertise-peer-urls=http://etcd:2380
+      -initial-cluster=etcd=http://etcd:2380
+      -initial-cluster-state=existing
+      -initial-cluster-token=etcd-cluster
+      -listen-metrics-urls=http://0.0.0.0:2381
+    ports:
+      - "2379:2379"
+      - "2381:2381"
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 30s
       timeout: 20s
       retries: 3
+    # etcd 对 CPU/内存敏感，原无资源限制易导致 Milvus 超时
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "2G"
+        reservations:
+          cpus: "0.5"
+          memory: "1G"
 
   minio:
     container_name: shop-agent-minio
@@ -98,6 +121,7 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/pgvector:/var/lib/postgresql
+      - ./apps/order-service/init.sql:/docker-entrypoint-initdb.d/02-orders.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d shop_agent"]
       interval: 10s
@@ -167,12 +191,13 @@ services:
   # ============ Prometheus 监控服务 ============
   prometheus:
     container_name: shop-agent-prometheus
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     ports:
       - "9090:9090"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/prometheus:/prometheus
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
       # 如果需要告警规则，取消注释下面一行
       # - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
     command:
@@ -188,10 +213,28 @@ services:
     depends_on:
       - standalone
 
+  # ============ Alertmanager 告警通知 ============
+  # RCA/业务告警经 Prometheus rules 触发后，由 Alertmanager 负责通知路由
+  # （钉钉/Slack/邮件等，见 monitoring/alertmanager/alertmanager.yml）。
+  alertmanager:
+    container_name: shop-agent-alertmanager
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--log.level=info'
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
   # ============ Grafana 可视化服务 ============
   grafana:
     container_name: shop-agent-grafana
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.3.0
     ports:
       - "3001:3000"
     volumes:
@@ -205,23 +248,23 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme_in_production}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_USERS_ALLOW_ORG_CREATE=false
-      
+
       # 服务器配置
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
       - GF_SERVER_HTTP_PORT=3000
-      
+
       # 数据库配置 (使用 SQLite，也支持 MySQL/PostgreSQL)
       - GF_DATABASE_TYPE=sqlite3
       - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
-      
+
       # 日志配置
       - GF_LOG_MODE=console file
       - GF_LOG_LEVEL=info
-      
+
       # 匿名访问配置 (可选)
       - GF_AUTH_ANONYMOUS_ENABLED=false
       # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-      
+
       # 告警配置 (可选)
       # - GF_ALERTING_ENABLED=true
     restart: unless-stopped
@@ -233,6 +276,40 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # ============ Loki 日志聚合服务 ============
+  # OTel Collector Gateway 的日志导出目标；Grafana 以 Loki 数据源做日志面板。
+  loki:
+    container_name: shop-agent-loki
+    image: grafana/loki:2.9.8
+    ports:
+      - "3100:3100"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/loki:/loki
+      - ./monitoring/loki/loki.yaml:/etc/loki/loki-config.yaml:ro
+    command: -config.file=/etc/loki/loki-config.yaml
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============ Promtail 日志收集器 ============
+  # 读取 Docker 容器日志 → Loki，支持结构化解析 + PII 脱敏。
+  # 挂载 Docker socket 供 docker_sd 自动发现容器。
+  promtail:
+    container_name: shop-agent-promtail
+    image: grafana/promtail:2.9.8
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/promtail:/tmp
+      - ./monitoring/loki/promtail.yaml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      loki:
+        condition: service_healthy
 
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
@@ -318,7 +395,7 @@ services:
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server
+    image: docker.io/clickhouse/clickhouse-server:latest
     restart: always
     user: "101:101"
     environment:
@@ -443,7 +520,123 @@ services:
         echo "NebulaGraph cluster is ready"
     restart: "no"
 
+  # ============ 应用服务（三服务，见 docs/oracle-cloud-deploy.md §5）============
+  shop-agent:
+    build: ./apps/shop-agent
+    container_name: shop-agent
+    ports: ["8000:8000"]
+    # 从仓库 .env 注入配置（含必填的 FIXED_API_KEY）；下方 environment 显式项优先
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      PG_DATABASE: shop_agent
+      VECTOR_STORE_PROVIDER: ${VECTOR_STORE_PROVIDER:-milvus}
+      MILVUS_HOST: standalone
+      LLM_GATEWAY_URL: http://gateway:8001/v1
+      # 本地 LLM（param 抽取/工具选择）经 gateway → vLLM qwen3（gateway 按 qwen3-unified 路由）
+      OLLAMA_BASE_URL: http://gateway:8001
+      OLLAMA_PARAM_MODEL: qwen3-unified
+      OLLAMA_TOOL_SELECTOR_MODEL: qwen3-unified
+      # bge-m3 嵌入（EMBEDDING_PROVIDER=vllm）直连 vLLM，不经网关
+      EMBEDDING_PROVIDER: vllm
+      VLLM_EMBEDDING_BASE_URL: http://vllm-bge-m3:8000
+      VLLM_EMBEDDING_MODEL: bge-m3
+      # bge-reranker 重排直连 vLLM（RERANKER_PROVIDER=vllm）
+      RERANKER_PROVIDER: vllm
+      VLLM_RERANK_BASE_URL: http://vllm-bge-reranker:8000
+      VLLM_RERANK_MODEL: bge-reranker-base
+      AWS_ENDPOINT_URL: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LANGFUSE_HOST: http://langfuse-web:3000
+      ORDER_SERVICE_URL: http://order-service:8080
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      standalone: { condition: service_healthy }
+      gateway: { condition: service_started }
+      order-service: { condition: service_started }
+
+  gateway:
+    build: ./apps/gateway
+    container_name: llm-gateway
+    ports: ["8001:8001"]
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      # 本地模型路由后端（router.py 将 param/tool_select/local*/qwen3-unified 路由至此）
+      VLLM_BASE_URL: http://vllm-qwen3:8000/v1
+      # mock 上游路由后端（router.py 将 mock* 路由至此，压测联调用）
+      MOCK_BASE_URL: http://mock-llm:8080/v1
+      # 压测开关：1=云端 API 全部改路由 mock 上游（免去真实云调用）
+      MOCK_CLOUD_OVERRIDE: ${MOCK_CLOUD_OVERRIDE:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION_NAME: ${AWS_REGION_NAME:-}
+
+  monitoring-agent:
+    build: ./apps/monitoring-agent
+    container_name: monitoring-agent
+    restart: unless-stopped
+    ports: ["9091:9091"]
+    environment:
+      SHOP_AGENT_URL: http://shop-agent:8000/health
+      GATEWAY_URL: http://gateway:8001/health
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      # 方案 A：动态服务发现（默认开）。DISCOVER_ENABLED=0 关闭。
+      # STATIC_TARGETS 静态补充 k8s 外 / 未接 Prometheus 的服务：name=url 逗号分隔
+      DISCOVER_ENABLED: ${DISCOVER_ENABLED:-1}
+      DISCOVER_CACHE_TTL_S: ${DISCOVER_CACHE_TTL_S:-60}
+      STATIC_TARGETS: ${STATIC_TARGETS:-}
+      # 方案 C：SkyWalking 真实调用依赖边（默认开，OAP 不可达自动降级静态）。
+      # STATIC_DEPENDENCIES 静态补充 k8s 外 / 未接 agent 的依赖：source=target 逗号分隔
+      SKYWALKING_URL: ${SKYWALKING_URL:-http://skywalking-oap:12800}
+      SKYWALKING_ENABLED: ${SKYWALKING_ENABLED:-1}
+      STATIC_DEPENDENCIES: ${STATIC_DEPENDENCIES:-}
+    depends_on:
+      shop-agent: { condition: service_started }
+      gateway: { condition: service_started }
+
+  # ============ mock LLM 上游（压测/联调用：Go 零依赖极简实现，占用最小）============
+  mock-llm:
+    build: ./apps/mock-llm
+    container_name: mock-llm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # 压测参数经 env 覆盖（见 apps/mock-llm/main.go 环境变量说明）
+    environment:
+      MODEL_NAME: ${MOCK_MODEL_NAME:-mock-llm}
+      LATENCY_MS: ${MOCK_LATENCY_MS:-0}
+      LATENCY_JITTER_MS: ${MOCK_LATENCY_JITTER_MS:-0}
+      STREAM_CHUNK_MS: ${MOCK_STREAM_CHUNK_MS:-0}
+      ERROR_RATE: ${MOCK_ERROR_RATE:-0}
+      ERROR_STATUS: ${MOCK_ERROR_STATUS:-500}
+      COMPLETION_TOKENS: ${MOCK_COMPLETION_TOKENS:-32}
+      EMBEDDING_DIM: ${MOCK_EMBEDDING_DIM:-1024}
+
+  # ============ 订单服务（Rust + 复用 pgvector 实例，shop-agent 售后举证数据源）============
+  order-service:
+    build: ./apps/order-service
+    container_name: order-service
+    ports:
+      - "8088:8080"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@pgvector:5432/orders
+      RUST_LOG: info
+    depends_on:
+      pgvector:
+        condition: service_healthy
+
 volumes:
+  loki_data:
+    driver: local
   langfuse_postgres_data:
     driver: local
   langfuse_clickhouse_data:

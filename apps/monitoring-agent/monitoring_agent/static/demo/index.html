@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统健康监控 · 演示看板</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+  header { background: #00695c; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .config-bar { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .config-bar input { padding: 6px 10px; border: none; border-radius: 6px; width: 220px; font-size: 13px; }
+  .ws-status { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-left: 8px; }
+  .ws-status .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; }
+  .ws-status .dot.on { background: #2e7d32; }
+  .ws-status .dot.off { background: #c62828; }
+  .main { flex: 1; display: flex; overflow: hidden; }
+  .left { width: 300px; background: #fff; border-right: 1px solid #e0e0e0; padding: 20px; overflow-y: auto; }
+  .right { flex: 1; display: flex; flex-direction: column; }
+  .actions { padding: 16px 20px; background: #fff; border-bottom: 1px solid #e0e0e0; display: flex; gap: 10px; flex-wrap: wrap; }
+  .actions button { padding: 10px 20px; background: #00695c; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .actions button.secondary { background: #fff; color: #00695c; border: 1px solid #00695c; }
+  .actions button:disabled { background: #90a4a0; cursor: not-allowed; }
+  .content { flex: 1; overflow-y: auto; padding: 20px; }
+  .overall { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; border: 1px solid #e0e0e0; }
+  .overall .dot { width: 16px; height: 16px; border-radius: 50%; }
+  .overall .dot.ok { background: #2e7d32; }
+  .overall .dot.down { background: #c62828; }
+  .overall .text { font-size: 16px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .comp { background: #fff; border-radius: 10px; border: 1px solid #e0e0e0; padding: 14px; }
+  .comp .name { font-size: 14px; font-weight: 600; color: #333; display: flex; align-items: center; gap: 8px; }
+  .comp .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .comp .dot.ok { background: #2e7d32; }
+  .comp .dot.down { background: #c62828; }
+  .comp .meta { font-size: 12px; color: #666; margin-top: 8px; }
+  .comp .meta div { margin-top: 2px; }
+  .card { background: #fff; border-radius: 10px; border: 1px solid #e0e0e0; margin-bottom: 16px; overflow: hidden; }
+  .card .head { padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .card.alert { border-color: #c62828; box-shadow: 0 0 0 2px rgba(198,40,40,0.12); }
+  .card .body { padding: 14px 16px; font-size: 13px; line-height: 1.6; }
+  .card .body pre { background: #f8f9fa; border-radius: 6px; padding: 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 10px; }
+  .badge.sev-critical { background: #ffebee; color: #c62828; }
+  .badge.sev-warning { background: #fff3e0; color: #e65100; }
+  .badge.sev-info { background: #e3f2fd; color: #1565c0; }
+  .badge.llm { background: #f3e5f5; color: #6a1b9a; }
+  .badge.live { background: #e8f5e9; color: #2e7d32; }
+  .rec { background: #f8f9fa; border-radius: 6px; padding: 8px 12px; margin-top: 6px; font-size: 12px; }
+  .empty { text-align: center; color: #aaa; margin-top: 60px; font-size: 14px; }
+  .token-bar { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .token-bar input { flex: 1; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; }
+  .actions button.danger { background: #c62828; }
+  .actions button.danger:hover { background: #b71c1c; }
+  .remediate-btn { display: inline-block; margin-top: 14px; padding: 12px 24px; background: #2e7d32; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .remediate-btn:hover { background: #1b5e20; }
+  .remediate-btn:disabled { background: #90a4ae; cursor: not-allowed; }
+  .remediate-status { margin-top: 10px; font-size: 13px; color: #2e7d32; font-weight: 600; }
+  .card.resolved { border-color: #2e7d32; box-shadow: 0 0 0 2px rgba(46,125,50,0.12); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 系统健康监控 · 演示看板</h1>
+  <div class="config-bar">
+    <label>监控地址</label>
+    <input id="monUrl" value="http://localhost/monitor" placeholder="http://localhost/monitor">
+    <span class="ws-status" id="wsStatus"><span class="dot" id="wsDot"></span><span id="wsText">未连接</span></span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="left">
+    <h3 style="font-size:14px;color:#333;margin-bottom:12px">🛠️ 操作</h3>
+    <div class="actions" style="flex-direction:column;padding:0;border:none;background:transparent">
+      <button onclick="injectFault(this)" style="background:#c62828">💥 注入真实故障（Redis）</button>
+      <button onclick="triggerFaultAlert(this)">🚨 触发告警（模拟）</button>
+      <button onclick="loadStatus()">🔄 刷新健康状态</button>
+      <button class="secondary" onclick="triggerRca()">🔍 手动触发 RCA 根因分析</button>
+      <button class="secondary" onclick="loadMetrics()">📈 查看组件指标</button>
+    </div>
+    <div id="faultStatus" class="remediate-status" style="display:none"></div>
+    <div class="token-bar">
+      <input id="token" type="password" value="local-webhook-token" placeholder="Bearer Token（本地默认已预填）">
+    </div>
+    <p style="font-size:11px;color:#999;margin-top:8px">RCA 端点需鉴权：本地 token 已预填（local-webhook-token）；生产环境请改为真实 MONITORING_WEBHOOK_TOKEN。<br><br>实时告警经 WebSocket 推送（无需手动刷新），真实故障（如 gateway 进程挂掉）会自动弹出告警卡片。</p>
+  </div>
+
+  <div class="right">
+    <div class="content" id="content">
+      <div class="empty" id="emptyHint">👈 点击「刷新健康状态」查看系统拓扑健康矩阵。<br>WebSocket 连接后，真实故障告警会实时推送到此。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const contentEl = document.getElementById('content');
+const emptyHint = document.getElementById('emptyHint');
+const monUrlEl = document.getElementById('monUrl');
+const tokenEl = document.getElementById('token');
+const wsDot = document.getElementById('wsDot');
+const wsText = document.getElementById('wsText');
+
+let ws = null;
+let wsRetry = null;
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+}
+
+function authHeaders() {
+  const t = tokenEl.value.trim();
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+
+function addCard(title, badge, bodyHtml, alertClass) {
+  emptyHint.style.display = 'none';
+  const card = document.createElement('div');
+  card.className = 'card' + (alertClass ? ' ' + alertClass : '');
+  card.innerHTML = `<div class="head">${escapeHtml(title)}${badge ? `<span class="badge ${badge.cls}">${escapeHtml(badge.text)}</span>` : ''}</div><div class="body">${bodyHtml}</div>`;
+  contentEl.insertBefore(card, contentEl.firstChild);
+  contentEl.scrollTop = 0;
+}
+
+function setWsStatus(on) {
+  wsDot.className = 'dot ' + (on ? 'on' : 'off');
+  wsText.textContent = on ? '已连接' : '已断开';
+}
+
+// ── WebSocket 实时推送 ───────────────────────────────────────────────
+function connectWs() {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  const wsUrl = base.replace(/^http/, 'ws') + '/ws';
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (e) {
+    setWsStatus(false);
+    scheduleReconnect();
+    return;
+  }
+  ws.onopen = () => setWsStatus(true);
+  ws.onclose = () => { setWsStatus(false); scheduleReconnect(); };
+  ws.onerror = () => { setWsStatus(false); };
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'alert') renderPushAlert(msg);
+    else if (msg.type === 'topology') renderPushTopology(msg);
+    else if (msg.type === 'fault_injected') onFaultInjected(msg);
+    else if (msg.type === 'resolved') onResolved(msg);
+  };
+}
+
+function scheduleReconnect() {
+  if (wsRetry) clearTimeout(wsRetry);
+  wsRetry = setTimeout(connectWs, 3000);
+}
+
+function renderPushTopology(msg) {
+  const comps = msg.components || {};
+  const downCount = Object.values(comps).filter(c => !c.status).length;
+  const overall = downCount === 0;
+  const overallHtml = `<div class="overall"><span class="dot ${overall ? 'ok' : 'down'}"></span><span class="text">${overall ? '✅ 系统整体健康' : '❌ 系统存在故障组件'}</span><span style="font-size:12px;color:#666">${Object.keys(comps).length} 个组件（实时快照）</span></div>`;
+  let gridHtml = '<div class="grid">';
+  for (const [name, c] of Object.entries(comps)) {
+    const up = c.status;
+    gridHtml += `<div class="comp"><div class="name"><span class="dot ${up ? 'ok' : 'down'}"></span>${escapeHtml(name)}</div><div class="meta"><div>状态: ${up ? '✅ 正常' : '❌ 故障'}</div>${c.latency_ms != null ? `<div>延迟: ${c.latency_ms}ms</div>` : ''}<div>详情: ${escapeHtml(c.detail || '')}</div></div></div>`;
+  }
+  gridHtml += '</div>';
+  addCard('🔴 实时拓扑快照（WS）', { cls: overall ? 'sev-info' : 'sev-critical', text: overall ? 'HEALTHY' : 'DEGRADED' }, overallHtml + gridHtml);
+}
+
+function renderPushAlert(msg) {
+  const sev = msg.severity || 'warning';
+  const sevCls = sev === 'critical' ? 'sev-critical' : sev === 'warning' ? 'sev-warning' : 'sev-info';
+  let bodyHtml = `<div style="font-size:14px;font-weight:600;margin-bottom:8px">根因: ${escapeHtml(msg.root_cause || '')}</div>`;
+  if (msg.used_llm) bodyHtml += '<span class="badge llm">🤖 使用了 LLM 归纳</span>';
+  if (msg.source) bodyHtml += `<span class="badge live">来源: ${escapeHtml(msg.source)}</span>`;
+  if (msg.affected && msg.affected.length) bodyHtml += `<div style="margin-top:8px"><b>受影响组件:</b> ${escapeHtml(msg.affected.join(', '))}</div>`;
+  if (msg.recommendations && msg.recommendations.length) {
+    bodyHtml += '<div style="margin-top:8px"><b>处置建议:</b></div>';
+    msg.recommendations.forEach(r => { bodyHtml += `<div class="rec">• ${escapeHtml(r)}</div>`; });
+  }
+  // 结构化修复动作：若 RCA 给出可安全自动执行的 remediation，渲染确认按钮
+  if (msg.remediation && msg.remediation.action === 'scale_up') {
+    const t = msg.remediation.target, rep = msg.remediation.replicas;
+    bodyHtml += `<div style="margin-top:10px;padding:10px 12px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px">
+      <div style="font-size:13px;color:#1b5e20"><b>🔧 建议修复操作：</b>将 <code>${escapeHtml(t)}</code> 副本恢复至 ${rep}</div>
+      <button class="remediate-btn" id="remediateBtn" onclick="remediateConfirm(this)">✅ 确认执行修复</button>
+    </div>`;
+  }
+  const ts = msg.ts ? new Date(msg.ts * 1000).toLocaleTimeString() : '';
+  addCard('🚨 实时告警（WS · ' + ts + '）', { cls: sevCls, text: 'severity: ' + sev }, bodyHtml, 'alert');
+}
+
+// ── Demo 自愈闭环：故障注入 / 确认恢复 ────────────────────────────────────
+// injectFault：真实把 Redis 副本置 0 → shop-agent 对 Redis 采用 fail-soft 降级 →
+//   chat 仍可访问（仅丢失记忆/缓存）→ redis_available 指标=0 → 告警 → 建议；
+//   不自动恢复，须点告警卡片的「确认执行修复」（→ remediateConfirm）。
+async function injectFault(btn) {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  const fs = document.getElementById('faultStatus');
+  fs.style.display = 'block';
+  fs.style.color = '#c62828';
+  fs.textContent = '⏳ 正在注入真实故障（Redis 副本 → 0）…';
+  emptyHint.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 注入中…'; }
+  try {
+    const resp = await fetch(base + '/demo/inject-fault', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ target: 'redis' })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      fs.textContent = '❌ 注入失败：' + (data.detail || JSON.stringify(data));
+    } else {
+      fs.textContent = '💥 已注入真实故障：Redis 副本=0。shop-agent 对 Redis 降级（fail-soft），chat 仍可访问但记忆/缓存失效。请等待告警推送，并点卡片「确认执行修复」。';
+      addCard('💥 已注入真实故障（Redis）', { cls: 'sev-critical', text: 'INJECTED' },
+        `Redis 副本已置 0。稍后 monitoring-agent 会通过 WebSocket 推送根因与修复建议，点击卡片中的「✅ 确认执行修复」即可恢复。`);
+    }
+  } catch (e) {
+    fs.textContent = '❌ 注入异常：' + e.message;
+  } finally {
+    if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = '💥 注入真实故障（Redis）'; }, 3000); }
+  }
+}
+
+// 收到后端 WS 推送的 fault_injected（与点击按钮同源，用于即时状态同步）
+function onFaultInjected(msg) {
+  const fs = document.getElementById('faultStatus');
+  fs.style.display = 'block';
+  fs.style.color = '#c62828';
+  fs.textContent = `💥 真实故障已注入：${escapeHtml(msg.target || 'redis')} 副本=${msg.replicas ?? 0}。chat 仍可访问但记忆/缓存降级，等待告警与修复建议。`;
+}
+
+// 确认执行修复：POST /demo/remediate 把 Redis 副本恢复为 1（纯人工确认，无自动恢复）
+async function remediateConfirm(btn) {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  btn.disabled = true;
+  btn.textContent = '⏳ 正在执行修复…';
+  const fs = document.getElementById('faultStatus');
+  try {
+    const resp = await fetch(base + '/demo/remediate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ target: 'redis' })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      btn.textContent = '❌ 修复失败：' + (data.detail || JSON.stringify(data));
+      btn.disabled = false;
+    } else {
+      btn.textContent = '✅ 修复已执行';
+      btn.style.background = '#90a4ae';
+      fs.style.display = 'block';
+      fs.style.color = '#2e7d32';
+      fs.textContent = '🔄 已提交恢复：Redis 副本 → 1，等待 Pod 重新就绪并接回流量…';
+      addCard('✅ 修复已执行（Redis 副本 → 1）', { cls: 'sev-info', text: 'REMEDIATING' },
+        'monitoring-agent 已通过 K8s 把 Redis 副本恢复为 1。稍后 WS 推送 type:resolved 确认恢复完成。');
+    }
+  } catch (e) {
+    btn.textContent = '❌ 异常：' + e.message;
+    btn.disabled = false;
+  }
+}
+
+// 收到后端 WS 推送的 resolved：故障闭环完成
+function onResolved(msg) {
+  const fs = document.getElementById('faultStatus');
+  fs.style.display = 'block';
+  fs.style.color = '#2e7d32';
+  fs.textContent = `✅ 已恢复：${escapeHtml(msg.target || 'redis')} 副本=${msg.replicas ?? 1}。故障闭环完成，chat 已可正常访问。`;
+  const btn = document.getElementById('remediateBtn');
+  if (btn) { btn.textContent = '✅ 已恢复'; btn.disabled = true; btn.style.background = '#90a4ae'; }
+  addCard('✅ 故障已恢复（WS）', { cls: 'sev-info', text: 'RESOLVED' },
+    `后端确认 ${escapeHtml(msg.target || 'redis')} 已恢复至 ${msg.replicas ?? 1} 副本，流量自动接回。`);
+}
+
+// 一键触发真实异常告警：POST 一条真实结构的 GatewayDown alert 到 /ingest/alert，
+// 走完整的「摄入 → RCA 根因分析 → WebSocket 实时推送」链路（与真实故障同源）。
+// 注意：这是把告警「源」由按钮触发（演示用），RCA/推送链路本身与真实故障完全一致。
+async function triggerFaultAlert(btn) {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  emptyHint.style.display = 'none';
+  addCard('🧪 触发真实异常（演示）', { cls: 'sev-warning', text: 'pending' },
+    '正在向 <code>/ingest/alert</code> 注入一条 <b>GatewayDown</b> 告警（severity=critical, service=gateway）…<br>请观察下方 WebSocket 是否实时推送 RCA 根因 + 处置建议。');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 告警已注入，等待推送…'; }
+  try {
+    const alertPayload = {
+      version: "4",
+      groupKey: '{}:{alertname="GatewayDown"}',
+      status: "firing",
+      receiver: "monitoring-agent",
+      alerts: [{
+        status: "firing",
+        labels: {
+          alertname: "GatewayDown",
+          severity: "critical",
+          service_name: "gateway",
+          job: "gateway"
+        },
+        annotations: {
+          summary: "网关 Gateway 不可用（up==0）",
+          description: "Prometheus 连续 1 分钟无法抓取 gateway:80/metrics，gateway 进程可能已退出或 Pod 被缩容。所有经网关的 LLM 流量将失去出口。"
+        }
+      }]
+    };
+    const resp = await fetch(base + '/ingest/alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(alertPayload)
+    });
+    if (!resp.ok) {
+      addCard('触发失败', { cls: 'sev-critical', text: 'HTTP ' + resp.status },
+        `<pre>${escapeHtml(await resp.text())}</pre>`);
+    } else {
+      addCard('✅ 告警已送达 monitoring', { cls: 'sev-info', text: '200' },
+        'monitoring-agent 已接收 GatewayDown 告警，正在执行 RCA，结果将经 WebSocket 实时推送到此页面（无需刷新）。');
+    }
+  } catch (e) {
+    addCard('触发失败', { cls: 'sev-critical', text: '错误' }, `<pre>${escapeHtml(e.message)}</pre>`);
+  } finally {
+    if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = '🚨 触发真实异常告警'; }, 3000); }
+  }
+}
+
+async function loadStatus() {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  emptyHint.style.display = 'none';
+  try {
+    const resp = await fetch(base + '/status');
+    const data = await resp.json();
+    const overall = data.overall;
+    const comps = data.components || {};
+    const overallHtml = `<div class="overall"><span class="dot ${overall ? 'ok' : 'down'}"></span><span class="text">${overall ? '✅ 系统整体健康' : '❌ 系统存在故障组件'}</span><span style="font-size:12px;color:#666">${Object.keys(comps).length} 个组件</span></div>`;
+    let gridHtml = '<div class="grid">';
+    for (const [name, c] of Object.entries(comps)) {
+      const up = c.status;
+      gridHtml += `<div class="comp"><div class="name"><span class="dot ${up ? 'ok' : 'down'}"></span>${escapeHtml(name)}</div><div class="meta"><div>状态: ${up ? '✅ 正常' : '❌ 故障'}</div>${c.latency_ms != null ? `<div>延迟: ${c.latency_ms}ms</div>` : ''}<div>详情: ${escapeHtml(c.detail || '')}</div></div></div>`;
+    }
+    gridHtml += '</div>';
+    addCard('系统拓扑健康矩阵', { cls: overall ? 'sev-info' : 'sev-critical', text: overall ? 'HEALTHY' : 'DEGRADED' }, overallHtml + gridHtml);
+  } catch (e) {
+    addCard('获取状态失败', { cls: 'sev-critical', text: '错误' }, `<pre>${escapeHtml(e.message)}</pre>`);
+  }
+}
+
+async function triggerRca() {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  emptyHint.style.display = 'none';
+  try {
+    const resp = await fetch(base + '/rca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ source: 'alertmanager', alerts: [{ name: 'demo-alert', status: 'firing' }] })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      addCard('RCA 触发失败', { cls: 'sev-critical', text: 'HTTP ' + resp.status }, `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`);
+      return;
+    }
+    const sevCls = data.severity === 'critical' ? 'sev-critical' : data.severity === 'warning' ? 'sev-warning' : 'sev-info';
+    let bodyHtml = `<div style="font-size:14px;font-weight:600;margin-bottom:8px">根因: ${escapeHtml(data.root_cause || '')}</div>`;
+    if (data.used_llm) bodyHtml += '<span class="badge llm">🤖 使用了 LLM 归纳</span>';
+    if (data.affected && data.affected.length) bodyHtml += `<div style="margin-top:8px"><b>受影响组件:</b> ${escapeHtml(data.affected.join(', '))}</div>`;
+    if (data.recommendations && data.recommendations.length) {
+      bodyHtml += '<div style="margin-top:8px"><b>处置建议:</b></div>';
+      data.recommendations.forEach(r => { bodyHtml += `<div class="rec">• ${escapeHtml(r)}</div>`; });
+    }
+    if (data.evidence) bodyHtml += `<pre style="margin-top:10px">${escapeHtml(JSON.stringify(data.evidence, null, 2))}</pre>`;
+    addCard('RCA 根因分析结果（手动触发）', { cls: sevCls, text: 'severity: ' + data.severity }, bodyHtml);
+  } catch (e) {
+    addCard('RCA 触发失败', { cls: 'sev-critical', text: '错误' }, `<pre>${escapeHtml(e.message)}</pre>`);
+  }
+}
+
+async function loadMetrics() {
+  const base = monUrlEl.value.trim().replace(/\/$/, '');
+  emptyHint.style.display = 'none';
+  try {
+    const resp = await fetch(base + '/metrics');
+    const text = await resp.text();
+    addCard('组件指标 /metrics', { cls: 'sev-info', text: 'Prometheus' }, `<pre>${escapeHtml(text)}</pre>`);
+  } catch (e) {
+    addCard('获取指标失败', { cls: 'sev-critical', text: '错误' }, `<pre>${escapeHtml(e.message)}</pre>`);
+  }
+}
+
+// 页面加载即建立 WebSocket 实时连接
+connectWs();
+</script>
+</body>
+</html>

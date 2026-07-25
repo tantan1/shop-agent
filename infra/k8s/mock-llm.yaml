@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-llm
+  namespace: shop-agent
+  labels:
+    app: mock-llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mock-llm }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: mock-llm }
+    spec:
+      containers:
+      - name: mock-llm
+        image: ${IMAGE_PREFIX}mock-llm:${IMAGE_TAG}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+        ports: [{ containerPort: 8080 }]
+        env:
+        # 压测行为参数：由 apply-local.sh 从 MOCK_LLM_*（或 MOCK_*）导出
+        - { name: MODEL_NAME, value: "mock-llm" }
+        - { name: LATENCY_MS, value: "${MOCK_LATENCY_MS}" }
+        - { name: LATENCY_JITTER_MS, value: "${MOCK_LATENCY_JITTER_MS}" }
+        - { name: STREAM_CHUNK_MS, value: "${MOCK_STREAM_CHUNK_MS}" }
+        - { name: ERROR_RATE, value: "${MOCK_ERROR_RATE}" }
+        - { name: ERROR_STATUS, value: "${MOCK_ERROR_STATUS}" }
+        - { name: COMPLETION_TOKENS, value: "${MOCK_OUTPUT_TOKENS}" }
+        livenessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 5
+          periodSeconds: 15
+        readinessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          requests: { cpu: "100m", memory: "64Mi" }
+          limits:   { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-llm
+  namespace: shop-agent
+spec:
+  selector: { app: mock-llm }
+  ports: [{ port: 80, targetPort: 8080 }]

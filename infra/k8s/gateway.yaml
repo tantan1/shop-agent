@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: shop-agent
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      containers:
+      - name: gateway
+        image: ${IMAGE_PREFIX}gateway:${IMAGE_TAG}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+        ports: [{ containerPort: 8001 }]
+        env:
+        - { name: SERVICE_NAME, value: "gateway" }
+        - { name: LOG_FORMAT, value: "json" }
+        - { name: LOG_LEVEL, value: "INFO" }
+        - { name: OLLAMA_BASE_URL, value: "http://ollama:11434" }
+        - { name: VLLM_BASE_URL, value: "${GATEWAY_VLLM_BASE_URL}" }
+        - { name: OPENAI_BASE_URL, value: "https://api.openai.com/v1" }
+        # ── mock LLM 上游（压测）：mock* 路由键 + 云端 API 切换开关 ──
+        - { name: MOCK_BASE_URL, value: "http://mock-llm:80/v1" }
+        - { name: MOCK_CLOUD_OVERRIDE, value: "${MOCK_CLOUD_OVERRIDE}" }
+        - { name: OPENAI_API_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: OPENAI_API_KEY } } }
+        - { name: AZURE_OPENAI_API_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: AZURE_OPENAI_API_KEY } } }
+        - { name: AZURE_OPENAI_ENDPOINT, valueFrom: { secretKeyRef: { name: app-secrets, key: AZURE_OPENAI_ENDPOINT } } }
+        - { name: AWS_ACCESS_KEY_ID, valueFrom: { secretKeyRef: { name: app-secrets, key: AWS_ACCESS_KEY_ID } } }
+        - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: AWS_SECRET_ACCESS_KEY } } }
+        - { name: TONGYI_API_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: TONGYI_API_KEY } } }
+        # ── 生产级路由基座：LiteLLM Router 由 model_list YAML 驱动（见 gateway/litellm_config.example.yaml）。
+        #    配 LITELLM_CONFIG_PATH 即作为路由权威来源；留空则网关按 legacy 字段自动生成等价 model_list。
+        #    取消下方两行注释并创建 ConfigMap `gateway-litellm-config` 即可启用 YAML 驱动路由。
+        # - { name: LITELLM_CONFIG_PATH, value: "/etc/litellm/litellm_config.yaml" }
+        #   volumeMounts:
+        #   - { name: litellm-config, mountPath: "/etc/litellm", readOnly: true }
+        # volumes:
+        # - name: litellm-config
+        #   configMap: { name: gateway-litellm-config }
+        livenessProbe:
+          httpGet: { path: /health, port: 8001 }
+          initialDelaySeconds: 15
+          periodSeconds: 15
+        readinessProbe:
+          httpGet: { path: /health, port: 8001 }
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests: { cpu: "250m", memory: "512Mi" }
+          limits:   { cpu: "500m", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: shop-agent
+spec:
+  selector: { app: gateway }
+  ports: [{ port: 80, targetPort: 8001 }]

@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-agent
+  namespace: shop-agent
+  labels:
+    app: shop-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: shop-agent }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: shop-agent }
+    spec:
+      containers:
+      - name: shop-agent
+        # 镜像由 CI 推送到 OCIR 后替换标签（见 deploy.yml）
+        image: ${IMAGE_PREFIX}shop-agent:${IMAGE_TAG}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+        ports:
+        - { containerPort: 8000, name: http }
+        - { containerPort: 8001, name: probe }
+        args:
+        - uvicorn
+        - src.main:app
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8000"
+        - --workers
+        - "2"
+        env:
+        - { name: SERVICE_NAME, value: "shop-agent" }
+        - { name: ENABLE_METRICS, value: "true" }
+        - { name: LOG_FORMAT, value: "json" }
+        - { name: REDIS_HOST, value: "redis" }
+        - { name: POSTGRES_HOST, value: "postgres" }
+        - { name: PGVECTOR_HOST, value: "postgres" }
+        - { name: PG_DATABASE, value: "shop_agent" }
+        - { name: VECTOR_STORE_PROVIDER, value: "pgvector" }
+        - { name: LLM_GATEWAY_URL, value: "http://gateway:80/v1" }
+        - { name: ORDER_SERVICE_URL, value: "http://order-service:80" }
+        - { name: MILVUS_PORT, value: "19530" }
+        - { name: LANGFUSE_HOST, value: "http://langfuse-web:3000" }
+        - { name: LANGFUSE_BASE_URL, value: "http://langfuse-web:3000" }
+        - { name: LANGFUSE_PUBLIC_KEY, value: "${LANGFUSE_PUBLIC_KEY}" }
+        - { name: LANGFUSE_SECRET_KEY, value: "${LANGFUSE_SECRET_KEY}" }
+        # ── Embedding / Reranker 模型：共享 PVC 挂载（方案 B，不进镜像）──
+        - { name: EMBEDDING_MODEL, value: "./models/BAAI/bge-m3" }
+        - { name: EMBEDDING_PROVIDER, value: "${SHOP_EMBEDDING_PROVIDER}" }
+        - { name: OLLAMA_EMBEDDING_MODEL, value: "bge-m3" }
+        - { name: VLLM_EMBEDDING_BASE_URL, value: "${SHOP_VLLM_EMBEDDING_BASE_URL}" }
+        - { name: VLLM_EMBEDDING_MODEL, value: "${SHOP_VLLM_EMBEDDING_MODEL}" }
+        - { name: RERANKER_LOCAL_MODEL_PATH, value: "./models/BAAI/bge-reranker-base" }
+        - { name: RERANKER_PROVIDER, value: "${SHOP_RERANKER_PROVIDER}" }
+        - { name: VLLM_RERANK_BASE_URL, value: "${SHOP_VLLM_RERANK_BASE_URL}" }
+        - { name: VLLM_RERANK_MODEL, value: "${SHOP_VLLM_RERANK_MODEL}" }
+        # ── 本地小模型：由 LLM_BACKEND 切换 Ollama / 本地 vLLM（qwen3-unified）──
+        - { name: LOCAL_MODEL_BACKEND, value: "${SHOP_LOCAL_MODEL_BACKEND}" }
+        - { name: OLLAMA_BASE_URL, value: "http://ollama:11434" }
+        - { name: OLLAMA_PARAM_MODEL, value: "unified" }
+        - { name: OLLAMA_TOOL_SELECTOR_MODEL, value: "unified" }
+        - { name: VLLM_BASE_URL, value: "${SHOP_VLLM_BASE_URL}" }
+        - { name: VLLM_PARAM_MODEL, value: "${SHOP_VLLM_PARAM_MODEL}" }
+        - { name: VLLM_TOOL_SELECTOR_MODEL, value: "${SHOP_VLLM_TOOL_SELECTOR_MODEL}" }
+        # safety task 已砍：合规主判归云端 LLM，本地模型不承担
+        - { name: step2_safety_local_model_enabled, value: "false" }
+        - { name: AWS_ENDPOINT_URL, valueFrom: { secretKeyRef: { name: app-secrets, key: S3_ENDPOINT } } }
+        - { name: AWS_ACCESS_KEY_ID, valueFrom: { secretKeyRef: { name: app-secrets, key: AWS_ACCESS_KEY_ID } } }
+        - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: AWS_SECRET_ACCESS_KEY } } }
+        - { name: REDIS_AUTH, valueFrom: { secretKeyRef: { name: app-secrets, key: REDIS_AUTH } } }
+        - { name: PGVECTOR_PASSWORD, valueFrom: { secretKeyRef: { name: app-secrets, key: POSTGRES_PASSWORD } } }
+        - { name: FIXED_API_KEY, valueFrom: { secretKeyRef: { name: app-secrets, key: FIXED_API_KEY } } }
+        # ── Mock LLM + 限流（压测用，默认关闭；export 覆盖后 apply 开启）──
+        # 例：LLM_ADAPTER_TYPE=mock CHAT_RATE_LIMIT=5000 GLOBAL_RATE_LIMIT=5000 ./apply-local.sh shop-agent
+        - { name: LLM_ADAPTER_TYPE, value: "${LLM_ADAPTER_TYPE}" }
+        - { name: MOCK_LLM_LATENCY_MIN, value: "${MOCK_LLM_LATENCY_MIN}" }
+        - { name: MOCK_LLM_LATENCY_MAX, value: "${MOCK_LLM_LATENCY_MAX}" }
+        - { name: MOCK_LLM_ERROR_RATE, value: "${MOCK_LLM_ERROR_RATE}" }
+        - { name: MOCK_LLM_OUTPUT_TOKENS, value: "${MOCK_LLM_OUTPUT_TOKENS}" }
+        - { name: CHAT_RATE_LIMIT, value: "${CHAT_RATE_LIMIT}" }
+        - { name: GLOBAL_RATE_LIMIT, value: "${GLOBAL_RATE_LIMIT}" }
+        # ── 模型配置（shop-agent 调用模型）──
+        # 主聊天大模型：走网关→百炼（需 TONGYI_API_KEY）
+        - { name: CHAT_MODEL, value: "${CHAT_MODEL}" }
+        # 工具选择器：本地 vLLM（qwen3-unified），无需云端 key
+        - { name: TOOL_SELECTOR_MODEL, value: "${TOOL_SELECTOR_MODEL}" }
+        # 本地小模型后端：vllm（工具选择/参数抽取走本地 vLLM）
+        - { name: LOCAL_MODEL_BACKEND, value: "${LOCAL_MODEL_BACKEND}" }
+        - { name: VLLM_TOOL_SELECTOR_MODEL, value: "${VLLM_TOOL_SELECTOR_MODEL}" }
+        # 说明：LLM API Key 统一由 Gateway 持有，shop-agent 不再注入 TONGYI_API_KEY。
+        # shop-agent 经 LLM_GATEWAY_URL 调用，鉴权由网关侧 TONGYI_API_KEY 兜底。
+        # ── SkyWalking 链路追踪（OTLP receiver 4317，兼容 SW Python 客户端 v3 API）──
+        - { name: SW_AGENT_NAME, value: "shop-agent" }
+        - { name: SW_AGENT_COLLECTOR_BACKEND_SERVICES, value: "skywalking-oap:4317" }
+        - { name: SW_AGENT_SAMPLE_RATE, value: "1" }
+        - { name: SW_AGENT_ENABLED, value: "true" }
+        livenessProbe:
+          # 只判断进程是否活着（独立探针端口 8001，独立线程；死锁/死循环才会失败，永不因高并发失败）
+          httpGet: { path: /healthz, port: 8001 }
+          initialDelaySeconds: 20
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          # 判断能否接新流量：Redis 依赖可用才就绪；高并发资源饱和时依赖超时可临时失败，让 Service 摘掉该 Pod
+          httpGet: { path: /readyz, port: 8001 }
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "2", memory: "2Gi" }
+        volumeMounts:
+        - { name: model-data, mountPath: /code/models/BAAI, readOnly: true }
+      volumes:
+      - name: model-data
+        persistentVolumeClaim: { claimName: model-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-agent
+  namespace: shop-agent
+spec:
+  selector: { app: shop-agent }
+  ports: [{ port: 80, targetPort: 8000 }]

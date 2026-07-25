@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: shop-agent
+  labels: { app: postgres }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  strategy: { type: Recreate }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+      - name: postgres
+        image: ${PGVECTOR_IMAGE}     # 已带 pgvector 扩展
+        env:
+        - { name: POSTGRES_USER, value: "postgres" }
+        - { name: POSTGRES_DB, value: "shop_agent" }
+        - name: POSTGRES_PASSWORD
+          valueFrom: { secretKeyRef: { name: app-secrets, key: POSTGRES_PASSWORD } }
+        - { name: PGDATA, value: "/var/lib/postgresql/data/pgdata" }
+        ports: [{ containerPort: 5432 }]
+        livenessProbe:
+          exec: { command: ["pg_isready", "-U", "postgres"] }
+          initialDelaySeconds: 15
+          periodSeconds: 15
+        readinessProbe:
+          exec: { command: ["pg_isready", "-U", "postgres"] }
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources: { requests: { cpu: "250m", memory: "512Mi" }, limits: { cpu: "500m", memory: "1Gi" } }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: postgres-data }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: postgres-data, namespace: shop-agent }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 20Gi } }
+  storageClassName: "${STORAGE_CLASS}"   # OKE: oci-bv / 本机: standard
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: shop-agent }
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]

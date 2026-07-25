@@ -1,0 +1,42 @@
+﻿# GPU 训练 + 测试 Qwen2.5-1.5B 的依赖环境
+# 用途：
+#   - LLaMA-Factory SFT 微调（train_qwen_param.yaml / scripts/train_qwen_param.ps1）
+#   - 微调前后对比评测（scripts/eval_sft_before_after.py）
+# 运行环境：venv_cuda（CUDA 12.4，torch 2.6.0+cu124）
+#
+# 安装：
+#   .\venv_cuda\Scripts\python.exe -m pip install -r requirements-gpu.txt
+#
+# 注意：
+#   - torch/torchaudio 的 CUDA 轮子来自 pytorch 额外源（--extra-index-url）。
+#     若需要严格 cu124（而非 PyPI 默认 cu121），先单独装这两行再装其余：
+#       .\venv_cuda\Scripts\python.exe -m pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+#   - torchaudio 主版本必须与 torch 一致，否则 import 报 WinError 127（本次踩的坑）。
+
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+# 深度学习框架（CUDA 12.4）
+torch==2.6.0
+torchaudio==2.6.0            # 必须与 torch 主版本一致，否则 import 崩溃
+
+# 微调框架
+llamafactory==0.9.5
+transformers==5.6.0
+peft==0.18.1
+accelerate==1.11.0
+bitsandbytes>=0.43.0        # 4bit QLoRA 量化（省显存，对应博客坑③）
+datasets==4.0.0
+sentencepiece==0.2.2        # Qwen tokenizer
+tokenizers==0.22.2
+safetensors==0.8.0
+protobuf==7.35.1
+
+# 工具 / 评测
+pydantic==2.12.3            # 项目 schema（eval 脚本已内联 prompt，非强依赖）
+PyYAML==6.0.3               # 读 yaml 配置
+numpy==2.4.6
+pandas==2.3.3
+
+# 可选：训练日志可视化
+# tensorboard
+# swanlab

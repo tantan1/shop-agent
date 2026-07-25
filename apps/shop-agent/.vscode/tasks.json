@@ -1,0 +1,104 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Debug: Port-forward all k8s services (local debug)",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "${workspaceFolder}/scripts/port-forward-k8s.sh",
+                "start"
+            ],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Debug: Stop port-forward all k8s services",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "${workspaceFolder}/scripts/port-forward-k8s.sh",
+                "stop"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Debug: Status port-forward all k8s services",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "${workspaceFolder}/scripts/port-forward-k8s.sh",
+                "status"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Debug: Port-forward shop-agent-debug to localhost:5678",
+            "type": "shell",
+            "command": "kubectl port-forward svc/shop-agent-debug 5678:5678 -n shop-agent",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": {
+                "owner": "portforward",
+                "pattern": {
+                    "regexp": "^$",
+                    "kind": "begin"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Forwarding from",
+                    "endsPattern": "Handling connection"
+                }
+            }
+        },
+        {
+            "label": "Debug: Deploy shop-agent-debug",
+            "type": "shell",
+            "command": "envsubst < ${workspaceFolder}/../infra/k8s/shop-agent-debug.yaml | kubectl apply -f -",
+            "options": {
+                "env": {
+                    "IMAGE_PREFIX": "shop-agent",
+                    "IMAGE_TAG": "local",
+                    "IMAGE_PULL_POLICY": "IfNotPresent",
+                    "LLM_ADAPTER_TYPE": "dashscope",
+                    "MOCK_LLM_LATENCY_MIN": "0",
+                    "MOCK_LLM_LATENCY_MAX": "0",
+                    "MOCK_LLM_ERROR_RATE": "0",
+                    "MOCK_LLM_OUTPUT_TOKENS": "0",
+                    "CHAT_RATE_LIMIT": "100",
+                    "GLOBAL_RATE_LIMIT": "100"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Debug: Delete shop-agent-debug",
+            "type": "shell",
+            "command": "kubectl delete -f infra/k8s/shop-agent-debug.yaml --ignore-not-found",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

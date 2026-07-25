@@ -1,0 +1,63 @@
+# shop-agent 自动伸缩（HorizontalPodAutoscaler）
+#
+# 背景：shop-agent 是 IO 密集服务（LLM 调用、Redis、向量检索、流式响应），
+#       高并发下大量请求在异步等待 IO，CPU 占用可能不高但吞吐已经在掉。
+#       因此不能只按 CPU 扩容，采用“CPU + 内存”双指标综合决策。
+#
+# 部署：kubectl apply -f infra/k8s/shop-agent-hpa.yaml
+# 前提：集群已装 metrics-server（v1beta1.metrics.k8s.io，提供 pod CPU/内存 resource 指标）。
+#      本集群已有 metrics-server（见 kubectl get apiservice | grep metrics）。
+#
+# 若要更贴近 IO 密集特征的“吞吐量（RPS）”伸缩，需额外安装 prometheus-adapter：
+#   - 已接入 Prometheus（本集群有 prometheus），配置 custom.metrics.k8s.io 暴露 nginx_ingress / http_requests_total
+#   - 此时可在下方追加 metrics 项，type: Object / Pods，按每秒请求数扩容。
+#   任务列表已注明“RPS 自定义指标建议”，默认先用 CPU+Memory（当前无 prometheus-adapter，见下）。
+#
+# “HPA 扩容优先级高于探针杀 Pod”落地约定：
+#   - livenessProbe 走独立探针端口 8001 /healthz，只判进程存活，永不因高并发失败 → 不会误杀 Pod。
+#   - readinessProbe 走 8001 /readyz，资源饱和/依赖超时可临时失败 → Service 摘流量（不重启进程）。
+#   - 因此压力上升时先由 readiness 摘流量 + HPA 扩容，而不会触达 liveness 重启，天然“扩容优先”。
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: shop-agent
+  namespace: shop-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: shop-agent
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    # 指标1：CPU 利用率（相对 request 500m）。IO 密集下可能长期不触发，作为兜底。
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    # 指标2：内存利用率（相对 request 1Gi）。IO 密集场景链接积压/缓存增长时更能反映压力。
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # 快速扩容：压力上来后 60s 内即可增加副本（HPA 默认冷却 60s）
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      # 慢速缩容：避免探活抖动引起频繁缩容
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 120
+      selectPolicy: Min

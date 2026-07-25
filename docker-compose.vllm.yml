@@ -1,0 +1,129 @@
+# vLLM 三模型服务（共享单 GPU）
+# 用法:
+#   docker compose -f docker-compose.vllm.yml up -d              # 启动全部
+#   docker compose -f docker-compose.vllm.yml up -d qwen3        # 仅启动单个
+#   docker compose -f docker-compose.vllm.yml logs -f            # 统一日志
+#   docker compose -f docker-compose.vllm.yml down               # 停止全部
+#
+# GPU 显存预算 (RTX 4070 Laptop 8GB):
+#   bge-reranker  0.12  (~1.0 GB)
+#   bge-m3        0.18  (~1.5 GB)
+#   qwen3         0.55  (~4.5 GB)
+#   合计           0.85  (~7.0 GB)  ← 预留 15% 给 CUDA context + 系统
+#
+# 启动顺序: bge-reranker → bge-m3 → qwen3 (由 depends_on + healthcheck 自动编排)
+# 注意: vLLM v0.21 已移除 --task/--model 参数，任务类型由 config.json 自动推断
+#
+# 端口映射（宿主:容器）仅供宿主机侧调试；服务间通信一律走容器名
+# （shop-agent/gateway 与 vLLM 同处 shop-agent_default 网络）:
+#   bge-reranker  8102:8000   bge-m3  8101:8000   qwen3  8003:8000
+# （bge-m3 原 8001:8000 与 llm-gateway 的 8001 冲突，改 8101）
+
+services:
+  bge-reranker:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-bge-reranker
+    ports:
+      - "8102:8000"
+    volumes:
+      - vllm-bge-reranker:/models/bge-reranker:ro
+    command:
+      - /models/bge-reranker
+      - --dtype=bfloat16
+      - --enforce-eager
+      - --max-model-len=512
+      - --gpu-memory-utilization=0.12
+      - --served-model-name=bge-reranker-base
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  bge-m3:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-bge-m3
+    ports:
+      - "8101:8000"
+    volumes:
+      - vllm-bge-m3:/models/bge-m3:ro
+    command:
+      - /models/bge-m3
+      - --dtype=bfloat16
+      - --enforce-eager
+      - --max-model-len=1024
+      - --gpu-memory-utilization=0.18
+      - --served-model-name=bge-m3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      bge-reranker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  qwen3:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-qwen3
+    ports:
+      - "8003:8000"
+    volumes:
+      - vllm-qwen3-unified:/models/qwen3-unified:ro
+    command:
+      - /models/qwen3-unified
+      - --quantization=fp8
+      - --kv-cache-dtype=fp8
+      - --max-model-len=4096
+      - --max-num-seqs=8
+      - --max-num-batched-tokens=4096
+      - --gpu-memory-utilization=0.55
+      - --served-model-name=qwen3-unified
+    environment:
+      - VLLM_CPU_OFFLOAD_GB=4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      bge-m3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  vllm-bge-reranker:
+    name: vllm-bge-reranker
+    external: true
+  vllm-bge-m3:
+    name: vllm-bge-m3
+    external: true
+  vllm-qwen3-unified:
+    name: vllm-qwen3-unified
+    external: true

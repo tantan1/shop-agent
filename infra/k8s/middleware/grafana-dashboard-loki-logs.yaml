@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-loki-logs
+  namespace: shop-agent
+  labels:
+    grafana_dashboard: "1"
+data:
+  loki-logs-dashboard.json: |
+    {
+      "id": null,
+      "uid": "shop-agent-logs-001",
+      "title": "Shop-Agent 日志看板 (Loki)",
+      "tags": ["shop-agent", "logs", "loki"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "10s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "logs",
+          "title": "最近错误日志 (Error/Exception)",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "fillLevel": 1, "dedupStrategy": "none" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+              "expr": "{service_name=~\"shop-agent\"} |~ \"(?i)(error|exception|traceback|failed|denied)\"",
+              "maxLines": 1000,
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "日志量 (按 level, 5 分钟窗口)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+              "expr": "sum by (detected_level) (count_over_time({service_name=~\"shop-agent\"}[5m]))",
+              "legendFormat": "{{detected_level}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+              "title": "日志量 (按 service_name, 5 分钟窗口)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+              "expr": "sum by (service_name) (count_over_time({service_name=~\"$service_name\"}[5m]))",
+              "legendFormat": "{{service_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "logs",
+              "title": "全部日志 (按 service_name 搜索)",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 20 },
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "fillLevel": 1, "dedupStrategy": "none" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+              "expr": "{service_name=~\"$service_name\"}",
+              "maxLines": 100,
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "DS_LOKI",
+            "type": "datasource",
+            "query": "loki",
+            "current": {},
+            "hide": 0,
+            "label": "Loki 数据源"
+          },
+          {
+            "name": "service_name",
+            "type": "query",
+            "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+            "refresh": 1,
+            "includeAll": true,
+            "multi": true,
+            "query": "label_values({service_name=~\".+\"}, service_name)",
+            "allValue": "shop-agent",
+            "current": {
+              "selected": true,
+              "text": "shop-agent",
+              "value": "shop-agent"
+            },
+            "hide": 0,
+            "label": "Service Name"
+          }
+        ]
+      },
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      }
+    }
+

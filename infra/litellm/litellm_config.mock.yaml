@@ -1,0 +1,139 @@
+# LiteLLM Proxy 配置（压测开关 MOCK_CLOUD_OVERRIDE=1 时启用）。
+#
+# 与 litellm_config.yaml 的差异：云端 API（azure / openai / anthropic / dashscope）的
+# model 全部改路由到 mock-llm 上游（apps/mock-llm Go 服务），本地 vLLM 与 mock* 不变。
+# 用法：部署时以本文件替换 --config（或经 volume 同名挂载），即可免真实云调用做压测。
+# 对应 apps/gateway/tests test_2b02_routing.py::test_route_mock_cloud_override。
+
+model_list:
+  # ── 压测：云端 API 全部 → mock-llm（与主配置同款通配，仅 model 指向 mock）──
+  - model_name: "gpt-*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "qwen*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "claude*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # ── 本地 vLLM（压测时不劫持，与生产一致）────────────────────────────────
+  - model_name: "qwen3-unified"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "local/*"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "models/*"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "param"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: "tool_select"
+    litellm_params:
+      model: "openai/qwen3-unified"
+      api_base: "os.environ/VLLM_QWEN3_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # ── mock*：直接上游 mock──────────────
+  - model_name: "mock*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # 其余未匹配 model：默认 openai（云上游；压测下同样由 MOCK handled）
+  - model_name: "*"
+    litellm_params:
+      model: "openai/mock-llm"
+      api_base: "os.environ/MOCK_BASE_URL"
+      api_key: "none"
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+# ── 治理：与主配置一致（压测亦需注入/PII/合规检测）────────────────────────
+guardrails:
+  - guardrail_name: "injection-report"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "pre_call"
+      categories:
+        - { category: "prompt_injection_jailbreak", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "prompt_injection_system_prompt", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "prompt_injection_malicious_code", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "prompt_injection_data_exfiltration", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "prompt_injection_sql", enabled: true, action: "BLOCK", severity_threshold: "high" }
+      blocked_words:
+        - { keyword: "ignore previous instructions", action: "BLOCK", description: "system-prompt-evasion" }
+        - { keyword: "act as the system", action: "BLOCK", description: "role-usurpation" }
+
+  - guardrail_name: "pii-mask"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "post_call"
+      patterns:
+        - { pattern_type: "prebuilt", pattern_name: "us_ssn", action: "MASK" }
+        - { pattern_type: "prebuilt", pattern_name: "email", action: "MASK" }
+        - { pattern_type: "prebuilt", pattern_name: "us_phone", action: "MASK" }
+        - { pattern_type: "prebuilt", pattern_name: "credit_card", action: "MASK" }
+        - { pattern_type: "prebuilt", pattern_name: "generic_api_key", action: "MASK" }
+        - { pattern_type: "prebuilt", pattern_name: "passport_china", action: "MASK" }
+
+  - guardrail_name: "compliance-block"
+    litellm_params:
+      guardrail: "litellm_content_filter"
+      mode: "pre_call"
+      categories:
+        - { category: "harm_toxic_abuse", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "harmful_illegal_weapons", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "harmful_violence", enabled: true, action: "BLOCK", severity_threshold: "medium" }
+        - { category: "harmful_self_harm", enabled: true, action: "BLOCK", severity_threshold: "high" }
+        - { category: "harmful_child_safety", enabled: true, action: "BLOCK", severity_threshold: "high" }
+      blocked_words:
+        - { keyword: "毒品", action: "BLOCK", description: "illegal-drugs" }
+        - { keyword: "枪支", action: "BLOCK", description: "illegal-weapons" }
+        - { keyword: "色情", action: "BLOCK", description: "pornography" }
+        - { keyword: "赌博", action: "BLOCK", description: "gambling" }
+        - { keyword: "诈骗", action: "BLOCK", description: "fraud" }
+        - { keyword: "刷单", action: "BLOCK", description: "fake-orders" }
+        - { keyword: "假货", action: "BLOCK", description: "counterfeit" }
+        - { keyword: "翻墙", action: "BLOCK", description: "vpn-evasion" }
+
+general_settings:
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  database_url: "os.environ/DATABASE_URL"
+  otel: false
+  enable_guardrails_logging: true

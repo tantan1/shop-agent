@@ -1,0 +1,76 @@
+# Milvus 向量库（含 etcd 依赖）。重组件，资源占用大；本地开发可酌情关闭。
+# 需 FULL=1 启用（见 apply-local.sh）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: milvus
+  namespace: shop-agent
+  labels: { app: milvus }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: milvus } }
+  template:
+    metadata: { labels: { app: milvus } }
+    spec:
+      containers:
+      - name: milvus
+        image: ${MILVUS_IMAGE}
+        command: ["milvus", "run", "standalone"]
+        env:
+        - { name: ETCD_ENDPOINTS, value: "etcd:2379" }
+        - { name: COMMON_STORAGETYPE, value: "local" }
+        - { name: STORAGES__LOCAL__ROOTPATH, value: "/var/lib/milvus" }
+        # ---- Milvus 性能调优 ----
+        # 增加 etcd 客户端超时，避免因 etcd 短暂繁忙导致的请求失败
+        - { name: ETCD_CLIENT_TIMEOUT, value: "10s" }
+        # 增加 etcd 重试次数
+        - { name: ETCD_CLIENT_RETRY_COUNT, value: "5" }
+        # 增加 etcd 重试间隔
+        - { name: ETCD_CLIENT_RETRY_INTERVAL, value: "500ms" }
+        ports: [{ containerPort: 19530 }, { containerPort: 9091 }]
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/milvus }
+        resources:
+          # 原配置 500m/1Gi → 1Gi/2Gi，确保 Milvus 有足够资源处理向量查询
+          requests: { cpu: "1000m", memory: "2Gi" }
+          limits:   { cpu: "2000m", memory: "4Gi" }
+        livenessProbe:
+          httpGet: { path: /healthz, port: 9091 }
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /healthz, port: 9091 }
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: milvus-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: milvus-data
+  namespace: shop-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: "${STORAGE_CLASS}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: shop-agent
+  labels: { app: milvus }
+spec:
+  selector: { app: milvus }
+  ports:
+  - { name: grpc, port: 19530, targetPort: 19530 }
+  - { name: metrics, port: 9091, targetPort: 9091 }

@@ -1,0 +1,121 @@
+{
+  "patterns": [
+    {
+      "type": "jailbreak",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)ignore\\s+(all\\s+)?[\\w\\W]{0,60}?(previous|prior|above|)\\s*(instructions|rules|commands)",
+      "mask": "full"
+    },
+    {
+      "type": "jailbreak_zh",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(忽略|无视|忘(记|掉|却)|别管|抛开)[\\s\\S]{0,30}?(之前|以前|上文|上面|前述)[\\s\\S]{0,20}?(指令|规则|设定|提示|要求|prompt|约束)",
+      "mask": "full"
+    },
+    {
+      "type": "forget_zh",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(忘记|忘掉|无视|忽略)[\\s\\S]{0,20}?(一切|所有|全部|之前|上面的)",
+      "mask": "full"
+    },
+    {
+      "type": "system_prompt_extract",
+      "applies_to": [
+        "user"
+      ],
+      "regex": "(?i)(输出你的(完整)?(系统)?(提示词|提示|设定)|泄露你的(系统)?(提示词|设定)|告诉我你的(系统)?(设定|提示词)|你的(完整)?(系统)?(提示词|设定)是什么|your\\s+system\\s+prompt|reveal\\s+your\\s+(instructions|prompt)|show\\s+me\\s+your\\s+prompt|print\\s+your\\s+(system\\s+)?prompt|dump\\s+your\\s+prompt)",
+      "mask": "full"
+    },
+    {
+      "type": "indirect_injection",
+      "applies_to": [
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(忽略(之前|以上|上述|所有).{0,20}指令|disregard.{0,20}(previous|above|all).{0,20}(instruction|rule)|new\\s+instruction\\s*:|system\\s*:\\s*|作为(系统|管理员|开发者).{0,10}(现在|请)|ignore\\s+(all\\s+)?(previous|above))",
+      "mask": "full"
+    },
+    {
+      "type": "role_override",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(you\\s+are\\s+now|act\\s+as|pretend\\s+to\\s+be)\\s+[^.]{0,40}(without\\s+(any\\s+)?(restriction|filter|rule)|DAN|jailbreak)",
+      "mask": "full"
+    },
+    {
+      "type": "role_override_zh",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(你现在(是|要|就)|你现在是|假装你(是|变成)|请你扮演|你可以扮演)[\\s\\S]{0,20}?(角色|助手|AI|模型|系统|bot)",
+      "mask": "full"
+    },
+    {
+      "type": "system_injection",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "\\[SYSTEM\\]|###\\s*instruction|<\\s*system\\s*>",
+      "mask": "full"
+    },
+    {
+      "type": "delimiter_escape",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(forget\\s+(everything|all\\s+previous)|disregard\\s+(the\\s+)?(above|previous))",
+      "mask": "full"
+    },
+    {
+      "type": "dangerous_cmd",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(rm\\s+-rf|sudo\\s+rm|format\\s+(c:|the\\s+disk)|del\\s+/[fsq])",
+      "mask": "full"
+    },
+    {
+      "type": "sql_injection",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(;\\s*)?drop\\s+table|union\\s+select|or\\s+1=1\\s*--|/\\*.?\\*/",
+      "mask": "full"
+    },
+    {
+      "type": "xss",
+      "applies_to": [
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "regex": "(?i)(<script>|onerror\\s*=|javascript:)",
+      "mask": "full"
+    }
+  ]
+}

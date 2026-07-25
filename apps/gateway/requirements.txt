@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+httpx
+pydantic-settings
+prometheus-client
+python-dotenv
+pyyaml
+# 生产级路由/故障转移基座：LiteLLM Router 接管 model_list 路由、负载均衡、重试、fallback
+# 锁版本：Router API 跨 minor 有破坏性变更，生产环境须固定
+litellm==1.59.0
+# 统一 OTel trace（4.3 方案 A）：应用经 OTLP gRPC 上报到 otel-gateway，fan-out 到 SkyWalking OAP
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-httpx

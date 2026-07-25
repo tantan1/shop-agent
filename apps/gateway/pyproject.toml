@@ -1,0 +1,43 @@
+# LiteLLM Router 为生产级路由/故障转移基座（01 §4 / 02 §4）：model_list 路由、负载均衡、
+# 重试、fallback 全部由 Router 接管，网关层只保留三道防线与 fail-closed 不变量。
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["venv", ".git", "__pycache__", "*.pyc"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+
+# 统一覆盖率配置：source 指向包名，omit 测试与生成物。
+# CI 中每个 app 输出 coverage.xml(Cobertura) + coverage.json 供合并汇总。
+[tool.coverage.run]
+source = ["gateway"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "gateway/__main__.py",
+]
+sigterm = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"

@@ -1,0 +1,43 @@
+# 08 语义缓存 · 业务维度分片策略
+#
+# 配置优先级（三层，绝不无值）：分片值 → env 默认(CACHE_TTL/SIMILARITY_THRESHOLD/CACHE_ENABLED) → 内置常量
+# 硬约束层（PII 整条不写、写操作不命中）由代码强制，任何分片策略不可关闭/覆盖。
+#
+# 可调维度（业务方仅能在自有分片内调）：enabled / threshold / ttl / skip_write
+#   - enabled   : 分片是否启用缓存
+#   - threshold : 词频向量余弦命中阈值（涉金额/身份分片收紧）
+#   - ttl       : 缓存条目存活秒数
+#   - skip_write: true 表示写操作分片，永不命中、永不写入（硬约束之一）
+#
+# 未声明的字段继承 env 默认；分片不存在则按 default 处理（本文件可不列 default）。
+
+buckets:
+  # 默认分片：继承 env 默认阈值/TTL
+  default:
+    enabled: true
+
+  # 售前咨询：宽松阈值，允许换说法同义命中（省 token）
+  # 注：词频向量余弦对短中文天然偏低（"退货政策是什么" vs "退货政策咨询" 约 0.67），
+  # 故 presale 取 0.65 的宽松阈值；无关问题相似度≈0 不会误命中。
+  presale:
+    enabled: true
+    threshold: 0.65
+    ttl: 1800
+
+  # 售后/退款：涉金额，收紧阈值避免误命中不同订单语境
+  aftersale:
+    enabled: true
+    threshold: 0.90
+    ttl: 600
+
+  # 下单/改地址等写操作：永不命中、永不写入（skip_write 硬约束）
+  order_write:
+    enabled: true
+    skip_write: true
+    ttl: 60
+
+  # 敏感身份业务：收紧阈值（防近似命中泄露边界）
+  identity:
+    enabled: true
+    threshold: 0.95
+    ttl: 300

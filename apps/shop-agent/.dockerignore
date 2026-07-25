@@ -1,0 +1,26 @@
+# 本地模型（推理时挂载或单独下载，不打包进镜像）
+models/
+
+# 源码库之外的本地环境
+venv/
+venv_cuda/
+venv_mineru/
+
+# 测试与评估
+tests/
+test_chat_service.py
+.benchmarks/
+.pytest_cache/
+
+# 文档与开发产物
+docs/
+jianli/
+outputs/
+*.log
+*.tar
+benchmark_results/
+
+# 容器内不使用的配置
+.env
+.env.prod
+docker-compose.yml

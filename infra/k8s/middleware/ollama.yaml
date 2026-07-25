@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: shop-agent
+  labels: { app: ollama }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ollama } }
+  strategy: { type: Recreate }
+  template:
+    metadata: { labels: { app: ollama } }
+    spec:
+      containers:
+      - name: ollama
+        image: ${OLLAMA_IMAGE}
+        ports: [{ containerPort: 11434 }]
+        # 常驻内存小（unified 1.7B Q4 约 1GB）；GPU 加速推理
+        env:
+        - name: OLLAMA_KEEP_ALIVE
+          value: "24h"          # 模型常驻，避免冷启动
+        - name: OLLAMA_NUM_PARALLEL
+          value: "2"             # 单模型并行请求（shop-agent 单实例串行足够）
+        - name: OLLAMA_GPU_OVERHEAD
+          value: "0"             # GPU 推理时，0 表示不额外预留 CPU 用于 GPU 调度
+        livenessProbe:
+          httpGet: { path: /api/tags, port: 11434 }
+          initialDelaySeconds: 15
+          periodSeconds: 15
+        readinessProbe:
+          httpGet: { path: /api/tags, port: 11434 }
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "2Gi"
+            nvidia.com/gpu: "1"   # 请求 1 个 GPU
+          limits:
+            cpu: "2"
+            memory: "8Gi"
+            nvidia.com/gpu: "1"   # 限制 1 个 GPU，GPU 推理加速
+        volumeMounts:
+        - { name: data, mountPath: /root/.ollama }
+        # 本地 GGUF 模型挂载（bge-m3-Q4_K_M.gguf，`ollama create bge-m3 -f /models/Modelfile-bge-m3` 注册）
+        - { name: models, mountPath: /models, readOnly: true }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: ollama-data }
+      - name: models
+        persistentVolumeClaim: { claimName: model-data }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: ollama-data, namespace: shop-agent }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 20Gi } }   # unified GGUF ~1.5GB，留足余量
+  storageClassName: "${STORAGE_CLASS}"          # OKE: oci-bv / 本机: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: shop-agent
+spec:
+  selector: { app: ollama }
+  ports: [{ port: 11434, targetPort: 11434 }]

@@ -11,3 +11,5 @@ volumes
 docs
 .env
 .env.prod
+target
+artifacts

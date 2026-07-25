@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\scripts\_debug_graph_context.py", line 9, in <module>
+    from src.modules.chat.core.graph_service import NebulaGraphService
+ModuleNotFoundError: No module named 'src'

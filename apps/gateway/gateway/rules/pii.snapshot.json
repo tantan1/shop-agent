@@ -1,0 +1,29 @@
+{
+  "patterns": [
+    {
+      "type": "phone",
+      "regex": "1[3-9]\\d{9}",
+      "mask": "keep_suffix",
+      "keep": 4
+    },
+    {
+      "type": "email",
+      "regex": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+      "mask": "both",
+      "prefix": 1,
+      "suffix": 6
+    },
+    {
+      "type": "id_card",
+      "regex": "\\d{17}[\\dXx]|\\d{15}",
+      "mask": "keep_prefix",
+      "keep": 6
+    },
+    {
+      "type": "bank_card",
+      "regex": "\\d{16,19}",
+      "mask": "keep_prefix",
+      "keep": 6
+    }
+  ]
+}

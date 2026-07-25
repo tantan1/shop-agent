@@ -1,0 +1,95 @@
+# Langfuse 可观测（web + worker），对象存储走 OCI Object Storage（替 MinIO）。
+# 数据库复用 shop-agent 同源 Postgres（库 langfuse）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-web
+  namespace: shop-agent
+  labels: { app: langfuse-web }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: langfuse-web } }
+  template:
+    metadata: { labels: { app: langfuse-web } }
+    spec:
+      containers:
+      - name: web
+        image: ${LANGFUSE_IMAGE}
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_DATABASE_URL } } }
+        - { name: SALT, valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_INIT_USER_PASSWORD } } }
+        - { name: NEXTAUTH_SECRET, valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_INIT_USER_PASSWORD } } }
+        - { name: NEXTAUTH_URL, value: "http://langfuse-web:3000" }
+        - { name: REDIS_HOST, value: "redis" }
+        - { name: REDIS_PORT, value: "6379" }
+        - { name: REDIS_AUTH, valueFrom: { secretKeyRef: { name: app-secrets, key: REDIS_AUTH } } }
+        - { name: CLICKHOUSE_URL, value: "http://clickhouse:8123" }
+        - { name: CLICKHOUSE_USER, value: "default" }
+        - { name: CLICKHOUSE_PASSWORD, value: "clickhouse123" }
+        - { name: CLICKHOUSE_MIGRATION_URL, value: "clickhouse://clickhouse:9000" }
+        - { name: CLICKHOUSE_CLUSTER_ENABLED, value: "false" }
+        - { name: REGION, value: "local" }
+        - { name: LANGFUSE_S3_ENDPOINT, value: "http://minio:9000" }
+        - { name: LANGFUSE_S3_ACCESS_KEY_ID, value: "minioadmin" }
+        - { name: LANGFUSE_S3_SECRET_ACCESS_KEY, value: "minioadmin" }
+        - { name: LANGFUSE_S3_BUCKET, value: "langfuse" }
+        - { name: LANGFUSE_S3_REGION, value: "us-east-1" }
+        - { name: LANGFUSE_S3_FORCE_PATH_STYLE, value: "true" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET, value: "langfuse" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT, value: "http://minio:9000" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID, value: "minioadmin" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY, value: "minioadmin" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_REGION, value: "us-east-1" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE, value: "true" }
+        - { name: LANGFUSE_S3_MEDIA_UPLOAD_ENABLED, value: "false" }
+        - { name: HOSTNAME, value: "0.0.0.0" }
+        ports: [{ containerPort: 3000 }]
+        resources: { requests: { cpu: "250m", memory: "1Gi" }, limits: { cpu: "500m", memory: "1280Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: langfuse-web, namespace: shop-agent }
+spec:
+  selector: { app: langfuse-web }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-worker
+  namespace: shop-agent
+  labels: { app: langfuse-worker }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: langfuse-worker } }
+  template:
+    metadata: { labels: { app: langfuse-worker } }
+    spec:
+      containers:
+      - name: worker
+        image: ${LANGFUSE_WORKER_IMAGE}
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_DATABASE_URL } } }
+        - { name: SALT, valueFrom: { secretKeyRef: { name: app-secrets, key: LANGFUSE_INIT_USER_PASSWORD } } }
+        - { name: REDIS_HOST, value: "redis" }
+        - { name: REDIS_PORT, value: "6379" }
+        - { name: REDIS_AUTH, valueFrom: { secretKeyRef: { name: app-secrets, key: REDIS_AUTH } } }
+        - { name: CLICKHOUSE_URL, value: "http://clickhouse:8123" }
+        - { name: CLICKHOUSE_USER, value: "default" }
+        - { name: CLICKHOUSE_PASSWORD, value: "clickhouse123" }
+        - { name: CLICKHOUSE_MIGRATION_URL, value: "clickhouse://clickhouse:9000" }
+        - { name: CLICKHOUSE_CLUSTER_ENABLED, value: "false" }
+        - { name: LANGFUSE_S3_ENDPOINT, value: "http://minio:9000" }
+        - { name: LANGFUSE_S3_ACCESS_KEY_ID, value: "minioadmin" }
+        - { name: LANGFUSE_S3_SECRET_ACCESS_KEY, value: "minioadmin" }
+        - { name: LANGFUSE_S3_BUCKET, value: "langfuse" }
+        - { name: LANGFUSE_S3_REGION, value: "us-east-1" }
+        - { name: LANGFUSE_S3_FORCE_PATH_STYLE, value: "true" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET, value: "langfuse" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT, value: "http://minio:9000" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID, value: "minioadmin" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY, value: "minioadmin" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_REGION, value: "us-east-1" }
+        - { name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE, value: "true" }
+        - { name: LANGFUSE_S3_MEDIA_UPLOAD_ENABLED, value: "false" }
+        resources: { requests: { cpu: "250m", memory: "1Gi" }, limits: { cpu: "500m", memory: "1280Mi" } }

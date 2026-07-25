@@ -1,0 +1,80 @@
+# NebulaGraph（图数据库：metad + storaged + graphd）。重组件，可酌情关闭。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nebula-metad
+  namespace: shop-agent
+  labels: { app: nebula-metad }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nebula-metad } }
+  template:
+    metadata: { labels: { app: nebula-metad } }
+    spec:
+      containers:
+      - name: metad
+        image: ${NEBULA_METAD_IMAGE}
+        env: [{ name: TZ, value: UTC }]
+        ports: [{ containerPort: 9559 }, { containerPort: 19559 }, { containerPort: 19560 }]
+        resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "250m", memory: "512Mi" } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nebula-storaged
+  namespace: shop-agent
+  labels: { app: nebula-storaged }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nebula-storaged } }
+  template:
+    metadata: { labels: { app: nebula-storaged } }
+    spec:
+      containers:
+      - name: storaged
+        image: ${NEBULA_STORAGED_IMAGE}
+        args: ["--meta_server_addrs=nebula-metad:9559", "--local_ip=0.0.0.0"]
+        env: [{ name: TZ, value: UTC }]
+        ports: [{ containerPort: 9779 }, { containerPort: 19779 }, { containerPort: 19780 }]
+        resources: { requests: { cpu: "250m", memory: "512Mi" }, limits: { cpu: "500m", memory: "1Gi" } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nebula-graphd
+  namespace: shop-agent
+  labels: { app: nebula-graphd }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nebula-graphd } }
+  template:
+    metadata: { labels: { app: nebula-graphd } }
+    spec:
+      containers:
+      - name: graphd
+        image: ${NEBULA_GRAPHD_IMAGE}
+        args: ["--meta_server_addrs=nebula-metad:9559", "--local_ip=0.0.0.0"]
+        env: [{ name: TZ, value: UTC }]
+        ports: [{ containerPort: 9669 }]
+        resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "250m", memory: "512Mi" } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nebula-metad, namespace: shop-agent }
+spec:
+  selector: { app: nebula-metad }
+  ports: [{ port: 9559, targetPort: 9559 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nebula-storaged, namespace: shop-agent }
+spec:
+  selector: { app: nebula-storaged }
+  ports: [{ port: 9779, targetPort: 9779 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nebula-graphd, namespace: shop-agent }
+spec:
+  selector: { app: nebula-graphd }
+  ports: [{ port: 9669, targetPort: 9669 }]

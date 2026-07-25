@@ -1,0 +1,25 @@
+# PII 脱敏基线（随包生产默认，非 example；绝不零规则启动）
+# 结构：patterns 列表，每项：
+#   type  : 命中类型标签（进命中列表，供审计，不含原文）
+#   regex : 确定性正则（社区成熟模式，不自手搓）
+#   mask  : keep_prefix | keep_suffix | full
+#   keep  : 保留位数（keep_prefix/keep_suffix 时生效）
+
+patterns:
+  - type: phone
+    regex: '1[3-9]\d{9}'
+    mask: keep_suffix
+    keep: 4
+  - type: email
+    regex: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+    mask: both
+    prefix: 1
+    suffix: 6
+  - type: id_card
+    regex: '\d{17}[\dXx]|\d{15}'
+    mask: keep_prefix
+    keep: 6
+  - type: bank_card
+    regex: '\d{16,19}'
+    mask: keep_prefix
+    keep: 6

@@ -1,0 +1,221 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    # 应用配置
+    DEBUG_MODE: bool = True
+    API_V1_PREFIX: str = "/api/v1"
+
+    # 独立探针服务（liveness/readiness，与业务端口隔离；K8s 探针指向此端口）
+    PROBE_ENABLED: bool = True
+    PROBE_HOST: str = "0.0.0.0"
+    PROBE_PORT: int = 8001
+
+    # 数据库配置
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 3306
+    DB_USER: str = "root"
+    DB_PASSWORD: str = "123456"
+    DB_NAME: str = "fastapi_dev"
+
+    # Redis 配置（对齐 k8s 注入的 REDIS_HOST/REDIS_AUTH）
+    # 注意：REDIS_HOST 接 env（k8s service 注入为 "redis"，正常）；
+    # 但不可接 env 的 REDIS_PORT —— k8s 会把 REDIS_PORT 污染为 "tcp://<ip>:<port>"
+    # （service 环境变量歧义），无法解析成 int。故字段名避开 REDIS_PORT，
+    # 用 REDIS_PORT_NUM 固定 6379，不被 env 污染。
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT_NUM: int = 6379
+    REDIS_PASSWORD: str = ""
+
+    # 日志配置
+    LOG_LEVEL: str = "DEBUG"
+    LOG_FORMAT: str = "json"
+
+    # 固定API密钥配置
+    FIXED_API_KEY: str
+
+    # 通义千问API配置
+    TONGYI_API_KEY: str = ""
+
+    # 火山引擎 Doubao API配置
+    VOLCENGINE_API_KEY: str = ""
+
+    # 聊天模型配置（云端模型，用于 Agent 回答生成等复杂任务）
+    CHAT_MODEL: str = Field(default="")
+
+    # P2 工具选择器专用模型（更轻量更快，qwen-turbo 延迟约为主模型 40%）
+    TOOL_SELECTOR_MODEL: str = Field(default="")
+
+    # P2 工具选择器本地模型路径（设置后优先用本地模型替代云端 API）
+    # 推荐: Qwen2.5-1.5B-Instruct（速度和准确度的最佳平衡点）
+    TOOL_SELECTOR_LOCAL_MODEL: str = ""  # 如 ./models/Qwen2.5-1.5B-Instruct
+    TOOL_SELECTOR_LOCAL_DEVICE: str = "cpu"  # cpu | auto
+    TOOL_SELECTOR_LOCAL_LOAD_IN_4BIT: bool = False
+
+    # 本地小模型配置（用于参数抽取，transformers 直接加载，无需部署）
+    LOCAL_PARAM_MODEL: str = Field(
+        default="./models/Qwen2.5-0.5B-Instruct"
+    )  # 轻量级中文模型，~1GB，CPU 可跑
+    LOCAL_PARAM_DEVICE: str = "auto"  # cpu | cuda | auto（auto 优先 GPU）
+    LOCAL_PARAM_MAX_TOKENS: int = 256  # 参数抽取很短，256 足够
+    LOCAL_PARAM_LOAD_IN_4BIT: bool = True  # 4bit 量化，节省内存（需 bitsandbytes）
+
+    # 本地小模型后端: vllm | ollama | transformers
+    # vllm        = 进程外调 vLLM OpenAI 兼容端点（默认，qwen3-unified 承载 param+tool_select）
+    # ollama      = 进程外调 Ollama
+    # transformers= 进程内加载（需 torch，生产镜像未装，仅本地调试用）
+    LOCAL_MODEL_BACKEND: str = "vllm"
+    # Ollama OpenAI 兼容端点（k8s 内用服务名，本机用 localhost）
+    OLLAMA_BASE_URL: str = "http://ollama:11434"
+    # unified 模型名（Ollama 内 `ollama create <name> -f Modelfile` 命名）
+    OLLAMA_PARAM_MODEL: str = "unified"
+    OLLAMA_TOOL_SELECTOR_MODEL: str = "unified"
+    OLLAMA_TIMEOUT: int = 60  # Ollama HTTP 超时（秒）
+
+    # vLLM OpenAI 兼容端点（LOCAL_MODEL_BACKEND=vllm 时生效）
+    # 注意：需含 /v1 后缀或不含均可，代码会规范化
+    VLLM_BASE_URL: str = "http://host.docker.internal:8003/v1"
+    VLLM_PARAM_MODEL: str = "qwen3-unified"
+    VLLM_TOOL_SELECTOR_MODEL: str = "qwen3-unified"
+    VLLM_TIMEOUT: int = 60
+
+    # Embedding 模型（本地 BGE/Sentence-Transformers）
+    EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-zh-v1.5")
+    # Embedding 后端: local=进程内 sentence-transformers（本地开发） | ollama=进程外 Ollama API（k8s 部署）
+    EMBEDDING_PROVIDER: str = Field(default="local")
+    # Ollama embedding 模型名（EMBEDDING_PROVIDER=ollama 时生效，`ollama create` 注册的名字）
+    OLLAMA_EMBEDDING_MODEL: str = Field(default="bge-m3")
+
+    # BGE-Reranker 本地模型路径（用于 RAG 检索结果重排序）
+    # 优先从 ModelScope 本地缓存加载（国内秒下），不存在则回退 HuggingFace 自动下载
+    RERANKER_LOCAL_MODEL_PATH: str = ""  # 如 C:/Users/.../modelscope/BAAI/bge-reranker-base
+
+    # 重排后端: local=进程内 sentence-transformers | vllm=远程调 vLLM bge-reranker（直连）
+    RERANKER_PROVIDER: str = "local"
+    # vLLM bge-reranker（RERANKER_PROVIDER=vllm 时生效，直连容器名）
+    VLLM_RERANK_BASE_URL: str = "http://vllm-bge-reranker:8000"
+    VLLM_RERANK_MODEL: str = "bge-reranker-base"
+
+    # vLLM bge-m3 嵌入（EMBEDDING_PROVIDER=vllm 时生效，直连容器名）
+    VLLM_EMBEDDING_BASE_URL: str = "http://vllm-bge-m3:8000"
+    VLLM_EMBEDDING_MODEL: str = "bge-m3"
+
+    # 向量数据库提供者: milvus | pgvector
+    VECTOR_STORE_PROVIDER: str = "milvus"
+
+    # Milvus向量数据库配置
+    MILVUS_HOST: str = "localhost"
+    MILVUS_PORT: int = 19530
+
+    # PostgreSQL pgvector 配置（VECTOR_STORE_PROVIDER=pgvector 时生效）
+    PGVECTOR_HOST: str = "localhost"
+    PGVECTOR_PORT: int = 5432
+    PGVECTOR_DB: str = "shop_agent"
+    PGVECTOR_USER: str = "postgres"
+    PGVECTOR_PASSWORD: str = "postgres"
+    PGVECTOR_TABLE: str = "documents"
+    # 远程业务API配置（意图识别触发远程调用时使用）
+    REMOTE_API_BASE_URL: str = ""
+    REMOTE_API_TIMEOUT: int = 10
+
+    # 订单服务（Rust + PostgreSQL）：提供售后举证 / 订单数据，替代原 Mock
+    ORDER_SERVICE_URL: str = "http://order-service:8080"
+    ORDER_SERVICE_TIMEOUT: int = 5
+
+    # 意图识别模式: local=关键词+向量(免费), llm=通义千问(精准)
+    INTENT_RECOGNITION_MODE: str = "local"
+
+    # 参数抽取模式: local=正则+关键词(免费,毫秒级), local_model=transformers本地小模型(免费,智能), llm=通义千问structured output(精准)  # noqa: E501
+    PARAM_EXTRACTION_MODE: str = "local"
+
+    # FAISS 意图向量匹配参数
+    INTENT_VECTOR_SIMILARITY_THRESHOLD: float = 0.65  # 余弦相似度阈值（BGE归一化向量用内积）
+
+    # 同义词归一化配置
+    # L1+L2: 静态同义词表 + 文本标准化（默认开启，零LLM成本，零延迟）
+    SYNONYM_NORMALIZE_ENABLED: bool = True
+    # L3: LLM归一化（默认关闭，需API调用，约500-1500ms延迟，覆盖长尾表达）
+    SYNONYM_NORMALIZE_LLM_ENABLED: bool = False
+
+    # NebulaGraph 图数据库配置（商品关系图谱，增强 RAG 的结构化知识）
+    NEBULA_GRAPH_ADDRS: str = "127.0.0.1:9669"  # graphd 地址，逗号分隔多地址
+    NEBULA_USER: str = "root"
+    NEBULA_PASSWORD: str = "nebula"
+    NEBULA_SPACE: str = "shop_graph"  # 图空间名
+    NEBULA_TIMEOUT: int = 3000  # 连接超时 ms
+    NEBULA_POOL_SIZE: int = 4  # 连接池大小
+    NEBULA_GRAPH_ENABLED: bool = True  # 是否启用图查询增强
+
+    # Step2 输入安全审查本地小模型配置
+    # 开启后 Step2 优先用本地小模型做合规分类（省 API 费），非合规才升级云端 LLM 复核
+    STEP1_SAFETY_LOCAL_MODEL_ENABLED: bool = False
+
+    # Token 预估器配置（用于 Token 消耗限流）
+    # Qwen3 全系列共用 tokenizer，指向本地 tokenizer.json 即可
+    TOKENIZER_PATH: str = "./models/Qwen3-1.7B/tokenizer.json"
+    # Token 消耗限流默认值（每窗口 max_tokens）
+    TOKEN_LIMIT_MAX_TOKENS: int = 100000  # 每分钟最大 token 消耗
+    TOKEN_LIMIT_WINDOW_SECONDS: int = 60  # 窗口 60 秒
+    TOKEN_LIMIT_ENABLED: bool = True  # 是否启用 token 消耗限流
+    # 用户输入长度管控（基于 token 而非字符数，与 LLM 实际消耗一致）
+    MAX_USER_MESSAGE_TOKENS: int = 2000  # 单条用户消息的最大 token 数（~1300 中文字/4000 英文字）
+    # 截断策略: keep_both_ends | keep_start_only | keep_end_only
+    # keep_both_ends: 保留首 40% + 尾 20%，中间插入省略标记（推荐，核心意图在首部，关键细节在尾部）
+    # keep_start_only: 仅保留开头（适合客服场景）
+    TRUNCATION_STRATEGY: str = "keep_both_ends"
+    # 截断提示语（{original_tokens}/{truncated_tokens}/{max_tokens} 会被替换）
+    TRUNCATION_WARNING_TEMPLATE: str = (
+        "⚠️ 您的输入较长（原始 {original_tokens} token，已自动保留核心 {truncated_tokens} token）。"
+        "如需更精准的回答，建议精简描述后重新提问。\n\n"
+    )
+
+    # MCP Server 配置
+    MCP_SERVER_NAME: str = "shop-agent"
+    MCP_ENABLED: bool = False  # 是否启用 MCP Server
+    MCP_TRANSPORT: str = "stdio"  # stdio | sse | streamable-http
+
+    # MCP Client 配置 —— Agent 作为 Client 消费远程 MCP Server 的工具
+    # JSON 数组，每个元素包含 name、url、headers（可选）
+    # 示例: '[{"name":"order-system","url":"http://localhost:3002/mcp"}]'
+    MCP_CLIENT_SERVERS: str = ""
+    MCP_CLIENT_ENABLED: bool = False  # 是否启用 MCP Client 模式
+
+    # 基于角色的工具权限控制（默认关闭，生产环境按需开启）
+    PERMISSION_ENABLED: bool = False
+
+    # 速率限制（可调，压测时提高以测真实编排层吞吐；默认值与历史一致）
+    GLOBAL_RATE_LIMIT: int = 30  # 全局中间件：req / 60s / IP
+    CHAT_RATE_LIMIT: int = 15  # /agent/chat 端点级：req / 60s / IP
+
+    # LLM 适配器类型：langchain（默认）| mock（压测 0 Token 消耗）
+    LLM_ADAPTER_TYPE: str = "langchain"
+
+    # Mock LLM（压测 0 Token 消耗）：LLM_ADAPTER_TYPE=mock 时生效
+    # MOCK_LLM_LATENCY_MIN/MAX 模拟 LLM 延迟（ms）；MOCK_LLM_ERROR_RATE 模拟错误率；MOCK_LLM_OUTPUT_TOKENS 单次输出 token  # noqa: E501
+    MOCK_LLM_LATENCY_MIN: int = 500
+    MOCK_LLM_LATENCY_MAX: int = 800
+    MOCK_LLM_ERROR_RATE: float = 0.01
+    MOCK_LLM_OUTPUT_TOKENS: int = 200
+
+    # TTS 配置
+    TTS_PROVIDER: str = "edge"  # edge | baidu
+    BAIDU_TTS_API_KEY: str = ""
+    BAIDU_TTS_SECRET_KEY: str = ""
+
+    # 数字人配置
+    AVATAR_PROVIDER: str = "static"  # static | baidu
+    BAIDU_AVATAR_API_KEY: str = ""
+    BAIDU_AVATAR_SECRET_KEY: str = ""
+
+    @property
+    def database_url(self) -> str:
+        """构建数据库连接URL"""
+        return f"mysql+aiomysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
+    class Config:
+        env_file = (".env", ".env.prod")  # 多个环境文件，后者优先
+        extra = "ignore"  # 忽略未知的环境变量
+
+
+config = Settings()

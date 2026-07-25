@@ -1,0 +1,76 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    "venv",
+    "venv_cuda",
+    "venv_mineru",
+    ".git",
+    "__pycache__",
+    "*.pyc",
+    "node_modules",
+]
+
+# 选中规则：格式(E/F/I/W) + 复杂度(C90/PLR091x) + 实践(B)
+# 对齐 docs/ai-coding-series/12 的三层闭环与硬阈值
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle 错误
+    "F",      # pyflakes（未定义/未使用）
+    "C90",    # mccabe 圈复杂度
+    "PLR0913", # 参数过多
+    "PLR0915", # 语句过多（函数行数代理）
+    "PLR0912", # 分支过多
+    "PLR0911", # 返回过多
+    "I",      # isort 导入排序
+    "W",      # 警告
+    "B",      # flake8-bugbear 易错写法
+]
+# B008: 默认参数里写函数调用——本项目即 FastAPI Depends/Header 依赖注入写法，属误报
+ignore = ["B008"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-statements = 50
+max-branches = 12
+max-returns = 6
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = false
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+# 统一覆盖率配置：source 指向包名(src)，omit 测试与生成物。
+# CI 中每个 app 输出 coverage.xml(Cobertura) + coverage.json 供合并汇总。
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "src/__main__.py",
+    "src/main.py",
+]
+sigterm = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"

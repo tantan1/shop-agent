@@ -1,0 +1,76 @@
+# =============================================================================
+# overlay: k8s 业务应用 → 本地 Docker Desktop 的 vLLM（临时联调用）
+# -----------------------------------------------------------------------------
+# 背景：
+#   本 overlay 让 k8s 里的 shop-agent / gateway 使用「宿主机 Docker Desktop 中
+#   运行的 vLLM」作为推理后端，而不是 k8s 里的 Ollama。
+#   仅用于本地临时联调 + 熟悉 k8s 操作，验证完用下面的「还原」命令切回 Ollama。
+#
+# 网络原理：
+#   Docker Desktop 的 k8s 节点与 docker 引擎共享同一 VM，Pod 内可通过
+#   `host.docker.internal` 或节点 INTERNAL-IP 访问宿主机上 Docker 端口映射。
+#   端口来自 docker-compose.vllm.yml：
+#     qwen3        → 8003   (served-model-name: qwen3-unified)
+#     bge-m3       → 8101   (served-model-name: bge-m3)
+#     bge-reranker → 8102   (served-model-name: bge-reranker-base)
+#
+# 前置：
+#   1) 启动 Docker 里的 vLLM：
+#        docker compose -f docker-compose.vllm.yml up -d
+#        docker compose -f docker-compose.vllm.yml ps   # 确认 3 个都 healthy
+#   2) 确认 Pod 能访问宿主机（二选一）：
+#        kubectl run netcheck --rm -it --image=curlimages/curl --restart=Never -- \
+#          curl -s -m 5 http://host.docker.internal:8003/health
+#      若 host.docker.internal 不通，把下方所有 host.docker.internal 换成
+#      `kubectl get nodes -o wide` 的 INTERNAL-IP。
+#      （注：方式 A 的 local.env 已把地址提取为 VLLM_HOST / *_PORT 变量，改那处更省事）
+#
+# 切换（切到本地 vLLM）：
+#   kubectl apply -f infra/k8s/overlays/local-vllm.yaml
+#   kubectl -n shop-agent rollout status deployment/gateway --timeout=120s
+#   kubectl -n shop-agent rollout status deployment/shop-agent --timeout=120s
+#
+# 还原（切回 Ollama）：
+#   kubectl apply -f infra/k8s/gateway.yaml infra/k8s/shop-agent.yaml
+#   # 完毕后停掉 Docker 里的 vLLM 释放 GPU：
+#   #   docker compose -f docker-compose.vllm.yml down
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: shop-agent
+spec:
+  template:
+    spec:
+      containers:
+      - name: gateway
+        env:
+        # vLLM（本地 GPU 模型，Docker Desktop 中运行），覆盖默认 http://vllm-qwen3:8000/v1
+        - { name: VLLM_BASE_URL, value: "http://host.docker.internal:8003/v1" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-agent
+  namespace: shop-agent
+spec:
+  template:
+    spec:
+      containers:
+      - name: shop-agent
+        env:
+        # Embedding 从 Ollama → 本地 vLLM bge-m3
+        - { name: EMBEDDING_PROVIDER, value: "vllm" }
+        - { name: VLLM_EMBEDDING_BASE_URL, value: "http://host.docker.internal:8101" }
+        - { name: VLLM_EMBEDDING_MODEL, value: "bge-m3" }
+        # Reranker 从本地 → 本地 vLLM bge-reranker
+        - { name: RERANKER_PROVIDER, value: "vllm" }
+        - { name: VLLM_RERANK_BASE_URL, value: "http://host.docker.internal:8102" }
+        - { name: VLLM_RERANK_MODEL, value: "bge-reranker-base" }
+        # 本地小模型（param / tool_select）也从 Ollama → 本地 vLLM qwen3
+        - { name: LOCAL_MODEL_BACKEND, value: "vllm" }
+        - { name: VLLM_BASE_URL, value: "http://host.docker.internal:8003/v1" }
+        - { name: VLLM_PARAM_MODEL, value: "qwen3-unified" }
+        - { name: VLLM_TOOL_SELECTOR_MODEL, value: "qwen3-unified" }
