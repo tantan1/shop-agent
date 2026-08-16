@@ -65,6 +65,41 @@ def query_logs(logql: str, lookback_sec: int = _LOOKBACK_SEC, limit: int = 200) 
     return out
 
 
+async def query_logs_async(logql: str, lookback_sec: int = _LOOKBACK_SEC, limit: int = 200) -> list[dict]:
+    """异步版 query_logs，供 RCA 并行查询使用。"""
+    end = int(time.time() * 1000_000_000)  # 纳秒
+    start = end - lookback_sec * 1_000_000_000
+    try:
+        async with httpx.AsyncClient(timeout=_QUERY_TIMEOUT) as c:
+            r = await c.get(
+                f"{LOKI_URL}/loki/api/v1/query_range",
+                params={
+                    "query": logql,
+                    "start": start,
+                    "end": end,
+                    "limit": limit,
+                    "direction": "backward",
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Loki 异步查询失败 logql=%s err=%s", logql, exc)
+        raise LokiUnavailable(str(exc)) from exc
+
+    if data.get("status") != "success":
+        raise LokiUnavailable(f"非 success 响应: {data.get('status')}")
+
+    streams = data.get("data", {}).get("result", [])
+    out: list[dict] = []
+    for stream in streams:
+        labels = stream.get("stream", {})
+        for ts, line in stream.get("values", []):
+            out.append({"ts_ns": ts, "line": line, "labels": labels})
+    out.sort(key=lambda x: x["ts_ns"], reverse=True)
+    return out
+
+
 def error_logs_for(service: str, lookback_sec: int = _LOOKBACK_SEC) -> list[dict]:
     """RCA 常用：拉取某服务近窗内的 error 级日志原文。
 

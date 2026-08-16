@@ -1,0 +1,198 @@
+# 示例流程：退货退款（阶段 4.1 完整版 — react 节点引用 subgraph）
+#
+# 演示「编译器原生子图」：父图的 refund 节点 type=react + config.subgraph=refund_flow，
+# 编译器把 refund_flow 子图直接作为该节点挂入（不再走 ReactAgent 黑盒）。
+# 子图内步骤（查单→校验→确认→执行）由 YAML 显式定义，落实「控制流外移」。
+#
+# 与轻量版 return_flow.yaml 的区别：
+# - 轻量版：validate/reply 用 llm_call 单步节点，整图仍是扁平 7 节点。
+# - 完整版：refund 用一个 react 节点聚合子图，子图内再细分 direct_tool/llm_call/human_approval。
+#   真实业务场景里，一个「多步原子能力」可封装成子图被多个父流程复用。
+
+version: "1.0"
+
+entry: normalize
+
+state:
+  fields:
+    - name: messages
+      type: list
+      required: false
+    - name: intent
+      type: dict
+      required: false
+    - name: params
+      type: dict
+      required: true
+    - name: tool_result
+      type: any
+      required: true
+    - name: hitl_pending
+      type: any
+      required: false
+    - name: thread_id
+      type: string
+      required: true
+
+nodes:
+  - id: normalize
+    type: normalize
+
+  - id: intent
+    type: intent
+
+  - id: refund
+    # 完整版 4.1：react 节点引用子图，编译器将其展开为子图节点
+    type: react
+    config:
+      skill: request-return
+      subgraph: refund_flow
+      read_from:
+        - state: params
+          required: true
+
+  - id: reply
+    type: llm_call
+    config:
+      skill: request-return
+      prompt_template: |
+        退货退款流程已完成，执行结果：
+        {tool_result}
+
+        请基于以上结果，用友好、简洁的中文告知用户：退货单号、预计退款时间（1-3 个工作日原路返回），
+        以及后续注意事项。不要编造未提供的信息。
+      read_from:
+        - state: tool_result
+          required: true
+      write_to:
+        - state: tool_result
+          from: result
+
+edges:
+  - from: normalize
+    to: intent
+  - from: intent
+    to: refund
+  - from: refund
+    to: reply
+
+guards:
+  - type: input_filter
+  - type: output_filter
+  - type: lock
+  - type: persist
+  - type: observe
+
+# ── 子图定义（阶段 4.1 完整版）──
+# 被 react 节点 config.subgraph=refund_flow 引用。
+# 子图内步骤：查单 → 校验 → 人工确认 → 执行退款。
+subgraphs:
+  refund_flow:
+    name: refund_flow
+    entry: sub_query_order
+    state:
+      fields:
+        - name: messages
+          type: list
+          required: false
+        - name: intent
+          type: dict
+          required: false
+        - name: params
+          type: dict
+          required: true
+        - name: tool_result
+          type: any
+          required: true
+        - name: hitl_pending
+          type: any
+          required: false
+        - name: thread_id
+          type: string
+          required: true
+    nodes:
+      - id: sub_query_order
+        type: direct_tool
+        config:
+          skill: query-order
+          read_from:
+            - state: params
+              required: true
+          write_to:
+            - state: tool_result
+              from: result
+
+      - id: sub_validate
+        type: llm_call
+        config:
+          skill: request-return
+          prompt_template: |
+            用户申请退货退款。已查得订单信息：
+            {tool_result}
+
+            请基于以上订单信息判断：该订单是否符合退货条件，并给出简短的校验结论与下一步提示。
+            不要执行任何退款操作。
+          read_from:
+            - state: params
+              required: true
+            - state: tool_result
+              required: true
+          write_to:
+            - state: tool_result
+              from: result
+
+      - id: sub_confirm
+        type: human_approval
+        config:
+          approval_type: refund
+          thread_id_ref: thread_id
+          read_from:
+            - state: tool_result
+              required: true
+
+      - id: sub_execute_return
+        type: direct_tool
+        config:
+          skill: request-return
+          read_from:
+            - state: tool_result
+              required: true
+          write_to:
+            - state: tool_result
+              from: result
+
+      - id: sub_reply
+        type: llm_call
+        config:
+          skill: request-return
+          prompt_template: |
+            退货退款已执行，结果：
+            {tool_result}
+
+            请生成一句内部确认摘要（将用于父图 reply 节点进一步润色）。
+          read_from:
+            - state: tool_result
+              required: true
+          write_to:
+            - state: tool_result
+              from: result
+
+    edges:
+      - from: sub_query_order
+        to: sub_validate
+      - from: sub_validate
+        to: sub_confirm
+      - from: sub_confirm
+        conditions:
+          - op: on_intent==
+            value: approve
+            target: sub_execute_return
+          - op: on_intent==
+            value: reject
+            target: sub_reply
+      - from: sub_execute_return
+        to: sub_reply
+
+    guards:
+      - type: input_filter
+      - type: output_filter

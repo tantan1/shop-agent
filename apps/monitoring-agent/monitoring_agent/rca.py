@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -22,13 +23,13 @@ import httpx
 
 from . import alerts
 from .alerts import IngestEvent
-from .loki_client import LokiUnavailable, error_logs_for
+from .loki_client import LokiUnavailable, error_logs_for, query_logs_async
 
 # LLM 调用频率限制（B-6）：单进程最小调用间隔，避免告警风暴下高频烧钱/被打。
 _LLM_MIN_INTERVAL_S = float(os.getenv("RCA_LLM_MIN_INTERVAL_S", "30"))
 _LLM_LAST_CALL = 0.0
 _LLM_CALL_LOCK = threading.Lock()
-from .prom_client import PrometheusUnavailable, gateway_snapshot
+from .prom_client import PrometheusUnavailable, gateway_snapshot, gateway_snapshot_async
 
 logger = logging.getLogger("monitoring_agent.rca")
 
@@ -171,7 +172,7 @@ def _cascade_attr(topology: dict, affected: list[str]) -> dict:
     }
 
 
-def analyze(event: IngestEvent, topology: dict[str, dict]) -> RcaResult:
+async def analyze(event: IngestEvent, topology: dict[str, dict]) -> RcaResult:
     """对一次告警事件做根因归因。
 
     ``topology`` 为当前 /status 聚合的组件健康矩阵
@@ -188,10 +189,10 @@ def analyze(event: IngestEvent, topology: dict[str, dict]) -> RcaResult:
     # 把故障集合回写拓扑，供 _rule_attr 识别 redis 等具体故障根因
     topology["_affected_down"] = affected
 
-    # 2) 拉指标快照（gateway 在则看 golden signal）
+    # 2) 拉指标快照（gateway 在则看 golden signal）—— 并行查询减少延迟
     evidence: dict = {"topology_down": affected, "alert_summary": event.summary()}
     try:
-        snap = gateway_snapshot()
+        snap = await gateway_snapshot_async()
         evidence["gateway_snapshot"] = snap
         if snap.get("_unavailable"):
             evidence["prom_error"] = "Prometheus 不可达，指标侧关联降级"
@@ -218,8 +219,14 @@ def analyze(event: IngestEvent, topology: dict[str, dict]) -> RcaResult:
     if services:
         try:
             logs: list[dict] = []
-            for svc in services:
-                logs.extend(error_logs_for(svc))
+            # 并行拉取各服务 error 日志
+            log_tasks = [query_logs_async(f'{{service_name="{svc}"}} | json level="error"') for svc in services]
+            log_results = await asyncio.gather(*log_tasks, return_exceptions=True)
+            for svc, result in zip(services, log_results):
+                if isinstance(result, Exception):
+                    logger.warning("Loki 查询失败 service=%s err=%s", svc, result)
+                    continue
+                logs.extend(result)
             # 多服务合并后按时间倒序
             logs.sort(key=lambda x: x["ts_ns"], reverse=True)
             if logs:

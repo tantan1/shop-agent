@@ -73,6 +73,8 @@ class SkillDef:
     priority: int = 10
     body: str = ""  # frontmatter 后面的 Markdown 正文
     params: Dict[str, Dict] = field(default_factory=dict)  # 工具参数定义，单一来源
+    risk: str = "low"  # 风险等级：high（资金/隐私）| low（轻量组合）
+    hitl: bool = False  # 是否需人在回路审批（高后果动作）
 
 
 @dataclass
@@ -108,7 +110,13 @@ _DEFAULT_SKILLS_ROOT: Path | None = None
 
 
 def _get_default_skills_root() -> Path:
-    """自动推断 skills/ 目录（项目根目录下的 skills/），使用惰性缓存。"""
+    """自动推断 skills/ 目录（项目根目录下的 skills/），使用惰性缓存。
+
+    重要：Skills 唯一真源是 ``apps/shop-agent/skills/``（本项目运行时的加载目录）。
+    历史上曾存在项目根 ``skills/`` 的平行副本，但运行时从不加载它，已删除。
+    新增/修改 Skill 请只改 ``apps/shop-agent/skills/<name>/SKILL.md``，
+    切勿在仓库其他位置另建副本（会导致“改了不生效”）。
+    """
     global _DEFAULT_SKILLS_ROOT
     if _DEFAULT_SKILLS_ROOT is not None:
         return _DEFAULT_SKILLS_ROOT
@@ -264,6 +272,8 @@ class SkillLoader:
             priority=int(meta.get("priority", 10)),
             body=body,  # 正文供 _build_system_prompt 按意图内联注入
             params=params_raw,  # 参数定义（来源：Pydantic 模型）
+            risk=str(meta.get("risk", "low")).strip().lower() or "low",
+            hitl=bool(meta.get("hitl", False)),
         )
 
 

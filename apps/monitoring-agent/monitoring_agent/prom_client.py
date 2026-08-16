@@ -11,6 +11,7 @@ Prometheus 即时查询快照做根因关联，查完即弃。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -64,6 +65,34 @@ def query_value(expr: str) -> float | None:
     except (KeyError, IndexError, ValueError, TypeError):
         return None
     if value != value or value in (float("inf"), float("-inf")):  # NaN 或 Inf
+        return None
+    return value
+
+
+async def query_value_async(expr: str) -> float | None:
+    """异步版 query_value，供 RCA 并行快照使用。"""
+    try:
+        async with httpx.AsyncClient(timeout=_QUERY_TIMEOUT) as c:
+            r = await c.get(
+                f"{PROM_URL}/api/v1/query",
+                params={"query": expr},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Prometheus 异步查询失败 expr=%s err=%s", expr, exc)
+        raise PrometheusUnavailable(str(exc)) from exc
+
+    if data.get("status") != "success":
+        raise PrometheusUnavailable(f"非 success 响应: {data.get('status')}")
+    results = data.get("data", {}).get("result", [])
+    if not results:
+        return None
+    try:
+        value = float(results[0]["value"][1])
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
+    if value != value or value in (float("inf"), float("-inf")):
         return None
     return value
 
@@ -126,6 +155,30 @@ def gateway_snapshot() -> dict[str, float | None]:
     for key, expr in specs.items():
         try:
             snapshot[key] = query_value(expr)
+        except PrometheusUnavailable as exc:
+            snapshot[key] = None
+            first_err = first_err or exc
+    if first_err is not None:
+        snapshot["_unavailable"] = True
+    return snapshot
+
+
+async def gateway_snapshot_async() -> dict[str, float | None]:
+    """异步并行版 gateway_snapshot，供 RCA 分析使用，减少总延迟。"""
+    specs = {
+        "gateway_up": GATEWAY_UP,
+        "p99_latency_s": P99_LATENCY,
+        "req_rate": REQ_RATE,
+        "token_rate": TOKEN_RATE,
+        "loop_rate": LOOP_RATE,
+        "safety_rate": SAFETY_RATE,
+    }
+    tasks = {key: asyncio.create_task(query_value_async(expr)) for key, expr in specs.items()}
+    snapshot: dict[str, float | None] = {}
+    first_err: Exception | None = None
+    for key, task in tasks.items():
+        try:
+            snapshot[key] = await task
         except PrometheusUnavailable as exc:
             snapshot[key] = None
             first_err = first_err or exc

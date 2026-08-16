@@ -112,8 +112,10 @@ class ApprovalGate:
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
-        command: ToolCommand = approval["command"]
+        command: ToolCommand = approval.get("command") or approval.get("_command_ref")
         ctx: ToolContext = approval["context"]
+        if command is None:
+            return ToolResult(status="failed", error=f"审批命令对象缺失: {approval_id}")
         result = await command.execute(ctx)
         logger.info(
             "Tool 审批通过",
@@ -128,8 +130,10 @@ class ApprovalGate:
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
-        command: ToolCommand = approval["command"]
+        command: ToolCommand = approval.get("command") or approval.get("_command_ref")
         ctx: ToolContext = approval["context"]
+        if command is None:
+            return ToolResult(status="failed", error=f"审批命令对象缺失: {approval_id}")
         result = await command.undo(ctx)
         logger.info(
             "Tool 审批拒绝",
@@ -201,7 +205,22 @@ class ApprovalGate:
                     return data
         except Exception:
             pass
-        return _APPROVAL_MEM.get(approval_id)
+        # 内存降级：与 Redis 分支一致地重建 command / context 对象
+        mem = _APPROVAL_MEM.get(approval_id)
+        if mem is not None:
+            if "command" not in mem and "_command_ref" in mem:
+                mem["command"] = mem["_command_ref"]
+            ctx_data = mem.get("context")
+            if isinstance(ctx_data, dict):
+                mem["context"] = ToolContext(
+                    action=ctx_data.get("action", ""),
+                    params=ctx_data.get("params", {}),
+                    conversation_id=ctx_data.get("conversation_id", ""),
+                    domain=ctx_data.get("domain", ""),
+                    user_id=ctx_data.get("user_id", ""),
+                    metadata=ctx_data.get("metadata", {}),
+                )
+        return mem
 
 
 # ── 具体命令实现 ─────────────────────────────────────────────────────

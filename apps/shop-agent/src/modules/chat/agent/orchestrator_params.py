@@ -105,7 +105,7 @@ def _compensate_missing_order_id(orchestrator, request, intent_result, intent_st
     )
 
 
-def _validate_required_params(intent_result, intent_steps) -> ChatResponse | None:
+def _validate_required_params(intent_result, intent_steps, conversation_id: str = "") -> ChatResponse | None:
     """缺参兜底：需要订单号但当前轮+历史都无，直接反问。"""
     if intent_result.action not in _ORDER_REQUIRED_ACTIONS:
         return None
@@ -123,6 +123,7 @@ def _validate_required_params(intent_result, intent_steps) -> ChatResponse | Non
 
     return ChatResponse(
         message=f"{missing_prompt}，以便为您查询相关信息。",
+        conversation_id=conversation_id,
         steps=intent_steps
         + [
             {
@@ -167,7 +168,7 @@ async def _prepare_intent_params(orchestrator, request, intent_result, langfuse_
 
     _compensate_missing_order_id(orchestrator, request, intent_result, intent_steps, conversation_id)
 
-    blocked = _validate_required_params(intent_result, intent_steps)
+    blocked = _validate_required_params(intent_result, intent_steps, conversation_id)
     if blocked:
         return intent_result, intent_steps, blocked, t_params
 

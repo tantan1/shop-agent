@@ -24,6 +24,7 @@ Agent Rules 注入（仿 Claude Code rules/ 机制）：
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -92,6 +93,20 @@ def _skill_registry() -> SkillRegistry:
     return _SKILL_REGISTRY
 
 
+_ORDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$")
+
+
+def _is_valid_order_id(order_id: str | None) -> bool:
+    """轻量订单号格式校验（硬注入前最后一道闸）。
+
+    仅做格式约束，不做业务存在性判断：非空、长度 4-32、字符集为字母/数字/连字符/下划线。
+    返回 False 时调用方应提示用户而非静默下发，避免前置抽取错误导致资损。
+    """
+    if not order_id or not isinstance(order_id, str):
+        return False
+    return bool(_ORDER_ID_RE.match(order_id.strip()))
+
+
 def _get_intent_tool_map() -> dict[str, set[str]]:
     return _skill_registry().intent_tool_map
 
@@ -143,6 +158,7 @@ class ReActAgent:
         max_iterations: int = 5,
         emotion_result: Any = None,
         input_truncated: bool = False,
+        skill_filter: str | None = None,
     ):
         self._llm_service = llm_service
         self._tool_service = tool_service
@@ -151,6 +167,8 @@ class ReActAgent:
         self._max_iterations = max_iterations
         self._emotion_result = emotion_result
         self._input_truncated = input_truncated
+        # 单 skill 收敛：指定后仅构建该 skill 工具集，绕过节点内 P0/P1/P2 精选
+        self._skill_filter = skill_filter
 
         self._skill_registry = _skill_registry()
 
@@ -159,8 +177,9 @@ class ReActAgent:
 
         self._all_tools = self._build_tools()
 
+        # 单 skill 收敛场景下工具集已确定，无需构建 Embedding 精选器（省一次初始化）
         self._tool_matcher: EmbeddingToolMatcher | None = None
-        if self._embedding_service:
+        if self._embedding_service and not self._skill_filter:
             self._tool_matcher = EmbeddingToolMatcher(
                 self._skill_registry.tool_descriptions, self._embedding_service
             )
@@ -168,11 +187,26 @@ class ReActAgent:
         self._pending_approval: tuple[str, str, str] | None = None
 
     def _build_tools(self):
-        """构建 LangChain tool 列表（全量，从 skill 注册表生成）"""
+        """构建 LangChain tool 列表。
+
+        - 未指定 ``skill_filter``：全量（从 skill 注册表生成），节点内由 P0/P1/P2 精选收敛。
+        - 指定 ``skill_filter``：仅构建该 skill 的单一工具，跳过精选（编排层已完成收敛）。
+        """
+        skills = self._skill_registry.skills
+        if self._skill_filter:
+            skills = [s for s in skills if s.name == self._skill_filter]
+            if not skills:
+                logger.warning(
+                    "skill_filter 未命中任何 skill，回退全量工具集",
+                    skill_filter=self._skill_filter,
+                )
+                skills = self._skill_registry.skills
+
         tools = []
 
-        for action in self._skill_registry.tool_descriptions:
-            if action == "request-return":
+        for skill in skills:
+            action = skill.name
+            if skill.hitl:
                 tools.append(self._make_refund_tool_with_confirmation())
             else:
                 tools.append(self._make_business_tool(action))
@@ -182,41 +216,77 @@ class ReActAgent:
 
         return tools
 
-    def _make_business_tool(self, action: str):
-        """为一个业务 action 创建 LangChain tool（描述来自 SKILL.md）"""
+    def _make_business_tool(self, action: str, preset_params: dict | None = None):
+        """为一个业务 action 创建 LangChain tool（描述来自 SKILL.md）。
+
+        硬强制（方式 2）：``preset_params`` 为前置意图识别确定性抽取的参数。
+        通过闭包捕获，在最终 dispatch 时**预设值优先覆盖**模型生成的同名参数；
+        配合 ``_make_business_args_schema`` 已从 schema 剔除该字段，模型既看不到
+        也填不进，最终进后端的参数 100% 来自确定性抽取。
+        """
         desc = self._skill_registry.tool_descriptions.get(action, f"执行{action}操作")
         _action = action
         _dispatch = self._tool_service.dispatch
-        _schema = _make_business_args_schema(action)
+        _preset = {k: v for k, v in (preset_params or {}).items() if v not in (None, "")}
+        _schema = _make_business_args_schema(action, preset_params)
 
         @tool(_action, description=desc, args_schema=_schema)
         async def business_tool(**kwargs: Any) -> str:
-            params = kwargs.get("kwargs") if isinstance(kwargs.get("kwargs"), dict) else kwargs
+            model_filled = kwargs.get("kwargs") if isinstance(kwargs.get("kwargs"), dict) else kwargs
+            # 预设优先：模型生成的同名键被覆盖，关键字段无法被模型篡改
+            params = {**model_filled, **_preset}
+            logger.info(
+                "dispatch 参数合并(硬强制)",
+                action=_action,
+                preset_fields=list(_preset.keys()),
+                model_fields=list(model_filled.keys()),
+                final_params=params,
+            )
             return await _dispatch(_action, params or None)
 
         return business_tool
 
-    def _make_refund_tool_with_confirmation(self):
-        """创建带人在回路确认的退款工具（命令模式）。"""
+    def _make_refund_tool_with_confirmation(self, preset_params: dict | None = None):
+        """创建带人在回路确认的退款工具（命令模式）。
+
+        硬强制（方式 2）：``order_id`` 等高后果字段由前置确定性抽取，经闭包预设，
+        模型生成的 order_id 会被覆盖，且 schema 中不暴露该字段（见下方 args_schema）。
+        """
         desc = self._skill_registry.tool_descriptions.get("request-return", "申请退货退款")
         _agent = self
+        _preset = {k: v for k, v in (preset_params or {}).items() if v not in (None, "")}
+        _schema = _make_business_args_schema("request-return", preset_params)
 
-        @tool("request-return", description=desc)
+        @tool("request-return", description=desc, args_schema=_schema)
         async def request_return_with_confirm(
             order_id: str = "",
             reason: str = "未说明",
             **kwargs: Any,
         ) -> str:
             """退款工具 —— 带人在回路确认（命令模式）"""
+            # 预设优先：确定性抽出的 order_id 覆盖模型生成的
+            effective_order = _preset.get("order_id") or order_id
+            effective_reason = _preset.get("reason") or reason
+            # 轻量格式校验：硬注入的值若非法，不下发而是提示用户确认，避免资损
+            if not _is_valid_order_id(effective_order):
+                logger.warning(
+                    "退货订单号格式校验未通过",
+                    action="request-return",
+                    order_id=effective_order,
+                )
+                return (
+                    f"您提供的订单号「{effective_order}」格式不正确，无法发起退货申请。"
+                    "请核对后提供正确的订单号（通常为数字或字母组合）。"
+                )
             result = await _agent._command_tool_service.dispatch(
                 action="request-return",
-                params={"order_id": order_id, "reason": reason, **kwargs},
+                params={"order_id": effective_order, "reason": effective_reason, **kwargs},
                 conversation_id=getattr(_agent, "_current_conversation_id", ""),
                 domain=getattr(_agent, "_current_domain", ""),
             )
 
             if "等待人工审批" in result or "进入人工审批队列" in result:
-                _agent._pending_approval = (order_id, reason, "")
+                _agent._pending_approval = (effective_order, effective_reason, "")
                 return result
 
             return result
@@ -495,6 +565,27 @@ class ReActAgent:
             domain=domain,
         )
 
+    def _apply_preset_to_tools(self, selected_tools: list, preset_params: dict | None) -> list:
+        """用确定性抽取的参数（preset）重建工具，实现硬强制。
+
+        仅对 action 名命中的工具重建（带 preset 闭包 + 从 schema 剔除已预设字段），
+        其余工具原样保留。``knowledge_search`` 等非业务工具不受影响。
+        hitl（人在回路）类 Skill 走带确认的工具构建，不再特判 action 名。
+        """
+        if not preset_params:
+            return selected_tools
+        hitl_actions = {s.name for s in self._skill_registry.skills if s.hitl}
+        rebuilt = []
+        for t in selected_tools:
+            name = getattr(t, "name", "")
+            if name in hitl_actions:
+                rebuilt.append(self._make_refund_tool_with_confirmation(preset_params))
+            elif name in self._skill_registry.tool_descriptions:
+                rebuilt.append(self._make_business_tool(name, preset_params))
+            else:
+                rebuilt.append(t)
+        return rebuilt
+
     def _build_react_graph(
         self,
         selected_tools: list,
@@ -503,9 +594,13 @@ class ReActAgent:
         request: ChatRequest,
     ):
         """构建 ReAct Agent 图并构造增强消息。"""
+        preset_params = intent_result.params or {}
+        # 硬强制：用确定性抽取的参数重建工具，模型无法篡改关键字段
+        preset_tools = self._apply_preset_to_tools(selected_tools, preset_params)
+
         memory_saver = MemorySaver()
         agent_graph = self._build_graph(
-            tools=selected_tools, checkpointer=memory_saver, intent=intent_result.action
+            tools=preset_tools, checkpointer=memory_saver, intent=intent_result.action
         )
 
         params_str = ""
@@ -528,7 +623,7 @@ class ReActAgent:
             f"{params_str}{confirm_str}"
         )
         agent_graph = self._build_graph(
-            tools=selected_tools,
+            tools=preset_tools,
             checkpointer=memory_saver,
             intent=intent_result.action,
             extra_system_context=intent_context,
@@ -767,7 +862,13 @@ class ReActAgent:
         react_start = time.monotonic()
         try:
             command_service = CommandToolService(tool_service=tool_service)
+            # 注意：ReAct 退款链路当前未通过 ApprovalGate.execute_with_approval 登记，
+            # 故 ApprovalGate 内不存在 approval_id=thread_id 的记录，approve 会返回
+            # status="failed"（审批记录不存在）。此处必须 fail-closed 暴露，禁止用默认
+            # 成功文案掩盖，避免静默假成功。
             result = await command_service.approve(approval_id=thread_id)
+            if result.status != "success":
+                raise RuntimeError(result.error or "退款审批执行失败")
             dispatch_result = result.message or "退款申请已批准并执行。"
         except Exception as e:
             logger.error(f"退款执行失败: {e}", thread_id=thread_id, order_id=order_id)

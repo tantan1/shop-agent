@@ -292,15 +292,24 @@ async def _probe_postgres() -> bool:
 async def _build_topology() -> dict:
     """聚合拓扑健康矩阵（04 篇 §3）：{component: {status, latency_ms, last_check, detail}}。"""
     results: dict = {}
+    # 并行探测 HTTP 目标，减少总延迟
+    http_tasks = []
+    http_names = []
     for name, url in build_targets().items():
+        http_names.append(name)
+        http_tasks.append(_probe(name, url))
+    http_results = await asyncio.gather(*http_tasks, return_exceptions=True)
+    for name, up in zip(http_names, http_results):
+        if isinstance(up, Exception):
+            up = False
         t0 = time.perf_counter()
-        up = await _probe(name, url)
         results[name] = {
             "status": up,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
             "last_check": int(time.time()),
             "detail": "ok" if up else "unreachable",
         }
+    # Redis/Postgres 探针保持独立（依赖特殊客户端）
     results["redis"] = {
         "status": await _probe_redis(),
         "latency_ms": None,
@@ -565,15 +574,15 @@ async def get_last_rca(request: Request):
 
 
 async def _run_rca(event: IngestEvent, topology: dict | None = None) -> dict:
-    """异步执行 RCA，分析层内的同步 IO（Prometheus/Loki/LLM 查询）经 to_thread 卸载，
-    避免阻塞事件循环（B-1）。
+    """异步执行 RCA，分析层内的同步 IO（Prometheus/Loki/LLM 查询）已改为异步，
+    直接 await 避免 to_thread 额外开销。
     """
     # topology 为空时构造最小矩阵，保证分析不崩
     if not topology:
         topology = {name: {"status": True} for name in build_targets()}
     # 注入依赖拓扑（方案 C），供级联归因：A 依赖 B，B 故障则 A 是受影响者
     topology.setdefault("_dependencies", build_dependencies())
-    result = await asyncio.to_thread(analyze, event, topology)
+    result = await analyze(event, topology)
     global _last_rca
     _last_rca = result
     _record_rca(result)

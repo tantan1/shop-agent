@@ -18,7 +18,7 @@ flowchart LR
     
     subgraph 数据与基础设施
         direction TB
-        Infra[向量数据库 / Redis / MySQL / 对象存储 / 监控栈]
+        Infra[向量数据库 / Redis / PostgreSQL / 对象存储 / 监控栈]
     end
     
     ShopAgent --> Infra
@@ -133,6 +133,18 @@ Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 
 - **对话上下文共享**：列出对话摘要、获取历史消息，供其他 Agent 查询
 - **健康检查**：返回 LLM、Vector DB、Redis、MCP Server 等依赖状态
 
+### 13. YAML 驱动的多步 Agent 编排
+
+除代码内 `AgentOrchestrator` 编排外，系统额外提供 **YAML 驱动编排**：用本地 YAML 文件描述 Agent 编排图，本地解析器将其编译为 LangGraph 可执行图并运行。设计原则（详见《29-从ReAct黑盒到可视化编排》）：**控制流外移、模型退居节点内、安全底座不下放**。
+
+- **节点类型（14 种）**：`normalize` / `truncate` / `sentiment` / `intent` / `rag_pipeline` / `direct_tool` / `react` / `dispute` / `human_approval` / `input_filter` / `output_filter` / `lock` / `persist` / `observe`。
+  - 引擎原语节点（normalize / input_filter / lock 等）是内置原子能力，**不指向任何 Skill**；`react` / `direct_tool` / `rag_pipeline` 类节点通过 `config.skill: <skill_id>` 从 `SkillRegistry` 绑定对应 Skill 的 SOP 与工具，敏感 Skill 只能被引用为黑盒，不可内联改写其 SOP 或校验规则（见「YAML 编排与安全固化」）。
+- **条件边**：节点 `condition` 支持 `on_intent==` / `on_complexity==` / `on_emergency` / `always` / 自定义表达式，编译为 LangGraph 条件路由。
+- **声明式参数传递**：以 `GraphState`（TypedDict，含 `messages` / `intent` / `params` / `tool_result` / `hitl_pending` / `thread_id`）替代现状隐式三通道（messages 列表 + `ReActRunContext` 闭包 + system prompt 拼接）。节点 `config` 声明 `read_from` / `write_to` 做字段映射，**节点函数不感知上下游节点名**；`required: true` 的 `read_from` 字段缺失则编译/运行期 fail-closed，避免静默空参导致工具误用。
+- **流程与 Skill 正交**：Skill = 单节点的 SOP 与工具实现；流程 = 节点的连接顺序。一个 Skill 可被多流程节点引用，一个流程可串多个 Skill + 非 Skill 原语。
+- **细粒度编排（子图）**：`react` 节点可用 `subgraph` 引用子图，将 ReAct 内部步骤（查单→校验→确认→执行）显式拆为子图节点，编译器内联展开（`<node.id>__<sub_id>` 前缀），子图内 `human_approval` 的 `interrupt` 落在父图层，resume 与顶层一致。RAG 固定四步也可拆为 `rag_rewrite` / `rag_review` / `rag_retrieve` / `rag_generate` 四个 YAML 节点。
+- **校验与调试**：内置 YAML 校验器（`validator.py`）做必填字段、边引用合法性、entry 存在性、read_from 存在性与 required 校验；解析器兼容 LangGraph Studio 调试入口（`get_graph()`）。
+
 ---
 
 ## shop-agent架构
@@ -215,9 +227,9 @@ flowchart TD
 
 通过 OpenAI 兼容模式接入阿里云 DashScope，默认模型为 `qwen3.7-plus-2026-05-26`。`LLMService` 采用单例模式，Agent 回答生成使用 `temperature=0.3`。
 
-### 嵌入模型：本地 BGE（可切换云端）
+### 嵌入模型：vLLM 进程外部署
 
-默认使用本地 `BAAI/bge-small-zh-v1.5`，通过配置切换。全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存）统一不加指令前缀。
+通过 `EMBEDDING_PROVIDER=vllm` + `VLLM_EMBEDDING_BASE_URL` 调用部署在 vLLM 中的 `BAAI/bge-m3`（默认 `http://vllm-bge-m3:8000`）。shop-agent 进程内不加载任何模型权重；本地 `LocalEmbeddings`（sentence-transformers）仅作为 `EMBEDDING_PROVIDER=local` 时的调试兜底。全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存）统一不加指令前缀。
 
 ### 意图识别：本地向量优先
 
@@ -229,7 +241,7 @@ flowchart TD
 
 ### Reranker 重排序
 
-基于 `BAAI/bge-reranker-base` CrossEncoder 对检索结果重新打分，支持相关性阈值截断和 Top-K 截取。CPU 推理放在独立线程池执行，避免阻塞事件循环。Rerank 失败时不阻塞主流程，保留原始检索结果。
+通过 `RERANKER_PROVIDER=vllm` + `VLLM_RERANK_BASE_URL` 调用部署在 vLLM 中的 `BAAI/bge-reranker-v2-m3`（默认 `http://vllm-bge-reranker:8000`）对检索结果重新打分，支持相关性阈值截断和 Top-K 截取。shop-agent 进程内不加载 CrossEncoder；本地 `CrossEncoder` 仅作为 `RERANKER_PROVIDER=local` 时的调试兜底。Rerank 失败时不阻塞主流程，保留原始检索结果。
 
 ### 同义词归一化：三级设计
 
@@ -274,7 +286,7 @@ flowchart TD
 
 ### 参数抽取：本地优先逐级兜底
 
-配置本地小模型路径，支持自动/CPU 设备选择、4bit 量化。同一模型还作为工具选择本地兜底。
+支持四种模式（见「10. 参数抽取」）。默认 `local` 模式：正则 → 失败降级本地小模型 → 失败降级 LLM。本地小模型经 `LOCAL_MODEL_BACKEND=vllm`（默认）调用部署在 vLLM 中的 `qwen3-unified`，shop-agent 进程内不加载权重；仅当显式设 `LOCAL_MODEL_BACKEND=transformers` 时才进程内加载（需 torch，生产镜像未装，仅本地调试）。同一模型还作为工具选择本地兜底。
 
 ### 图增强
 
@@ -324,6 +336,19 @@ LLM 服务、Embedding 服务、向量数据库服务、Redis 缓存服务、Rer
 ### 人在回路：退款审批
 
 处理退款请求时，通过状态标志位传递中断上下文。Agent 返回待确认状态含订单号/原因，管理员确认或拒绝。防御重复调用。
+
+在 **YAML 编排**模式下，人在回路升级为基于 checkpointer 的**跨请求状态机**：执行到 `human_approval` 节点时经 LangGraph `interrupt()` 挂起，将 `InterruptContext` 写入 checkpointer；通过 `resume(thread_id, confirm)` 入口按图恢复并继续（`Command(resume=confirm)` 经 `ApprovalGate.approve/reject` 执行）。审批前后都走输出安全过滤（fail-closed 兜底），`thread_id` + `hitl_pending` 随 checkpointer 持久化，resume 时原样取回上游 `params` / `tool_result`。
+
+### YAML 编排与安全固化
+
+YAML 编排将安全边界从"代码特判"上移到"声明 + 编译期强校验"，落实《29-从ReAct黑盒到可视化编排》的三层限制：
+
+- **硬强制声明**：节点 `config.hardcode` 声明哪些参数字段由前置确定性抽取强制、是否从 schema 剔除；解析器据此生成"闭包预设 + schema 字段剔除"的工具。若 `read_from: state.params` 的字段同时被 `hardcode` 覆盖，以硬强制值优先注入工具闭包，`params` 中同名键视为不可信输入剔除。
+- **编译期 fail-closed**：敏感 Skill（risk=high/hitl，如 request-return、check-balance）的高后果字段（order_id/phone 等身份-资金类或 required 字段）必须在节点经 `config.hardcode` 定稿注入或 `read_from` 提供确定性来源，否则 **YAML 校验拒绝发布**；敏感 Skill 被引用时其 SOP 正文必须非空，否则拒绝发布；输入/输出过滤守卫节点缺失则编译失败；携带 `sop_override` / `skip_validation` / `disable_hitl` 等安全覆盖键则拒绝发布。
+- **`risk` / `hitl` 元数据驱动**：`SkillDef` 新增 `risk` / `hitl` 字段（由 SKILL.md frontmatter 解析），替代 `react_agent.py` 中 `if action == "request-return"` 式特判。新增敏感 Skill 只需在 SKILL.md 标 `risk: high` + `hitl: true` 即自动套用安全逻辑，无需改代码。
+- **流程与 Skill 安全底座共享**：流程层（守卫强制 / 敏感节点不可改）与 Skill 层（硬强制）复用同一底座（确定性定稿 + 强制注入 + 审计留痕），业务能自助组合节点顺序，但不能改安全边界。
+- **工具收敛对齐**：单 skill 绑定的 `react` 节点直接构建该 skill 工具集并绕过节点内 P0/P1/P2 精选（避免双重收敛与上下文浪费）；仅多 skill 通用入口（`config.skill` 缺失或 `multi_skill: true`）才启用精选。
+- **params 单一数据源**：参数 schema 收敛至 Pydantic（`schemas.INTENT_PARAM_SCHEMAS`），工具参数构建读 `SkillRegistry.skills[action].params`，删除原 `_ACTION_PARAM_FIELDS` / `_ACTION_PARAM_DESC` 硬编码字典。
 
 ### Skill SOP 注入
 
@@ -386,7 +411,13 @@ LLM 服务、Embedding 服务、向量数据库服务、Redis 缓存服务、Rer
 
 ### 运行测试
 
-各应用目录下运行测试命令。
+各应用目录下运行测试命令。YAML 编排相关测试（位于 `apps/shop-agent/tests/`）覆盖：
+
+- `test_schema_validation.py` — YAML schema 校验器（非法 YAML 报明确错误）
+- `test_compiler.py` — 解析器产出图的节点数 / 边数 / 条件边路由正确（依赖校验下沉到运行期，纯结构测试无需 mock）
+- `test_return_flow_e2e.py` — 现状示例 YAML 端到端 + 人在回路（request-return → 挂起 → resume confirm/reject）
+- `test_hardcode.py` — 硬强制（preset 值优先注入并覆盖上游同名键、schema 字段不可见）
+- `test_safety.py` — 安全边界回归（高后果字段未绑定则拒、敏感 Skill 缺 SOP 则拒、缺 output_filter 则拒、携带安全覆盖键则拒）
 
 ---
 

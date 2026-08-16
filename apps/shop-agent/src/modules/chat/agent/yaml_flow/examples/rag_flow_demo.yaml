@@ -1,0 +1,102 @@
+# 示例流程：RAG 固定四步拆节点（阶段 4.2）
+#
+# 演示「把 Pipeline 黑盒拆成 YAML 原子节点 + 控制流外移」：
+# - 原 GeneralAgentExecutor / Pipeline 的 step1-step4 黑盒，现拆为 4 个图节点：
+#     rag_rewrite（问题改写）→ rag_review（安全审查）→ rag_retrieve（知识检索）→ rag_generate（生成评估）
+# - 四步之间的中间态走显式 GraphState 的 `rag` channel（rewritten_queries / safety / documents / rag_context / response）
+#   而非步骤间的闭包隐式传递（对应 29 篇「数据流外移」）
+# - 安全审查（rag_review）不通过时，由图的 **条件边 on_rag_unsafe** 短路到 rag_fallback 节点，
+#   控制流在 YAML 中可见、可改（对应「控制流外移」），不在节点内 return
+# - 输入/输出过滤守卫强制存在（阶段 5.4），RAG 节点纳入敏感节点集合
+# - 依赖（embedding / milvus / llm）由 FlowCompiler 统一注入，YAML 只描述顺序与短路逻辑
+
+version: "1.0"
+
+entry: rag_rewrite
+
+# 显式 State 契约（阶段 1.5a）。rag 通道承载四步中间态。
+state:
+  fields:
+    - name: messages
+      type: list
+      required: false
+    - name: intent
+      type: dict
+      required: false
+    - name: params
+      type: dict
+      required: false
+    - name: rag
+      type: dict
+      required: false
+    - name: tool_result
+      type: any
+      required: false
+    - name: hitl_pending
+      type: any
+      required: false
+    - name: thread_id
+      type: string
+      required: true
+
+nodes:
+  # 步骤1：问题理解/改写（复用 UnderstandStep）
+  - id: rag_rewrite
+    type: rag_rewrite
+    config:
+      rag_domain: ecommerce
+
+  # 步骤2：安全审查（复用 ReviewStep）。审查结果写入 rag.safety / rag.can_proceed
+  - id: rag_review
+    type: rag_review
+    config:
+      rag_domain: ecommerce
+
+  # 步骤3：知识检索（复用 RetrieveStep，含 Milvus 混合检索 + Reranker + 相关性过滤）
+  - id: rag_retrieve
+    type: rag_retrieve
+    config:
+      rag_domain: ecommerce
+      rag_top_k: 5
+
+  # 步骤4：回答生成 + 质量评估（复用 GenerateStep，含 token 预算守卫 + 输出过滤）
+  - id: rag_generate
+    type: rag_generate
+    config:
+      rag_domain: ecommerce
+      rag_output_filter: true
+
+  # 安全审查不通过时的短路兜底节点：直接生成安全提示，不检索不生成答案
+  - id: rag_fallback
+    type: llm_call
+    config:
+      prompt_template: |
+        用户问题触发了安全审查拦截（风险类别：{rag.safety.risk_categories}）。
+        请在不提供具体业务答案的前提下，用友好中文告知用户该问题暂无法处理，并建议咨询专业渠道。
+      read_from:
+        - state: rag
+          required: false
+      write_to:
+        - state: tool_result
+          from: result
+
+edges:
+  # 顺序四步
+  - from: rag_rewrite
+    to: rag_review
+  - from: rag_review
+    # 条件分支：审查通过 → 继续检索；不通过 → 短路 fallback
+    conditions:
+      - op: on_rag_safe
+        target: rag_retrieve
+      - op: on_rag_unsafe
+        target: rag_fallback
+  - from: rag_retrieve
+    to: rag_generate
+  # rag_generate 与 rag_fallback 汇合到 END（无出边即末端）
+
+guards:
+  - type: input_filter
+  - type: output_filter
+  - type: persist
+  - type: observe

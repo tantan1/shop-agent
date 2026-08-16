@@ -12,6 +12,8 @@ tags:
   - 退款金额
 allowed-tools: request-return
 priority: 10
+risk: high
+hitl: true
 ---
 
 # 退货退款 Skill

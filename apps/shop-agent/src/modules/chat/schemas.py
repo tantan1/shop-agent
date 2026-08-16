@@ -257,8 +257,11 @@ class RequestReturnParams(BaseModel):
 class CheckBalanceParams(BaseModel):
     """查余额——从用户 query 中提取的参数"""
 
-    # 目前查余额不需要参数
-    pass
+    phone: Optional[str] = Field(
+        default=None,
+        description="手机号后四位",
+        json_schema_extra={"semantic": "phone"},
+    )
 
 
 class CouponInquiryParams(BaseModel):

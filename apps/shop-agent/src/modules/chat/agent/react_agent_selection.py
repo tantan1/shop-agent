@@ -11,6 +11,7 @@ import numpy as np
 from langchain.agents.middleware import LLMToolSelectorMiddleware
 from pydantic import BaseModel, Field, create_model
 
+from src.modules.chat.agent.skill_loader import get_skill_registry
 from src.modules.chat.core.local_model_service import LocalModelService
 from src.shared.logger import APILogger
 
@@ -213,36 +214,29 @@ class EmbeddingToolMatcher:
         return top_names
 
 
-_ACTION_PARAM_FIELDS: Dict[str, List[str]] = {
-    "check-shipping": ["tracking_number", "order_id"],
-    "query-order": ["order_id", "phone", "status_filter"],
-    "request-return": ["order_id", "reason"],
-    "check-balance": ["phone"],
-    "coupon-inquiry": ["coupon_type"],
-}
+def _make_business_args_schema(
+    action: str, preset_params: dict | None = None
+) -> type[BaseModel]:
+    """为业务 action 生成显式 pydantic args schema。
 
-_ACTION_PARAM_DESC: Dict[str, Dict[str, str]] = {
-    "check-shipping": {
-        "tracking_number": "快递单号（如 SF1234567890）",
-        "order_id": "关联订单号（可选）",
-    },
-    "query-order": {
-        "order_id": "订单号（如 WB202405270001）",
-        "phone": "手机号后四位",
-        "status_filter": "订单状态筛选",
-    },
-    "request-return": {"order_id": "要退货的订单号", "reason": "退货原因"},
-    "check-balance": {"phone": "手机号后四位"},
-    "coupon-inquiry": {"coupon_type": "优惠券类型（满减券/折扣券/运费券）"},
-}
+    参数定义从 ``SkillRegistry``（单一数据源，最终来自 ``schemas.INTENT_PARAM_SCHEMAS``
+    的 Pydantic 模型）读取，不再维护一份平行硬编码字典。
 
-
-def _make_business_args_schema(action: str) -> type[BaseModel]:
-    """为业务 action 生成显式 pydantic args schema。"""
+    硬强制（方式 2）：``preset_params`` 中已有值的字段会被**从 schema 剔除**，
+    使模型在 tool-calling 时根本看不到、也无从填写这些字段——关键参数只能来自
+    前置确定性抽取并经由闭包预设，杜绝模型自行抽参填错（如用错历史订单号）。
+    """
+    preset_params = preset_params or {}
+    registry = get_skill_registry()
+    skill = next((s for s in registry.skills if s.name == action), None)
+    field_defs = skill.params if skill else {}
     fields: Dict[str, Any] = {}
-    for name in _ACTION_PARAM_FIELDS.get(action, []):
+    for name, meta in field_defs.items():
+        if name in preset_params and preset_params[name] not in (None, ""):
+            # 已确定性预设 → 模型不可见、不可填
+            continue
         fields[name] = (
             Optional[str],
-            Field(default=None, description=_ACTION_PARAM_DESC.get(action, {}).get(name, "")),
+            Field(default=None, description=meta.get("description", "")),
         )
     return create_model(f"{action}_args", __base__=BaseModel, **fields)
