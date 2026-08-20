@@ -1,0 +1,86 @@
+# LLM Gateway 业务级可观测告警（09 篇落地）
+#
+# 指标来源：网关 /metrics（job=gateway），由 prometheus.yml 新增 job 抓取。
+# 设计哲学（09 §3）：
+#   - 仅用网关已暴露的标准指标派生业务 golden signal，不新增网关运行时依赖；
+#   - 告警是「业务级可观测」的 actionable 出口：延迟 SLO / 成本突增 / 循环风暴 /
+#     安全护栏拒绝突增，均直接映射到平台工程 SLA 与成本治理；
+#   - 所有 expr 均可在 Grafana 业务看板复用作面板（命名与 09b 素材一致）。
+groups:
+  # ---------- 可用性 ----------
+  - name: gateway-availability
+    rules:
+      - alert: GatewayDown
+        expr: up{job="gateway"} == 0
+        for: 15s
+        labels:
+          severity: P1
+          channel: gateway-availability
+        annotations:
+          summary: "LLM Gateway 失联"
+          description: "Prometheus 已持续 1 分钟无法抓取 gateway:8001/metrics。所有经网关的 LLM 流量（路由/限流/预算/护栏）链路中断。请检查网关容器（docker compose restart gateway）。"
+
+  # ---------- 延迟 golden signal（P99 SLO） ----------
+  - name: gateway-latency
+    rules:
+      - alert: GatewayP99LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, tenant) (
+              rate(gateway_request_latency_seconds_bucket[5m])
+            )
+          ) > 10
+        for: 30s
+        labels:
+          severity: P2
+          channel: gateway-latency
+        annotations:
+          summary: "网关 P99 延迟超 SLO (10s)"
+          description: "tenant={{ $labels.tenant }} 的 5m P99 延迟持续 5 分钟 > 10s。下游 LLM 调用或治理链路可能存在瓶颈，影响实时交互体验。建议排查上游模型延迟与 fail_mode 设置。"
+
+  # ---------- 成本治理联动（03 业务级放大） ----------
+  - name: gateway-cost
+    rules:
+      - alert: GatewayCostSpike
+        expr: |
+          sum by (tenant) (rate(gateway_tokens_total[5m])) >
+          2 * sum by (tenant) (rate(gateway_tokens_total[1h]))
+        for: 30s
+        labels:
+          severity: P2
+          channel: gateway-cost
+        annotations:
+          summary: "租户 token 消耗 5m 速率超 1h 基线 2 倍"
+          description: "tenant={{ $labels.tenant }} 近 5 分钟 token 速率较 1 小时基线突增 >2 倍，持续 10 分钟。可能是流量异常上涨、循环调用（见 GatewayLoopStorm）或恶意滥用。建议核对预算配置（03）与上游调用方。"
+
+  # ---------- 失控循环风暴（05 联动） ----------
+  - name: gateway-loop
+    rules:
+      - alert: GatewayLoopStorm
+        expr: |
+          sum by (tenant) (rate(gateway_loop_guarded_total[5m])) > 1
+        for: 30s
+        labels:
+          severity: P2
+          channel: gateway-loop
+        annotations:
+          summary: "租户触发循环熔断风暴"
+          description: "tenant={{ $labels.tenant }} 近 5 分钟被 05 循环防护拒绝的重复请求速率 >1/s，持续 5 分钟。上游 Agent/应用可能陷入失控重试循环。建议排查调用方重试逻辑与 loop_guard_max 配置。"
+
+  # ---------- 安全护栏拒绝突增（质量/攻击信号） ----------
+  - name: gateway-safety
+    rules:
+      - alert: GatewaySafetySurge
+        expr: |
+          sum by (stage) (
+            rate(gateway_injection_denied_total[5m])
+            + rate(gateway_governance_error_total[5m])
+          ) > 0.5
+        for: 30s
+        labels:
+          severity: P3
+          channel: gateway-safety
+        annotations:
+          summary: "入向/出向安全拒绝速率偏高"
+          description: "stage={{ $labels.stage }} 注入拦截 + 治理异常合计速率 >0.5/s，持续 10 分钟。可能是提示注入攻击、护栏误杀率上升或治理面不稳定（fail-closed）。建议排查 06/10 规则与上游流量特征。"

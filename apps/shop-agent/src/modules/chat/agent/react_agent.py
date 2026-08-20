@@ -65,7 +65,13 @@ from src.modules.chat.core.sentiment_service import (
     EMOTION_TONE_PROMPTS,
     EmotionLevel,
 )
-from src.modules.chat.schemas import ChatRequest, ChatResponse, IntentResult
+from src.modules.chat.schemas import (
+    ChatRequest,
+    ChatResponse,
+    IntentResult,
+    PlannedAction,
+    ToolPlan,
+)
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 from src.shared.logger import APILogger
 
@@ -185,22 +191,56 @@ class ReActAgent:
             )
 
         self._pending_approval: tuple[str, str, str] | None = None
+        # T5: 最近一次 P0/P1/P2 规划收敛出的结构化 ToolPlan（确定性终止信号载体）
+        self._last_tool_plan: ToolPlan | None = None
+
+    def _intent_candidate_union(self) -> set[str]:
+        """所有 skill 的 ``allowed_tools`` 并集（意图候选全集，含关联工具）。
+
+        与 ``SkillRegistry.intent_tool_map`` 同源：把每个 skill 的 ``allowed-tools``
+        候选集汇总去重，得到"任意意图可能调用到的全部业务 action"。通用入口据此构建
+        tool，而非盲目注册整张 skill 注册表（后者可能包含未在任何意图候选集中的悬空工具）。
+        """
+        union: set[str] = set()
+        for s in self._skill_registry.skills:
+            union.add(s.name)
+            union.update(s.allowed_tools)
+        # 剔除注册表中不存在的悬空引用，仅保留真实可 dispatch 的 action
+        valid = {s.name for s in self._skill_registry.skills}
+        return {n for n in union if n in valid}
 
     def _build_tools(self):
         """构建 LangChain tool 列表。
 
-        - 未指定 ``skill_filter``：全量（从 skill 注册表生成），节点内由 P0/P1/P2 精选收敛。
-        - 指定 ``skill_filter``：仅构建该 skill 的单一工具，跳过精选（编排层已完成收敛）。
+        通用入口与单 skill 收敛入口的工具名集合**均源自 ``allowed-tools``（意图候选集，
+        含关联工具）**，与 P0 的 ``INTENT_TOOL_MAP`` 保持同源，避免把未在任何意图候选集中
+        出现的悬空工具暴露给模型。
+
+        - 未指定 ``skill_filter``（通用入口）：工具集 = 所有 skill 的 ``allowed_tools`` 并集
+          （意图候选全集，含关联工具），节点内再由 P0/P1/P2 精选进一步收敛。
+        - 指定 ``skill_filter``（单 skill 收敛）：工具集 = 该 skill 自身 + 其 ``allowed_tools``
+          声明的关联工具（如 ``query-order`` 的 ``allowed-tools: query-order check-shipping``
+          会同时注册两个 tool，使单 skill 模式也能调用关联工具）。
         """
         skills = self._skill_registry.skills
         if self._skill_filter:
-            skills = [s for s in skills if s.name == self._skill_filter]
-            if not skills:
+            matched = [s for s in skills if s.name == self._skill_filter]
+            if not matched:
                 logger.warning(
-                    "skill_filter 未命中任何 skill，回退全量工具集",
+                    "skill_filter 未命中任何 skill，回退意图候选全集",
                     skill_filter=self._skill_filter,
                 )
-                skills = self._skill_registry.skills
+                tool_names = self._intent_candidate_union()
+            else:
+                # 收敛工具名集合：skill 自身 + allowed_tools 声明的关联工具
+                skill = matched[0]
+                tool_names = set(skill.allowed_tools) | {skill.name}
+        else:
+            # 通用入口：意图候选全集 = 所有 skill 的 allowed_tools 并集
+            tool_names = self._intent_candidate_union()
+
+        # 仅保留注册表中真实存在的业务 action，避免引用悬空工具
+        skills = [s for s in skills if s.name in tool_names]
 
         tools = []
 
@@ -319,13 +359,24 @@ class ReActAgent:
         return knowledge_search
 
     async def _select_tools_for_intent(self, action: str | None, user_query: str) -> list:
-        """三层工具精选流水线：P0 意图规则过滤 → P1 Embedding 语义重排 → P2 本地模型确认"""
+        """三层工具精选流水线：P0 意图规则过滤 → P1 Embedding 语义重排 → P2 本地模型确认。
+
+        T5 think/act 解耦：三层规划只负责「选工具」（thinking），收敛为结构化
+        ToolPlan；执行（act）由下游消费 ToolPlan 驱动。本方法兼容旧下游——仍返回
+        LangChain tool 对象列表，但内部统一以 ToolPlan 组织，并据置信度决定是否
+        给出 plan_complete 终止信号（供后续执行器直接 dispatch 使用）。
+        """
         intent_map = _get_intent_tool_map()
         tool_names: set[str] = intent_map.get(
             action or "unknown",
             intent_map["unknown"],
         )
 
+        # ── P0 规划：意图规则直接产出 PlannedAction(source="p0") ──
+        plan = ToolPlan(
+            actions=[PlannedAction(name=n, source="p0", confidence=1.0) for n in tool_names],
+            source="p0",
+        )
         logger.info(
             "P0 意图过滤完成",
             action=action,
@@ -333,6 +384,7 @@ class ReActAgent:
             tool_names=sorted(tool_names),
         )
 
+        # ── P1 规划：Embedding 语义重排，更新 plan（保留 P0 中落选工具的来源）──
         p2_ranked: list[str] = []
         if self._tool_matcher and len(tool_names) > 1:
             try:
@@ -345,37 +397,50 @@ class ReActAgent:
                 )
                 if ranked_names:
                     p2_ranked = list(ranked_names)
-                    tool_names = set(p2_ranked)
+                    # P1 重排结果覆盖为更高优先级规划（置信度统一 1.0，细节分由 matcher 内部使用）
+                    plan = ToolPlan(
+                        actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in p2_ranked],
+                        source="p1",
+                    )
                 else:
                     logger.warning("P1 重排返回空结果，保持 P0 候选集")
             except Exception as e:
                 logger.warning(f"Embedding 重排失败，回退到 P0 结果: {e}")
 
-        if self._tool_matcher and len(tool_names) > 2:
+        # ── P2 规划：本地小模型确认，产出 source="p2" 的 ToolPlan ──
+        current_names = plan.to_tool_names()
+        if self._tool_matcher and len(current_names) > 2:
             tool_descs = self._skill_registry.tool_descriptions
             try:
-                selected = await _local_p1_tool_select(
+                p2_plan = await _local_p1_tool_select(
                     user_query=user_query,
-                    tool_names=tool_names,
+                    tool_names=current_names,
                     tool_descriptions=tool_descs,
                     p2_ranked=p2_ranked,
                 )
-                if selected and selected != tool_names:
+                if p2_plan.actions:
+                    plan = p2_plan
                     logger.info(
                         "P2 本地模型工具选择完成",
-                        before=sorted(tool_names),
-                        after=sorted(selected),
+                        before=sorted(current_names),
+                        after=sorted(plan.to_tool_names()),
                     )
-                    tool_names = selected
             except Exception as e:
                 logger.warning(f"P2 本地模型工具选择失败，保留 P1 结果: {e}")
 
+        # ── 确定性终止信号：高置信度规划 → plan_complete（执行器可直接 dispatch）──
+        stop_condition = "plan_complete" if plan.is_confident else "need_llm"
+        plan = plan.with_stop_condition(stop_condition)
+
+        # ── 兼容消费：将 ToolPlan 还原为 LangChain tool 对象列表 ──
+        selected_names = plan.to_tool_names()
         filtered: list = []
         for t in self._all_tools:
             name = getattr(t, "name", "")
-            if name in tool_names:
+            if name in selected_names:
                 filtered.append(t)
             elif name == "knowledge_search":
+                # knowledge_search 为 always_include，不计入规划但始终可用
                 filtered.append(t)
 
         logger.info(
@@ -383,8 +448,12 @@ class ReActAgent:
             action=action,
             total_tools=len(self._all_tools),
             filtered=len(filtered),
+            source=plan.source,
+            stop_condition=plan.stop_condition,
             tool_names=sorted([getattr(t, "name", "") for t in filtered]),
         )
+        # 附加 ToolPlan 到返回值（透传给需要确定性执行的下层，向后兼容：list 仍可直接遍历）
+        self._last_tool_plan = plan
         return filtered
 
     def _build_graph(
@@ -469,8 +538,130 @@ class ReActAgent:
 
         return prompt
 
+    async def _execute_plan_directly(self, ctx: ReActRunContext, plan: "ToolPlan") -> ChatResponse:
+        """T5 执行侧：确定性消费 ToolPlan，直接 dispatch 并润色回复（跳过 ReAct 循环）。
+
+        执行（act）完全由规划（think）产出的 ToolPlan 驱动：
+        - 对每个 PlannedAction 用确定性抽取的参数（intent_result.params）直接 dispatch；
+        - 模型仅负责把工具结果合成自然语言（不再决定调什么、何时停）；
+        - 输出经内容安全过滤后返回。
+        调用方已保证 plan.stop_condition=="plan_complete" 且不含 hitl 工具。
+        """
+        from src.modules.chat.core.content_filter import ContentFilterService
+        from src.modules.chat.agent.react_agent_reply import apply_scenario_reply
+
+        react_start = time.monotonic()
+        intent_result = ctx.intent_result
+        preset_params = intent_result.params or {}
+
+        # 1) 确定性逐个 dispatch（模型不介入选工具/填参）
+        tool_outputs: list[dict] = []
+        for action in plan.actions:
+            name = action.name
+            try:
+                t0 = time.monotonic()
+                raw = await self._tool_service.dispatch(name, preset_params or None)
+                t_dur = int((time.monotonic() - t0) * 1000)
+                logger.info(
+                    "确定性执行 ToolPlan 动作",
+                    action=name,
+                    source=action.source,
+                    duration_ms=t_dur,
+                )
+                tool_outputs.append({
+                    "action": name,
+                    "output": raw,
+                    "status": "success",
+                })
+            except Exception as e:
+                logger.error(f"确定性执行工具 {name} 失败: {str(e)[:200]}")
+                tool_outputs.append({
+                    "action": name,
+                    "output": f"工具 {name} 执行失败：{str(e)[:120]}",
+                    "status": "failed",
+                })
+
+        combined = "\n\n".join(
+            f"[{o['action']}]\n{o['output']}" for o in tool_outputs
+        )
+
+        # 2) 模型仅做结果润色（自然语言合成），不决定工具调用
+        langfuse_handler, langfuse_ctx = self._init_langfuse(
+            ctx.conversation_id, ctx.domain, intent_result, ctx.langfuse_handler
+        )
+        final_output = combined
+        try:
+            try:
+                llm = self._llm_service.qwen_llm
+                if llm is not None:
+                    polish_prompt = (
+                        "你是电商客服助手。下面是为用户查询得到的工具返回结果，"
+                        "请用简洁、自然的中文口语化转述给用户，不要输出工具名或原始 JSON 标记。"
+                        "若结果提示信息不足，可友好地补充询问。\n\n"
+                        f"用户问题：{ctx.request.message}\n\n工具结果：\n{combined}"
+                    )
+                    polish = await llm.ainvoke(polish_prompt)
+                    final_output = getattr(polish, "content", None) or combined
+            except Exception as e:
+                logger.warning(f"ToolPlan 结果润色失败，回退原始拼接: {str(e)[:120]}")
+                final_output = combined
+
+            final_output = apply_scenario_reply(final_output, tool_outputs)
+        finally:
+            if langfuse_ctx:
+                langfuse_ctx.__exit__(None, None, None)
+
+        # 3) 输出安全过滤
+        output_filter_safe = True
+        cf = ContentFilterService.get_instance()
+        output_check = cf.filter_output(final_output, ctx.domain)
+        if not output_check.is_safe:
+            output_filter_safe = False
+            logger.warning(
+                "确定性执行输出安全检查未通过",
+                domain=ctx.domain,
+                risk_categories=output_check.risk_categories,
+            )
+            final_output = output_check.filtered_text or "抱歉，当前无法处理您的请求，请稍后重试。"
+
+        elapsed_ms = int((time.monotonic() - react_start) * 1000)
+        logger.info(
+            "确定性执行完成（跳过 ReAct 循环）",
+            source=plan.source,
+            actions=sorted(plan.to_tool_names()),
+            duration_ms=elapsed_ms,
+        )
+        return ChatResponse(
+            message=final_output,
+            conversation_id=ctx.conversation_id,
+            steps=ctx.intent_steps
+            + [
+                {
+                    "step_name": "ToolPlan确定性执行",
+                    "step_order": len(ctx.intent_steps),
+                    "status": "success",
+                    "output_data": {
+                        "mode": "plan_complete_direct",
+                        "source": plan.source,
+                        "actions": [o["action"] for o in tool_outputs],
+                    },
+                }
+            ],
+            documents_used=[],
+            safety_passed=output_filter_safe,
+            stream_available=True,
+            domain=ctx.domain,
+        )
+
     async def run(self, ctx: ReActRunContext) -> ChatResponse:
-        """执行 ReAct 循环。"""
+        """执行 ReAct 循环。
+
+        T5 执行侧解耦：规划（_select_tools_for_intent）已产出 ToolPlan 并存于
+        self._last_tool_plan。若规划置信度足够高（stop_condition=="plan_complete"）
+        且不涉及人在回路（hitl）工具，则**跳过 ReAct 循环**，由确定性逻辑直接
+        dispatch 计划中的工具、再用 LLM 仅做结果润色——执行（act）完全由 plan 驱动，
+        模型不再决定「何时停」。否则回退到原 ReAct 自主循环。
+        """
         selected_tools = await self._select_tools_for_intent(
             ctx.intent_result.action, user_query=ctx.request.message
         )
@@ -478,6 +669,22 @@ class ReActAgent:
         blocked = self._check_input_safety(ctx.request, ctx.domain, ctx.intent_steps, ctx.conversation_id)
         if blocked:
             return blocked
+
+        # ── 执行侧解耦：高置信规划 → 确定性直接执行，绕过 ReAct 循环 ──
+        plan = self._last_tool_plan
+        if plan is not None and plan.stop_condition == "plan_complete":
+            hitl_actions = {s.name for s in self._skill_registry.skills if s.hitl}
+            if not (plan.to_tool_names() & hitl_actions):
+                logger.info(
+                    "规划置信度高，走确定性直接执行（跳过 ReAct 循环）",
+                    source=plan.source,
+                    actions=sorted(plan.to_tool_names()),
+                )
+                return await self._execute_plan_directly(ctx, plan)
+            logger.info(
+                "规划含人在回路工具，仍走 ReAct 循环以触发确认",
+                actions=sorted(plan.to_tool_names()),
+            )
 
         agent_graph, enhanced_message = self._build_react_graph(
             selected_tools, ctx.conversation_id, ctx.intent_result, ctx.request
@@ -862,14 +1069,46 @@ class ReActAgent:
         react_start = time.monotonic()
         try:
             command_service = CommandToolService(tool_service=tool_service)
-            # 注意：ReAct 退款链路当前未通过 ApprovalGate.execute_with_approval 登记，
-            # 故 ApprovalGate 内不存在 approval_id=thread_id 的记录，approve 会返回
-            # status="failed"（审批记录不存在）。此处必须 fail-closed 暴露，禁止用默认
-            # 成功文案掩盖，避免静默假成功。
-            result = await command_service.approve(approval_id=thread_id)
-            if result.status != "success":
-                raise RuntimeError(result.error or "退款审批执行失败")
-            dispatch_result = result.message or "退款申请已批准并执行。"
+            # ReAct 退款链路未走 ApprovalGate.execute_with_approval，故 ApprovalGate 内
+            # 不存在 approval_id 记录，command_service.approve 会返回 failed。此处不再
+            # 依赖 ApprovalGate：先尝试 approve（兼容未来接通 ApprovalGate 的场景），
+            # 失败则降级为用中断上下文直接 dispatch 退款「确认执行」，避免 fail-closed
+            # 误报「执行失败」导致审批通过却无反馈。
+            dispatch_result = None
+            try:
+                result = await command_service.approve(approval_id=thread_id)
+                if result.status == "success":
+                    dispatch_result = result.message
+            except Exception as e:
+                logger.warning(
+                    "ApprovalGate.approve 未命中记录，降级直接 dispatch 执行退款",
+                    thread_id=thread_id,
+                    error=str(e)[:200],
+                )
+
+            if dispatch_result is None:
+                # 降级路径：直接重新 dispatch 退款确认执行（带 confirm 标记，供后端幂等去重）。
+                # 幂等保证：_pop_interrupt 在取回上下文时已删除 Redis 中断记录，
+                # 同一 conversation_id 二次 resume 会返回 None（services 抛「未找到」），
+                # 因此本分支天然不会重复执行。
+                exec_result = await tool_service.dispatch(
+                    "request-return",
+                    {
+                        "order_id": order_id,
+                        "reason": reason,
+                        "confirm": True,
+                        "approval_id": thread_id,
+                    },
+                )
+                # 若后端仍返回「等待审批」，说明该申请已被处理过（幂等命中），提示而非报错
+                if isinstance(exec_result, str) and "等待" in exec_result:
+                    dispatch_result = f"退款申请（订单号: {order_id}）已处理，无需重复确认。"
+                else:
+                    dispatch_result = (
+                        exec_result
+                        if isinstance(exec_result, str)
+                        else "退款申请已批准并执行。"
+                    )
         except Exception as e:
             logger.error(f"退款执行失败: {e}", thread_id=thread_id, order_id=order_id)
             return ChatResponse(

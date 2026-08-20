@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, create_model
 
 from src.modules.chat.agent.skill_loader import get_skill_registry
 from src.modules.chat.core.local_model_service import LocalModelService
+from src.modules.chat.schemas import PlannedAction, ToolPlan
 from src.shared.logger import APILogger
 
 logger = APILogger("react_agent_selection")
@@ -61,10 +62,18 @@ async def _local_p1_tool_select(
     tool_descriptions: dict[str, str],
     *,
     p2_ranked: list[str] | None = None,
-) -> set[str]:
-    """P2 本地模型工具选择：从候选工具中选出最相关的。"""
+) -> ToolPlan:
+    """P2 本地模型工具选择：从候选工具中选出最相关的，产出结构化 ToolPlan。
+
+    设计（T5 think/act 解耦）：本函数只负责「规划」（thinking），不执行任何工具；
+    选中的工具以 PlannedAction(source="p2") 形式进入 ToolPlan，由上层执行器消费。
+    """
     if len(tool_names) <= 2:
-        return tool_names
+        # 候选已足够收敛，P2 无需介入，直接以 P1 结果收敛为 plan
+        return ToolPlan(
+            actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in tool_names],
+            source="p1",
+        )
 
     local_svc = LocalModelService.get_instance()
     names_list = list(tool_names)
@@ -76,7 +85,10 @@ async def _local_p1_tool_select(
     )
     result = {n for n in selected if n in tool_names}
     if not result:
-        return tool_names
+        return ToolPlan(
+            actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in tool_names],
+            source="p1",
+        )
 
     if p2_ranked and len(p2_ranked) >= 2:
         p2_top1 = p2_ranked[0]
@@ -93,7 +105,10 @@ async def _local_p1_tool_select(
         ranked = [n for n in (p2_ranked or []) if n in result]
         result = set(ranked[:_P2_MAX_TOOLS])
 
-    return result
+    return ToolPlan(
+        actions=[PlannedAction(name=n, source="p2", confidence=1.0) for n in result],
+        source="p2",
+    )
 
 
 class EmbeddingToolMatcher:

@@ -1,0 +1,15 @@
+# Monitoring Agent 自身存活告警
+# 设计哲学：监控组件的高可用不由自身多副本互备解决，
+# 而由 Prometheus 抓取其 up 指标、掉则告警（详见 04 篇「单实例边界」）。
+groups:
+  - name: monitoring-agent-self
+    rules:
+      - alert: MonitoringAgentDown
+        expr: up{job="monitoring-agent"} == 0
+        for: 15s
+        labels:
+          severity: P1
+          channel: monitoring-agent-self
+        annotations:
+          summary: "Monitoring Agent 失联"
+          description: "Prometheus 已持续 1 分钟无法抓取 monitoring-agent:9091，拓扑巡检与告警分发链路中断。请检查容器状态（docker compose restart monitoring-agent 通常可恢复）。"

@@ -1,0 +1,83 @@
+# Grafana 异常检测告警规则（file-based provisioning，需 GF_UNIFIED_ALERTING_ENABLED=true）
+#
+# 作用：补足 monitoring-agent「自动异常发现」短板——对核心业务指标做阈值/突变异常检测，
+# 命中即经统一 ContactPoint（Alertmanager）转发到 monitoring-agent /ingest/alert 做 RCA。
+#
+# 注意：开源 Grafana 11 无内置无监督 ML 插件（ML 模块需企业/云版）。本方案以 Prometheus
+# 指标为输入的 PromQL 阈值/突变检测作为「自动异常发现」落地形态；Grafana 负责调度 + 状态管理。
+apiVersion: 1
+
+# ── 异常检测规则组 ──
+# 通知出口与路由策略分别见同目录 contactpoints.yml / policies.yml。
+groups:
+  - name: grafana-anomaly-detection
+    folder: anomaly-detection
+    interval: 1m
+    rules:
+      # 1) Shop-Agent 请求 P99 延迟突增（黄金信号异常）
+      - title: ShopAgentP99LatencySpike
+        uid: shop-agent-p99-latency-spike
+        condition: C
+        for: "3m"
+        labels:
+          severity: P2
+          channel: grafana-anomaly
+          service: shop-agent
+        annotations:
+          summary: "Shop-Agent P99 延迟超 10s（异常检测）"
+          description: "近 5 分钟 P99 延迟持续 >10s，疑似上游模型/护栏延迟或循环风暴。已转交 monitoring-agent 做 RCA。"
+        data:
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service="shop-agent"}[5m])) by (le)) > 10'
+              intervalMs: 1000
+              maxDataPoints: 43200
+
+      # 2) 网关错误率突增
+      - title: GatewayErrorRateSpike
+        uid: gateway-error-rate-spike
+        condition: C
+        for: "3m"
+        labels:
+          severity: P2
+          channel: grafana-anomaly
+          service: llm-gateway
+        annotations:
+          summary: "LLM 网关 5xx 错误率 >10%（异常检测）"
+          description: "近 5 分钟网关 5xx 错误率 >10%，疑似上游模型不可用或限流。已转交 monitoring-agent 做 RCA。"
+        data:
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(rate(http_requests_total{service="llm-gateway",status=~"5.."}[5m])) by (service) / sum(rate(http_requests_total{service="llm-gateway"}[5m])) by (service) > 0.1'
+              intervalMs: 1000
+              maxDataPoints: 43200
+
+      # 3) 组件存活异常（Prometheus up 掉）
+      - title: ComponentDownAnomaly
+        uid: component-down-anomaly
+        condition: C
+        for: "1m"
+        labels:
+          severity: P1
+          channel: grafana-anomaly
+        annotations:
+          summary: "组件 {{ $labels.job }} 失联（异常检测）"
+          description: "Prometheus 持续 1 分钟无法抓取 {{ $labels.job }}，已转交 monitoring-agent 做 RCA 与影响面评估。"
+        data:
+          - refId: C
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'up{job=~"shop-agent|gateway|monitoring-agent|milvus|minio|langfuse|prometheus"} == 0'
+              intervalMs: 1000
+              maxDataPoints: 43200

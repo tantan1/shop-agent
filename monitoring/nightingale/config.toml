@@ -1,0 +1,97 @@
+# Nightingale v9 (flashcatcloud/nightingale:latest) 配置
+# 校准说明：v7 用 YAML（n9e.yml），v9 默认读 /app/etc/config.toml（TOML）。
+# 本地复用：postgres(n9e 库) / redis(带 REDIS_AUTH 密码) / prometheus / alertmanager。
+# 挂载点：./monitoring/nightingale/config.toml:/app/etc/config.toml:ro
+# 启动：/app/n9e server（v9 默认读 /app/etc/config.toml，无需 -configs 参数）
+
+[Global]
+RunMode = "release"
+
+[Log]
+Dir = "logs"
+Level = "INFO"
+Output = "stdout"
+
+[HTTP]
+Host = "0.0.0.0"
+Port = 17000
+CertFile = ""
+KeyFile = ""
+PrintAccessLog = false
+PProf = true
+ExposeMetrics = true
+ShutdownTimeout = 30
+MaxContentLength = 67108864
+ReadTimeout = 20
+WriteTimeout = 40
+IdleTimeout = 120
+
+[HTTP.ShowCaptcha]
+Enable = false
+
+[HTTP.APIForAgent]
+Enable = true
+
+[HTTP.APIForService]
+Enable = false
+[HTTP.APIForService.BasicAuth]
+user001 = "ccc26da7b9aba533cbb263a36c07dcc5"
+
+[HTTP.JWTAuth]
+AccessExpired = 1500
+RefreshExpired = 10080
+RedisKeyPrefix = "/jwt/"
+
+[HTTP.ProxyAuth]
+Enable = false
+HeaderUserNameKey = "X-User-Name"
+DefaultRoles = ["Standard"]
+
+[HTTP.TokenAuth]
+Enable = true
+
+[HTTP.RSA]
+OpenRSA = false
+
+# ---- 数据层：复用本地 postgres（n9e 库，由 n9e-db-init 建库建号）----
+[DB]
+DBType = "postgres"
+# host=%s port=%s user=%s dbname=%s password=%s sslmode=%s
+DSN = "host=postgres port=5432 user=n9e dbname=n9e password=n9e_pass sslmode=disable"
+Debug = false
+MaxLifetime = 7200
+MaxOpenConns = 150
+MaxIdleConns = 50
+
+# ---- 缓存层：复用本地 redis（与业务共用实例，生产应拆监控专用）----
+[Redis]
+Address = "redis:6379"
+# 密码与 .env 的 REDIS_AUTH 一致（redis-stack-server --requirepass）
+Password = "local-redis-password"
+DB = 0
+RedisType = "standalone"
+
+[Alert]
+[Alert.Heartbeat]
+IP = ""
+Interval = 1000
+
+[Center]
+MetricsYamlFile = "./etc/metrics.yaml"
+I18NHeaderKey = "X-Language"
+
+[Center.AnonymousAccess]
+PromQuerier = true
+AlertDetail = true
+
+# ---- 内嵌 TSDB：关闭（已有外部 Prometheus，n9e 通过数据源查询）----
+[EmbeddedTSDB]
+Enable = false
+
+[Pushgw]
+LabelRewrite = true
+ForceUseServerTS = true
+
+[Ibex]
+Enable = true
+RPCListen = "0.0.0.0:20090"

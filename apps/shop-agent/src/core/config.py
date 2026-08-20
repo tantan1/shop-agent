@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     VLLM_TOOL_SELECTOR_MODEL: str = "qwen3-unified"
     VLLM_TIMEOUT: int = 60
 
+    # P2 本地工具选择（小模型专项辅助层）开关与阈值。
+    # 默认关闭：工具选择已由 P0 规则 + P1 意图加权软过滤完成，本地 1.7B 仅作补充确认。
+    # 开启后仅当候选工具数 > P2_LOCAL_CLASSIFY_MIN_CANDIDATES 才介入，避免对少量候选做无意义二次推理。
+    ENABLE_P2_LOCAL_CLASSIFY: bool = False
+    P2_LOCAL_CLASSIFY_MIN_CANDIDATES: int = 4
+
     # Embedding 模型（本地 BGE/Sentence-Transformers）
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-zh-v1.5")
     # Embedding 后端: local=进程内 sentence-transformers（本地开发） | ollama=进程外 Ollama API（k8s 部署）

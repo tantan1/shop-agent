@@ -47,6 +47,18 @@ class LocalModelService:
     _load_failed_reason: str = ""  # 失败原因，供日志输出
     _executor: ThreadPoolExecutor = None  # 推理线程池
 
+    # ── 远程调用防护（单飞 + 失败熔断）──
+    # 单飞：同一 backend+model 的并发请求合并为一次推理，防单卡被打爆
+    _remote_inflight: Dict[str, "asyncio.Future"] = {}
+    # 熔断：按 backend 记录连续失败与冷却到期时间
+    _remote_fuse: Dict[str, Dict[str, float]] = {
+        "vllm": {"consec_fail": 0.0, "cool_until": 0.0},
+        "ollama": {"consec_fail": 0.0, "cool_until": 0.0},
+        "transformers": {"consec_fail": 0.0, "cool_until": 0.0},
+    }
+    _REMOTE_FAIL_THRESHOLD: int = 5  # 连续失败达到此值进入冷却
+    _REMOTE_COOLDOWN_S: float = 10.0  # 冷却时长（秒）
+
     # ── 工具选择器专用模型（可独立配置，与参数抽取模型分开） ──
     _tool_selector_model = None
     _tool_selector_tokenizer = None
@@ -193,36 +205,84 @@ class LocalModelService:
         max_tokens: int = 128,
         kind: str = "param",
     ) -> Optional[str]:
-        """调用 vLLM/Ollama 的 OpenAI 兼容端点 /v1/chat/completions，返回 assistant 文本。"""
+        """调用 vLLM/Ollama 的 OpenAI 兼容端点 /v1/chat/completions，返回 assistant 文本。
+
+        防护（借鉴 DeepSeek harness 的 fail-fast / 单飞思想）：
+        - 单飞（singleflight）：同一 (backend, model) 的并发请求合并为一次远端推理，
+          避免 HITL 期间多个并发请求同时打爆单卡（RTX 4070 仅 --max-num-seqs=8）。
+        - 失败熔断：连续失败达到阈值后进入冷却，期间直接返回 None（上层回落），
+          避免雪崩下仍持续冲击已不健康的 vLLM。
+        """
         import httpx
 
         base, default_model, timeout = cls._remote_endpoint(kind)
         model = model or default_model
         url = f"{base}/v1/chat/completions"
         backend = cls._backend()
-        payload: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.0,  # 参数抽取/工具选择用贪心
-            "stream": False,
-        }
-        if backend != "ollama":
-            # Qwen3 思考模式会输出 <think>，参数抽取不需要，关掉省 token
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                logger.warning(
-                    f"{backend} 调用失败 status={resp.status_code} model={model}: {resp.text[:200]}"
-                )
-                return None
-            data = resp.json()
-            return (data.get("choices") or [{}])[0].get("message", {}).get("content")
-        except Exception as e:
-            logger.warning(f"{backend} 调用异常 model={model} url={url}: {str(e)[:200]}")
+
+        # ── 失败熔断：冷却期内直接放弃，不冲击已不健康的远端 ──
+        now = _perf_time.monotonic()
+        fuse = cls._remote_fuse[backend]
+        if fuse["cool_until"] and now < fuse["cool_until"]:
+            logger.debug(f"{backend} 处于冷却期，跳过远程调用")
             return None
+        if fuse["consec_fail"] >= cls._REMOTE_FAIL_THRESHOLD:
+            fuse["cool_until"] = now + cls._REMOTE_COOLDOWN_S
+            fuse["consec_fail"] = 0
+            logger.warning(
+                f"{backend} 连续失败达阈值，进入冷却 {cls._REMOTE_COOLDOWN_S}s"
+            )
+            return None
+
+        # ── 单飞：同一 backend+model 合并并发请求 ──
+        flight_key = f"{backend}:{model}"
+        inflight = cls._remote_inflight.get(flight_key)
+        if inflight is not None:
+            # 已有进行中的同模型请求，复用其结果（singleflight）
+            try:
+                return await inflight
+            except Exception:
+                return None
+
+        async def _do_call() -> Optional[str]:
+            payload: Dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.0,  # 参数抽取/工具选择用贪心
+                "stream": False,
+            }
+            if backend != "ollama":
+                # Qwen3 思考模式会输出 <think>，参数抽取不需要，关掉省 token
+                payload["chat_template_kwargs"] = {"enable_thinking": False}
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(url, json=payload)
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"{backend} 调用失败 status={resp.status_code} model={model}: {resp.text[:200]}"
+                    )
+                    return None
+                data = resp.json()
+                return (data.get("choices") or [{}])[0].get("message", {}).get("content")
+            except Exception as e:
+                logger.warning(f"{backend} 调用异常 model={model} url={url}: {str(e)[:200]}")
+                return None
+
+        fut = asyncio.ensure_future(_do_call())
+        cls._remote_inflight[flight_key] = fut
+        try:
+            result = await fut
+        finally:
+            cls._remote_inflight.pop(flight_key, None)
+
+        # 更新熔断计数
+        if result is None:
+            fuse["consec_fail"] += 1
+        else:
+            fuse["consec_fail"] = 0
+            fuse["cool_until"] = 0.0
+        return result
 
     # 兼容旧调用名
     @classmethod
@@ -722,8 +782,18 @@ class LocalModelService:
         """
         t_start = _perf_time.monotonic()
 
-        if len(tool_names) <= 2:
-            return list(tool_names)  # 已经足够少，无需再选
+        # ── P2 开关与阈值（承接架构评审：本地 1.7B 只是专项辅助，非通用兜底）──
+        # 开关关闭，或候选数未超过阈值（意图加权软过滤已足够收敛），直接返回全部候选，
+        # 避免对少量候选做无意义的二次推理（呼应面试题 55：继续强化 P0/P1 而非依赖小模型）。
+        if not chat_config.enable_p2_local_classify:
+            logger.debug("P2 本地工具选择已关闭，直接返回 P1 候选")
+            return list(tool_names)
+        if len(tool_names) <= chat_config.p2_local_classify_min_candidates:
+            logger.debug(
+                f"候选数 {len(tool_names)} <= 阈值 "
+                f"{chat_config.p2_local_classify_min_candidates}，跳过 P2"
+            )
+            return list(tool_names)
 
         # ── Ollama 后端：进程外调用 unified 模型（param/tool_select 合一）──
         if self._using_ollama():
@@ -859,6 +929,8 @@ class LocalModelService:
         )
 
         valid_names = set(tool_names)
+        # 阈值与开关在此分支也需遵守：开关关或候选<=阈值时由主流程已早返回，
+        # 此处仅兜底（理论上不会进入），保持与 chat_classify 一致。
         for attempt in range(max_retries + 1):
             t_gen_start = _perf_time.monotonic()
             raw_output = await self._remote_chat(

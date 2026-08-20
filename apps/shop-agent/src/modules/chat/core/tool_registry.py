@@ -26,6 +26,27 @@ from src.shared.logger import APILogger  # noqa: E402
 logger = APILogger("tool_service")
 
 
+# ── 工具注册表（装饰器驱动的插件式注册，对标 Skills 的"只加文件不改代码"）──
+# 新增业务工具：在方法上加 @register_tool("name") 即可，无需改 _ensure_registry 字典。
+_TOOL_REGISTRY: Dict[str, Any] = {}
+
+
+def register_tool(name: str):
+    """工具注册装饰器：将业务函数登记到全局工具注册表。
+
+    用法：
+        @register_tool("query-order")
+        @staticmethod
+        async def _tool_query_order(params=None) -> str: ...
+    """
+
+    def _wrap(fn):
+        _TOOL_REGISTRY[name] = fn
+        return fn
+
+    return _wrap
+
+
 # 本地 mock 已知数据集合（用于区分「查无此单」与「命中数据」）
 KNOWN_TRACKING_NUMBERS = {
     "SF1234567890",
@@ -54,21 +75,18 @@ class ToolService:
         self._registry: Dict[str, Any] = {}
 
     def _ensure_registry(self):
-        """懒加载 tool 注册表"""
+        """懒加载 tool 注册表（装饰器扫描结果，无需硬编码）"""
         if self._registry:
             return
-        self._registry.update(
-            {
-                "query-order": self._tool_query_order,
-                "check-shipping": self._tool_check_shipping,
-                "request-return": self._tool_request_return,
-                "check-balance": self._tool_check_balance,
-                "coupon-inquiry": self._tool_coupon_inquiry,
-            }
-        )
+        if not _TOOL_REGISTRY:
+            logger.warning("工具注册表为空，未装饰任何 @register_tool")
+            return
+        self._registry.update(_TOOL_REGISTRY)
+        logger.debug(f"工具注册表已加载，共 {len(self._registry)} 个工具")
 
     # ── Tool 实现 ──────────────────────────────────────────────────
 
+    @register_tool("query-order")
     @staticmethod
     async def _tool_query_order(params: Optional[Dict[str, Any]] = None) -> str:
         """查询订单"""
@@ -105,6 +123,7 @@ class ToolService:
             ensure_ascii=False,
         )
 
+    @register_tool("check-shipping")
     @staticmethod
     async def _tool_check_shipping(params: Optional[Dict[str, Any]] = None) -> str:
         """查询物流"""
@@ -144,6 +163,7 @@ class ToolService:
             ensure_ascii=False,
         )
 
+    @register_tool("request-return")
     @staticmethod
     async def _tool_request_return(params: Optional[Dict[str, Any]] = None) -> str:
         """申请退货退款。
@@ -202,6 +222,7 @@ class ToolService:
         except Exception as e:
             logger.error(f"记录退款确认失败: {e}")
 
+    @register_tool("check-balance")
     @staticmethod
     async def _tool_check_balance(params: Optional[Dict[str, Any]] = None) -> str:
         """查询余额/积分。
@@ -226,6 +247,7 @@ class ToolService:
             ensure_ascii=False,
         )
 
+    @register_tool("coupon-inquiry")
     @staticmethod
     async def _tool_coupon_inquiry(params: Optional[Dict[str, Any]] = None) -> str:
         """查询优惠券。

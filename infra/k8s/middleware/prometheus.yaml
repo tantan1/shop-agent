@@ -51,7 +51,7 @@ data:
       # 真实故障 #1：gateway 进程挂掉 / Pod 被缩容 → Prometheus 抓取失败 up==0
       - alert: GatewayDown
         expr: up{job="gateway"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
           service_name: gateway
@@ -62,7 +62,7 @@ data:
       # 真实故障 #2：gateway 请求 P99 延迟飙升（上游模型/护栏延迟异常）
       - alert: GatewayP99High
         expr: histogram_quantile(0.99, sum(rate(gateway_request_latency_seconds_bucket[5m])) by (le)) > 5
-        for: 3m
+        for: 30s
         labels:
           severity: warning
           service_name: gateway
@@ -77,7 +77,7 @@ data:
           /
           sum(rate(gateway_request_latency_seconds_count[5m]))
           > 0.1
-        for: 3m
+        for: 30s
         labels:
           severity: warning
           service_name: gateway
@@ -90,7 +90,7 @@ data:
       # 监控自身链路中断：监控组件探活失败，意味着「无告警」可能是盲点
       - alert: MonitoringAgentDown
         expr: up{job="monitoring-agent"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
           service_name: monitoring-agent
@@ -106,7 +106,7 @@ data:
       # RCA 据拓扑把根因收敛到 redis，产出结构化修复动作（scale redis -> 1）。
       - alert: ShopAgentRedisDegraded
         expr: shop_agent_redis_available == 0
-        for: 1m
+        for: 15s
         labels:
           severity: warning
           service_name: shop-agent
@@ -118,7 +118,7 @@ data:
       # 此时 readiness 失败会摘除 Pod，up==0 才成立。保持 critical 等级。
       - alert: ShopAgentDown
         expr: up{job="shop-agent"} == 0
-        for: 1m
+        for: 15s
         labels:
           severity: critical
           service_name: shop-agent

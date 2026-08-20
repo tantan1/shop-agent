@@ -121,7 +121,7 @@ services:
     environment:
       POSTGRES_DB: shop_agent
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}  # CHANGEME: 生产用强密码
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/pgvector:/var/lib/postgresql
       - ./apps/order-service/init.sql:/docker-entrypoint-initdb.d/02-orders.sql:ro
@@ -138,6 +138,7 @@ services:
     image: apache/skywalking-banyandb:0.8.0
     command: standalone
     restart: unless-stopped
+    profiles: ["full"]   # 重资源 APM，本地默认不启；生产/Staging 用 --profile full
     ports:
       - "17912:17912"   # gRPC（OAP 连接用）
       - "2121:2121"     # HTTP (metrics)
@@ -156,6 +157,7 @@ services:
     container_name: shop-agent-skywalking-oap
     image: apache/skywalking-oap-server:10.2.0
     restart: unless-stopped
+    profiles: ["full"]   # 重资源 APM，本地默认不启
     depends_on:
       banyandb:
         condition: service_healthy
@@ -182,6 +184,7 @@ services:
     container_name: shop-agent-skywalking-ui
     image: apache/skywalking-ui:10.2.0
     restart: unless-stopped
+    profiles: ["full"]   # 重资源 APM，本地默认不启
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
       TZ: Asia/Shanghai
@@ -196,7 +199,7 @@ services:
     container_name: shop-agent-prometheus
     image: prom/prometheus:v2.54.1
     ports:
-      - "9090:9090"
+      - "19090:9090"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/prometheus:/prometheus
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -220,19 +223,22 @@ services:
   # RCA/业务告警经 Prometheus rules 触发后，由 Alertmanager 负责通知路由
   # （钉钉/Slack/邮件等，见 monitoring/alertmanager/alertmanager.yml）。
   alertmanager:
-    container_name: shop-agent-alertmanager
-    image: prom/alertmanager:v0.27.0
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-      - '--log.level=info'
-    restart: unless-stopped
-    depends_on:
-      - prometheus
+     container_name: shop-agent-alertmanager
+     image: prom/alertmanager:v0.27.0
+     ports:
+       - "9093:9093"
+     volumes:
+       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+     command:
+       - '--config.file=/etc/alertmanager/alertmanager.yml'
+       - '--storage.path=/alertmanager'
+       - '--log.level=info'
+     restart: unless-stopped
+     environment:
+       # 与 monitoring-agent 的 MONITORING_WEBHOOK_TOKEN 一致
+       ALERTMANAGER_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN:-monitoring-agent-secret}
+     depends_on:
+       - prometheus
 
   # ============ Grafana 可视化服务 ============
   grafana:
@@ -243,7 +249,6 @@ services:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
     environment:
       # 安全配置 - 生产环境必须修改这些密码！
       # 注意：如未设置环境变量，将使用默认值（仅开发环境）
@@ -268,8 +273,14 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=false
       # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
 
-      # 告警配置 (可选)
-      # - GF_ALERTING_ENABLED=true
+      # 告警配置：启用 unified alerting（Grafana 原生告警引擎，异常检测规则的运行底座）
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_ALERTING_ENABLED=false
+      # 将 Grafana 自建告警的「通知」统一转发到 Alertmanager（避免双告警出口 schema 不兼容，
+      # 全部经 alertmanager.yml 的 receiver 路由到 monitoring-agent / 外部通知）。
+      - GF_UNIFIED_ALERTING_ALERTMANAGER_CONFIG=default
+      # 允许 Grafana 经 Alertmanager 推送（启用外部 Alertmanager 数据源）
+      - GF_ALERTING_ALERTMANAGER_WEAK_TLS_VERIFICATION=true
     restart: unless-stopped
     depends_on:
       - prometheus
@@ -285,6 +296,9 @@ services:
   loki:
     container_name: shop-agent-loki
     image: grafana/loki:2.9.8
+    # Loki 容器内以非 root 用户运行，对 bind mount 的 ./volumes/loki 无写权限会
+    # 报 "mkdir uploader: permission denied"。以 root 运行规避（开发环境单机）。
+    user: "0"
     ports:
       - "3100:3100"
     volumes:
@@ -317,6 +331,7 @@ services:
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
     restart: always
+    profiles: ["full"]   # 追踪链路（可降级）；本地默认不启，应用对 Langfuse 不可达有降级
     depends_on: &langfuse-depends-on
       postgres:
         condition: service_healthy
@@ -381,6 +396,7 @@ services:
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
     restart: always
+    profiles: ["full"]   # 追踪 UI（可降级）；本地默认不启
     depends_on: *langfuse-depends-on
     ports:
       - "3000:3000"
@@ -398,8 +414,9 @@ services:
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:latest
+    image: ${CLICKHOUSE_IMAGE:-docker.io/clickhouse/clickhouse-server:24.8}
     restart: always
+    profiles: ["full"]   # Langfuse 追踪存储，重；本地默认不启（应用对追踪不可达可降级）
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -442,6 +459,7 @@ services:
     container_name: shop-agent-nebula-metad
     image: vesoft/nebula-metad:v3.8.0
     restart: unless-stopped
+    profiles: ["full"]   # 知识图谱，3 容器+init 重资源；本地默认不启
     environment:
       USER: root
       TZ: Asia/Shanghai
@@ -464,6 +482,7 @@ services:
     container_name: shop-agent-nebula-storaged
     image: vesoft/nebula-storaged:v3.8.0
     restart: unless-stopped
+    profiles: ["full"]   # 知识图谱存储，本地默认不启
     depends_on:
       nebula-metad:
         condition: service_healthy
@@ -488,6 +507,7 @@ services:
     container_name: shop-agent-nebula-graphd
     image: vesoft/nebula-graphd:v3.8.0
     restart: unless-stopped
+    profiles: ["full"]   # 知识图谱查询，本地默认不启
     depends_on:
       nebula-storaged:
         condition: service_healthy
@@ -510,6 +530,7 @@ services:
   nebula-init:
     container_name: shop-agent-nebula-init
     image: vesoft/nebula-console:v3.8.0
+    profiles: ["full"]   # 知识图谱初始化，本地默认不启
     depends_on:
       nebula-graphd:
         condition: service_healthy
@@ -586,12 +607,23 @@ services:
     build: ./apps/monitoring-agent
     container_name: monitoring-agent
     restart: unless-stopped
-    ports: ["9091:9091"]
+    ports: ["19091:9091"]
     environment:
       SHOP_AGENT_URL: http://shop-agent:8000/health
       GATEWAY_URL: http://gateway:8001/health
       REDIS_HOST: redis
       POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pg_password}
+      # 告警摄入端点鉴权（与 Alertmanager webhook receiver 共用同一 token）。
+      # 不配置则 agent 仅放行本地回环，容器间调用会被 401 拒绝（default-deny）。
+      MONITORING_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN}  # 强制配置，无默认值（生产必须）
+      # 数据隔离：自愈/审计数据落到独立 monitoring 库 + 最小权限账号（remediation 落地后启用）
+      MONITORING_DB_NAME: ${MONITORING_DB_NAME:-monitoring}
+      MONITORING_DB_DSN: ${MONITORING_DB_DSN:-}
+      MONITORING_DB_APP_USER: ${MONITORING_DB_APP_USER:-monitoring}
+      MONITORING_DB_APP_PASS: ${MONITORING_DB_APP_PASS:-monitoring_pass}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # 方案 A：动态服务发现（默认开）。DISCOVER_ENABLED=0 关闭。
       # STATIC_TARGETS 静态补充 k8s 外 / 未接 Prometheus 的服务：name=url 逗号分隔
       DISCOVER_ENABLED: ${DISCOVER_ENABLED:-1}
@@ -605,6 +637,72 @@ services:
     depends_on:
       shop-agent: { condition: service_started }
       gateway: { condition: service_started }
+
+  # ============ Nightingale (n9e) 自动异常检测（复用本地 redis/postgres/prometheus/alertmanager）============
+  # 端到端闭环：n9e 引擎对 Prometheus 指标做自动异常检测 → 推送 Alertmanager
+  # → monitoring-agent /ingest/alert 做 RCA。验证「开源 Grafana ML 替代」路径。
+  # 注意：开发/单机验证复用业务 redis/postgres；生产应拆监控专用实例。
+  n9e-db-init:
+    image: postgres:${POSTGRES_VERSION:-17}
+    container_name: n9e-db-init
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        psql -h postgres -U postgres -c "CREATE DATABASE n9e;" 2>/dev/null || echo "n9e db exists" &&
+        psql -h postgres -U postgres -c "CREATE USER n9e WITH PASSWORD 'n9e_pass';" 2>/dev/null || echo "n9e user exists" &&
+        psql -h postgres -U postgres -c "ALTER DATABASE n9e OWNER TO n9e;" 2>/dev/null || true &&
+        psql -h postgres -U postgres -d n9e -c "GRANT ALL ON SCHEMA public TO n9e;" 2>/dev/null || true &&
+        echo "n9e database ready"
+    networks:
+      - default
+
+  # 监控/自愈数据隔离：建独立 monitoring 库 + 最小权限账号（remediation 落地前置）
+  monitoring-db-init:
+    image: postgres:${POSTGRES_VERSION:-17}
+    container_name: monitoring-db-init
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        psql -h postgres -U postgres -c "CREATE DATABASE monitoring;" 2>/dev/null || echo "monitoring db exists" &&
+        psql -h postgres -U postgres -c "CREATE USER monitoring WITH PASSWORD '${MONITORING_DB_APP_PASS:-monitoring_pass}';" 2>/dev/null || echo "monitoring user exists" &&
+        psql -h postgres -U postgres -c "GRANT CONNECT, TEMPORARY ON DATABASE monitoring TO monitoring;" 2>/dev/null || true &&
+        echo "monitoring database ready (tables created by monitoring-agent on startup)"
+    networks:
+      - default
+
+  n9e:
+    # v9 起默认读 /app/etc/config.toml（TOML 格式）；v7 的 n9e.yml(YAML) 已弃用。
+    # 镜像默认 latest=v9.x，若需固定版本用 NIGHTINGALE_IMAGE=flashcatcloud/nightingale:latest
+    image: ${NIGHTINGALE_IMAGE:-flashcatcloud/nightingale:latest}
+    container_name: shop-agent-n9e
+    restart: unless-stopped
+    ports:
+      - "17000:17000"   # 夜莺 Web / API
+      - "8009:8009"     # 中心服务 RPC
+    volumes:
+      - ./monitoring/nightingale/config.toml:/app/etc/config.toml:ro
+    depends_on:
+      n9e-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    command: ["/app/n9e", "server"]
 
   # ============ mock LLM 上游（压测/联调用：Go 零依赖极简实现，占用最小）============
   mock-llm:

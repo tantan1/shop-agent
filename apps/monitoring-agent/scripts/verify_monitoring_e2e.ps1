@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   monitoring_agent 三大功能模块 e2e 验证脚本。
-  覆盖：主动巡检与 RCA、服务自动发现、告警双通道接入（HITL 标注 BLOCKED）。
+  覆盖：主动巡检与 RCA、服务自动发现、告警双通道接入、HITL 审批流、沙箱验证、计划查询。
 .EXAMPLE
   kubectl -n shop-agent port-forward svc/monitoring-agent 9091:80
   pwsh apps/monitoring-agent/scripts/verify_monitoring_e2e.ps1 -BaseUrl http://localhost:9091
@@ -104,12 +104,38 @@ Check "公网IP已脱敏" ($raw -notmatch "203.0.113.5") "raw=$raw"
 $redactTest = & python -c "import sys; sys.path.insert(0,'apps/monitoring-agent'); from monitoring_agent.alerts import redact; t=redact('src 203.0.113.5 dst 10.0.0.5 127.0.0.1'); print('OK' if ('203.0.113.5' not in t and '10.0.0.5' in t and '127.0.0.1' in t) else 'FAIL:'+t)"
 Check "私网IP保留（脱敏单元）" ($redactTest -eq "OK") "redact=$redactTest"
 
-Write-Host "[V-3.4] HITL 敏感操作审批流（未实现）"
-Blocked "V-3.4 HITL 审批流" "RCA 仅在 recommendations 提示『须经审批后执行』，缺少审批队列/操作暂存/审批回调端点。为后续迭代项，e2e 不写通过断言。"
+Write-Host "[V-3.4] HITL 审批流（preview -> approve -> apply）"
+$preview = Req POST "/remediate/preview" @{ action = "scale_up"; target = "redis"; params = @{ replicas = 1 } }
+Check "preview 返回 plan_id" ($preview.plan_id -ne $null -and $preview.status -eq "pending_approval") "plan_id=$($preview.plan_id) status=$($preview.status)"
+Check "preview 返回证据包" ($preview.evidence -ne $null -and $preview.evidence.call_sequence.Count -gt 0) "evidence=$(($preview.evidence|ConvertTo-Json -Compress))"
+
+$approve = Req POST "/remediate/approve" @{ plan_id = $preview.plan_id; decision = "approved"; approver = "e2e"; reason = "test" }
+Check "approve 返回 accepted" ($approve.accepted -eq $true) "resp=$(($approve|ConvertTo-Json -Compress))"
+
+$dup = Req POST "/remediate/approve" @{ plan_id = $preview.plan_id; decision = "rejected" }
+Check "重复审批返回 409" ($dup._http -eq 409) "dup_status=$($dup._http)"
+
+$apply = Req POST "/remediate/apply" @{ plan_id = $preview.plan_id; script = @{ action = "scale_up"; target = "redis"; params = @{ replicas = 1 } }; approved = $true }
+Check "apply 返回 applied" ($apply.applied -eq $true) "resp=$(($apply|ConvertTo-Json -Compress))"
+
+Write-Host "[V-3.5] 沙箱验证预览（FakeK8sClient 干跑）"
+$ev = $preview.evidence
+Check "evidence 含 plan" ($ev.plan -ne $null) "plan=$($ev.plan)"
+Check "evidence 含 current" ($ev.current -ne $null) "current=$($ev.current)"
+Check "evidence 含 effective" ($ev.effective -ne $null) "effective=$($ev.effective)"
+Check "call_sequence 含 read_current" ($ev.call_sequence[0].step -eq "read_current") "step0=$($ev.call_sequence[0].step)"
+Check "call_sequence 含 would_apply" ($ev.call_sequence[1].step -eq "would_apply") "step1=$($ev.call_sequence[1].step)"
+Check "would_apply 为 dry_run" ($ev.call_sequence[1].dry_run -eq $true) "dry_run=$($ev.call_sequence[1].dry_run)"
+
+Write-Host "[V-3.6] 计划查询 /remediate/plans"
+$plans = Req GET "/remediate/plans?limit=10"
+Check "plans 返回列表" ($plans -is [System.Collections.IList]) "count=$($plans.Count)"
+$history = Req GET "/rca/history?limit=10"
+Check "history 返回列表" ($history -is [System.Collections.IList]) "count=$($history.Count)"
 
 # ── 汇总 ───────────────────────────────────────────────────────────
 Write-Host "`n===== 汇总 =====" -ForegroundColor Cyan
-Write-Host "PASS=$pass  FAIL=$fail  BLOCKED=$blocked"
+Write-Host "PASS=$pass  FAIL=$fail"
 if ($fail -gt 0) { Write-Host "存在失败用例，请检查 monitoring-agent 运行状态与依赖（Prometheus/SkyWalking 可达性）。" -ForegroundColor Red; exit 1 }
-Write-Host "核心功能 e2e 通过；HITL 标注 BLOCKED（待实现）。" -ForegroundColor Green
+Write-Host "核心功能 e2e 通过。" -ForegroundColor Green
 exit 0

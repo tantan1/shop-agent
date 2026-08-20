@@ -30,7 +30,7 @@ flowchart LR
 |------|------|--------|
 | `apps/shop-agent` | 智能客服核心服务（Agent 编排、RAG、ReAct、MCP/A2A 协议） | Python 3.10+, FastAPI, LangChain/LangGraph |
 | `apps/gateway` | LLM 统一网关（路由、负载均衡、故障转移、限流），所有 LLM 流量的唯一出口 | Python 3.10+, LiteLLM Router |
-| `apps/monitoring-agent` | 监控与可观测性代理 | Python 3.10+ |
+| `apps/monitoring-agent` | 监控代理：RCA 根因分析、告警摄入（Alertmanager/Langfuse）、自愈闭环（干跑预览→人工审批→受限执行）、审计查询 | Python 3.10+, FastAPI, psycopg3 |
 | `apps/order-service` | 订单/物流/售后业务服务 | Rust |
 
 ## 功能概览
@@ -59,6 +59,19 @@ flowchart LR
 - **P2 本地模型确认**：本地小模型从候选集中选出最相关的工具，不可用时回退到云端兜底
 
 Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 `skills/*/SKILL.md` 加载定义到注册表，运行时命中 Skill 后将 SOP 注入 system prompt，实现"增加新业务只改配置"。
+
+#### 规划 / 执行解耦（Think-Act Decoupling）
+
+P0/P1/P2 三层工具选择只产出**结构化的 `ToolPlan`**，不再由 LLM/小模型直接控制"何时停止"或驱动 ReAct 循环。这是 Plan-and-Execute 范式在 ReAct Agent 中的落地：
+
+- **规划产物**：`ToolPlan`（`schemas.py`）含 `actions: List[PlannedAction]`（每项带 `name` / `source: p0|p1|p2` / `confidence` / `preset_params`）、`source` 与 `stop_condition` 信号。
+- **`stop_condition` 信号**：
+  - `plan_complete` —— 规划侧已高置信（`is_confident`：单工具且来源 P0/P1，或 P2 且 ≤2 工具），执行侧**跳过 ReAct 循环**直接确定性 `ToolService.dispatch` 派发，再由 LLM 仅做自然语言润色。
+  - `need_llm` —— 置信不足，正常进入 ReAct 自主决策。
+- **hitl 保护**：含 `request-return` 等 `hitl` 工具的 plan 强制走 ReAct，以触发人机确认中断，不被 `plan_complete` 短路。
+- **零回归**：`simple`/`direct_tool` 路径与 ReAct 核心循环不受影响；解耦仅新增 `run()` 内的短路分支 + `_execute_plan_directly` 执行器，规划侧复用既有的 P0/P1/P2 收敛结果。
+
+收益：高置信简单意图零额外 ReAct 推理开销（更少 LLM 往返），模型退居"润色"而非"决策"，可解释性与确定性提升。
 
 ### 3. RAG 智能对话
 
@@ -102,6 +115,12 @@ Agent 行为由 **Skill SOP 内联注入** 驱动：启动时 `SkillLoader` 从 
 
 ### 9. 可观测性
 
+- **monitoring-agent（独立服务）**：
+  - **RCA 根因分析**：接收 Alertmanager/Langfuse 告警，做确定性规则归因 + 可选 LLM 归纳，输出 `severity/root_cause/affected/recommendations/remediation`
+  - **自愈闭环**：`POST /remediate/preview`（沙箱验证 + 证据包）→ `POST /remediate/approve`（人工审批）→ `POST /remediate/apply`（受限执行），状态机守卫防重
+  - **审计查询**：`GET /rca/history`（RCA 历史）、`GET /remediate/plans`（计划/审批/执行记录）
+  - **持久化**：PostgreSQL（`rca_runs/remediation_plans/approvals/executions`），DB 降级不影响主链路
+  - **Prometheus 指标**：`rca_total`、`rca_persisted_total`、`persist_failure_total`、`remediate_plans_total`、`approvals_total`、`executions_total`
 - **Prometheus**：自动暴露 HTTP 请求指标，业务自定义指标（API 调用、数据库查询、向量检索、Embedding 请求、缓存、Agent 对话、Token 消耗、异常统计），LangChain 标准回调处理器追踪 LLM/Agent/Tool 事件
 - **SkyWalking**：gRPC 上报分布式链路追踪，与 Prometheus 互补，不可用时优雅降级
 - **Langfuse**：全链路追踪 LLM 调用、Agent 执行、意图识别、参数抽取、工具匹配，shutdown 时 flush 确保数据不丢失
@@ -333,6 +352,16 @@ JSON 格式结构化日志，FastAPI 中间件自动记录每个请求的方法�
 
 LLM 服务、Embedding 服务、向量数据库服务、Redis 缓存服务、Reranker 服务、本地模型服务、内容安全过滤服务均采用单例模式，避免重复初始化连接和模型加载。
 
+### 规划/执行解耦：Plan-and-Execute 落地
+
+ReAct Agent 的工具选择（P0/P1/P2 三层收敛）与工具执行彻底解耦：
+
+- **规划层确定性产出 `ToolPlan`**：`_select_tools_for_intent` 用 `ToolPlan` 组织候选（P0 建 plan → P1 覆盖 → P2 本地模型确认覆盖，P1/P2 始终附加 `knowledge_search`），末尾按 `is_confident` 判定 `stop_condition`，存入 `self._last_tool_plan`。
+- **执行层消费计划而非模型决策**：`run()` 在 `plan_complete` 且不含 hitl 工具时，调用 `_execute_plan_directly` —— 逐个 `dispatch` 执行 → LLM 仅润色 → 输出安全过滤 → 返回 `ChatResponse`（steps 标记 `plan_complete_direct` 模式）。
+- **边界**：`hitl` 工具（`SkillDef.hitl=True`，如 `request-return`）必须走 ReAct 以触发 `interrupt()` 人机确认；`simple`/RAG 路径完全不受影响。
+
+该设计对齐 OpenAI tool-calling、LangChain PlanAndExecute、Claude agent 模式等成熟范式，核心思想是"模型负责想清楚（plan），执行器负责把事办成（act）"。
+
 ### 人在回路：退款审批
 
 处理退款请求时，通过状态标志位传递中断上下文。Agent 返回待确认状态含订单号/原因，管理员确认或拒绝。防御重复调用。
@@ -377,10 +406,12 @@ YAML 编排将安全边界从"代码特判"上移到"声明 + 编译期强校验
 - **Milvus Standalone** — 向量数据库
 - **Redis Stack** — 向量缓存 + 对话历史 + 速率限制
 - **Prometheus** — 监控指标采集
+- **Alertmanager** — 告警路由（webhook 推送至 monitoring-agent 做 RCA）
+- **Nightingale (n9e)** — 自动异常检测引擎，对 Prometheus 指标做规则检测 → 推送 Alertmanager
 - **Grafana** — 可视化仪表盘
 - **Langfuse** — LLM 追踪平台
 - **ClickHouse** — Langfuse 分析数据库
-- **PostgreSQL** — Langfuse 主数据库
+- **PostgreSQL** — Langfuse 主数据库 + monitoring-agent 审计库
 
 所有服务均配置健康检查。
 
@@ -398,16 +429,48 @@ YAML 编排将安全边界从"代码特判"上移到"声明 + 编译期强校验
 ### 安装
 
 1. 克隆仓库并进入项目目录
-2. 启动基础设施：etcd、MinIO、Milvus、Redis Stack、监控栈等
+2. 启动基础设施：etcd、MinIO、Milvus、Redis Stack、Prometheus、Alertmanager、Nightingale(n9e)、Grafana、Langfuse、ClickHouse、PostgreSQL
 3. 安装 shop-agent 依赖
-4. 配置环境变量：填入 API Key、数据库地址、Redis 地址等
-5. 启动服务
+4. 安装 monitoring-agent 依赖：`cd apps/monitoring-agent && pip install -r requirements.txt`
+5. 配置环境变量：填入 API Key、数据库地址、Redis 地址、`MONITORING_WEBHOOK_TOKEN` 等
+6. 启动服务
 
 ### 验证
 
 - 健康检查：访问 `/api/chatagent/health`
 - 智能对话（Agent 路由）：POST `/api/chatagent/agent/chat`
 - 简单 RAG：POST `/api/chatagent/chat`
+
+### monitoring-agent API
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/ingest/alert` | POST | Alertmanager 告警摄入（Bearer 鉴权） |
+| `/ingest/event` | POST | Langfuse 应急口摄入 |
+| `/rca` | POST | 手动触发 RCA 根因分析 |
+| `/rca/last` | GET | 最近一次 RCA 结果 |
+| `/rca/history` | GET | RCA 历史记录（分页） |
+| `/remediate/preview` | POST | 干跑预览：生成脚本 + 沙箱验证，产出 plan_id + 证据包 |
+| `/remediate/approve` | POST | 人工审批（approved/rejected），状态机守卫 |
+| `/remediate/apply` | POST | 受限执行（仅 approved 状态可执行） |
+| `/remediate/plans` | GET | 查询计划（按 status 过滤） |
+| `/metrics` | GET | Prometheus 指标 |
+| `/health` | GET | 健康检查 |
+| `/demo` | GET | WebSocket 实时 demo 页面 |
+
+### 夜莺（Nightingale/n9e）闭环
+
+监控栈的自动异常检测层：
+
+```
+N9e 规则检测 → Alertmanager 路由 → monitoring-agent /ingest/alert → RCA → 操作建议 → 审批 → 执行
+```
+
+- N9e 对 Prometheus 指标做自动异常检测（替代 Grafana ML）
+- 检测到异常后推送 Alertmanager
+- Alertmanager 经 webhook 推送到 monitoring-agent
+- monitoring-agent 做 RCA 归因，输出 `remediation` 操作建议
+- 经 `/remediate/preview` → `/remediate/approve` → `/remediate/apply` 完成自愈闭环
 
 ### 运行测试
 

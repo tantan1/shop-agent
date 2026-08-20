@@ -1,0 +1,48 @@
+# Alertmanager 配置：RCA/业务告警的通知路由
+#
+# 接收来源：Prometheus rules（monitoring/prometheus/rules/*.yml），经 prometheus.yml
+# 的 alerting 段推送。
+#
+# 默认 receiver 接 monitoring-agent /ingest/alert（端到端闭环：告警 → agent RCA →
+# 自愈建议 + WebSocket 推送 demo）。webhook 鉴权与 agent 一致（MONITORING_WEBHOOK_TOKEN）。
+# 生产环境可在下方 routes 按 severity 追加钉钉/Slack/邮件等真实通知目标。
+global:
+  resolve_timeout: 5m
+  # smtp_smarthost: 'smtp.example.com:587'   # 邮件通知示例
+  # smtp_from: 'alert@example.com'
+  # smtp_auth_username: 'alert@example.com'
+  # smtp_auth_password: 'xxx'
+
+route:
+  group_by: ['alertname', 'channel']
+  group_wait: 5s
+  group_interval: 1m
+  repeat_interval: 30m
+  receiver: 'monitoring-agent'
+  # 按 severity 分档路由示例（取消注释并按需修改）：
+  # routes:
+  #   - match:
+  #       severity: P1
+  #     receiver: 'webhook-dingtalk'
+  #   - match_re:
+  #       severity: 'P[23]'
+  #     receiver: 'webhook-dingtalk'
+
+receivers:
+  # 端到端闭环出口：把告警推给 monitoring-agent 做 RCA 归因。
+  # send_resolved: true 让恢复事件也回灌 agent（更新拓扑健康矩阵 / 解除自愈标记）。
+  - name: 'monitoring-agent'
+    webhook_configs:
+      - url: 'http://monitoring-agent:9091/ingest/alert'
+        send_resolved: true
+        # 与 agent 的 MONITORING_WEBHOOK_TOKEN 一致
+        http_config:
+          bearer_token: changeme_strong_monitoring_webhook_token
+
+  # 示例：钉钉机器人（企业 Webhook，可叠加在 monitoring-agent 之上做通知）
+  # - name: 'webhook-dingtalk'
+  #   webhook_configs:
+  #     - url: 'https://oapi.dingtalk.com/robot/send?access_token=<TOKEN>'
+  #       send_resolved: true
+  #       http_config:
+  #         timeout: 5s

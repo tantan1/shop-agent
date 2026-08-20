@@ -1,0 +1,14 @@
+# Grafana 告警路由策略：全部送 am-external contact point
+# root policy 必须带完整 duration 字段，否则报 "empty duration string"。
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: am-external
+    group_by: ['alertname', 'service']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 30m
+    routes:
+      - receiver: am-external
+        repeat_interval: 30m

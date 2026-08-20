@@ -134,6 +134,7 @@ usage() {
   mockapps    独立构建 + 部署 mock-llm 与 order-service（压测链路，不触碰其余业务）
   ingress     部署 Ingress 入口
   expose      暴露 LoadBalancer 端口（docker-desktop 免 port-forward）
+  down        停止所有服务（scale replicas=0，保留配置/数据，可随时恢复）
 
 示例：
   ./apply-local.sh ns secrets middleware apps ingress   # 标准部署
@@ -144,6 +145,8 @@ usage() {
   ./apply-local.sh ns secrets middleware build apps ingress expose ollama # 全量部署（含重组件加 FULL=1）
   ./apply-local.sh build debugapp                                    # 构建 debug 镜像并部署 debug pod
   ./apply-local.sh debugapp                                          # 仅部署/更新 debug pod（跳过构建）
+  ./apply-local.sh down                                               # 停止所有服务（保留数据）
+  ./apply-local.sh middleware apps                                    # 从 down 状态恢复中间件+业务
 
 环境变量（可在 local.env 中覆盖）：
   LOCAL_MODEL=1              启用 Ollama 本地小模型
@@ -167,16 +170,22 @@ apply() { envsubst < "$1" | kubectl apply -f -; }
 build_img() {
   local name="$1" appdir="$2"
   local img
+  # 仅 shop-agent 的 Dockerfile 定义了 ARG LITE（轻量依赖开关），其余服务
+  # （gateway/monitoring-agent/order-service/mock-llm）无此参数，传了也被忽略，故按需加。
+  local lite_arg=""
+  if [[ "$name" == "shop-agent" ]]; then
+    lite_arg="--build-arg LITE=1"
+  fi
   if [[ "$REGISTRY_ENABLED" == "1" ]]; then
     ensure_registry
     img="${REGISTRY_HOST_ADDR}/$name:$IMAGE_TAG"
     echo "    build & push $img  (from $appdir)"
-    docker build --build-arg LITE=1 -t "$img" "$appdir"
+    docker build $lite_arg -t "$img" "$appdir"
     docker push "$img"
   else
     img="${IMAGE_PREFIX}$name:$IMAGE_TAG"
     echo "    build $img  (from $appdir)"
-    docker build --build-arg LITE=1 -t "$img" "$appdir"
+    docker build $lite_arg -t "$img" "$appdir"
     case "$CLUSTER_TYPE" in
       kind)      kind load docker-image "$img" --name "${KIND_CLUSTER:-kind}" ;;
       minikube)  minikube image load "$img" ;;
@@ -372,6 +381,21 @@ step_ingress() {
   apply "$DIR/ingress.yaml"
 }
 
+step_down() {
+  echo "==> [down] 停止所有业务服务（scale replicas=0，保留配置/数据）"
+  NS="shop-agent"
+  # 按步骤逆序停止：先 apps/mockapps，再 middleware，保留 ns/secrets 不删
+  for dep in $(kubectl -n "$NS" get deployments -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    echo "    scale down deployment/$dep"
+    kubectl -n "$NS" scale "deployment/$dep" --replicas=0 2>/dev/null || true
+  done
+  for sts in $(kubectl -n "$NS" get statefulsets -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    echo "    scale down statefulset/$sts"
+    kubectl -n "$NS" scale "statefulset/$sts" --replicas=0 2>/dev/null || true
+  done
+  echo "    ✅ 已停止（可随时 ./apply-local.sh middleware apps 恢复）"
+}
+
 step_expose() {
   echo "==> [expose] 暴露外部访问（LoadBalancer）"
   if [[ "$CLUSTER_TYPE" != "docker-desktop" ]]; then
@@ -410,7 +434,7 @@ step_expose() {
 }
 
 # ── 步骤注册（按依赖顺序） ──────────────────────────────────────
-ALL_STEPS=(build ns secrets middleware ollama apps debugapp mockapps ingress expose)
+ALL_STEPS=(build ns secrets middleware ollama apps debugapp mockapps ingress expose down)
 
 # ── 入口 ──────────────────────────────────────────────────────────
 if [[ $# -eq 0 ]]; then

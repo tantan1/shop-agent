@@ -18,7 +18,9 @@
 | | 级联归因收敛 | ✅ | ✅ | ✅ |
 | 三、告警接入 | Alertmanager 通道 | ✅ | ✅ | ✅ |
 | | Langfuse 通道 | ✅ | ✅ | ✅ |
-| | **HITL 审批流** | ❌ **未实现** | ⚠️ 占位说明 | ❌(预期失败) |
+| | **HITL 审批流** | ✅ **已实现** | ✅ | ✅ |
+| | 沙箱验证预览 | ✅ | ✅ | ✅ |
+| | 计划查询 | ✅ | ⚠️ 后台接口 | ✅ |
 
 ---
 
@@ -91,13 +93,21 @@
 - 预期：`a@b.com`、`203.0.113.5` 脱敏；私网 `10.0.0.1` 保留
 - 命令见脚本 `Case-Redact`（复用 `test_rca.py::test_alert_ingest_redacts_pii` 逻辑）
 
-### V-3.4 ❌ HITL 敏感操作审批流（未实现 — 预期失败）
-- 现状：RCA 仅在 `recommendations` 文本中提示「须经审批后执行」，**无**审批队列、无操作暂存、无审批回调端点。
-- demo 处理建议（不伪造功能）：
-  - 在 demo 页面「操作建议」卡片下方加一行灰字说明：「🔒 敏感操作需 HITL 审批（审批流待接入）」
-  - 或新增一个**置灰**的「提交审批」按钮，点击弹出「审批流未接入」提示
-- e2e 结论：此子项标记 `BLOCKED / 待实现`，不写通过的自动化断言（避免假绿）
-- 验收门（未来）：存在 `POST /approve` 或等效端点，能接收审批结果并把「建议」转为「已审批待执行/已拒绝」状态
+### V-3.4 ✅ HITL 敏感操作审批流（已实现）
+- 实现：`POST /remediate/preview` 生成 plan + 证据包 → `POST /remediate/approve` 审批（approved/rejected）→ `POST /remediate/apply` 执行
+- 状态机：`plan_ready → pending_approval → approved/rejected → executed/failed`
+- 持久化：`remediation_plans / approvals / executions` 四张表落库
+- e2e 断言：`POST /remediate/preview` → 200 + `plan_id`；`POST /remediate/approve` → 200；重复审批 → 409
+
+### V-3.5 ✅ 沙箱验证预览（已实现）
+- 操作：`POST /remediate/preview` 传入 `{action, target, params}`
+- 预期：返回 `plan_id` + `evidence`（含 `current/plan/effective/call_sequence`），使用 `FakeK8sClient` 干跑
+- e2e 断言：`evidence.call_sequence` 含 `read_current` + `would_apply`；`dry_run=true`
+
+### V-3.6 ✅ 计划查询（已实现）
+- 操作：`GET /remediate/plans?status=&limit=`
+- 预期：返回计划列表，支持按 `pending_approval/approved/executed/failed/rejected` 过滤
+- e2e 断言：`GET /remediate/plans` → 200；`GET /rca/history` → 最近 RCA 记录
 
 ---
 
@@ -110,8 +120,7 @@ kubectl -n shop-agent port-forward svc/monitoring-agent 9091:80
 pwsh apps/monitoring-agent/scripts/verify_monitoring_e2e.ps1 -BaseUrl http://localhost:9091
 ```
 
-脚本覆盖：V-1.1 / V-1.2 / V-1.3 / V-2.1 / V-2.2 / V-2.3 / V-3.1 / V-3.2 / V-3.3，
-并对 V-3.4 输出 `BLOCKED` 明确提示。
+脚本覆盖：V-1.1 / V-1.2 / V-1.3 / V-2.1 / V-2.2 / V-2.3 / V-3.1 / V-3.2 / V-3.3 / V-3.4 / V-3.5 / V-3.6。
 
 ## 结果记录表（执行后填写）
 
@@ -127,4 +136,6 @@ pwsh apps/monitoring-agent/scripts/verify_monitoring_e2e.ps1 -BaseUrl http://loc
 | V-3.1 Alertmanager | ☐ | |
 | V-3.2 Langfuse | ☐ | |
 | V-3.3 入站脱敏 | ☐ | |
-| V-3.4 HITL 审批 | ☐ BLOCKED | 未实现 |
+| V-3.4 HITL 审批 | ☐ 已实现 | preview/approve/apply |
+| V-3.5 沙箱验证预览 | ☐ 已实现 | evidence 包 |
+| V-3.6 计划查询 | ☐ 已实现 | /remediate/plans |

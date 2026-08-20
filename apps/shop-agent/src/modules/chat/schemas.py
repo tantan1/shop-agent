@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Set, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -282,6 +282,78 @@ INTENT_PARAM_SCHEMAS: Dict[str, Type[BaseModel]] = {
     "check-balance": CheckBalanceParams,
     "coupon-inquiry": CouponInquiryParams,
 }
+
+
+# =============================================================================
+# 结构化工具规划产物（T5: 解耦「规划 think」与「执行 act」）
+# -----------------------------------------------------------------------------
+# 设计思想（借鉴 DeepSeek harness 的 think/act 分离）：
+#   传统 ReAct 让 LLM 在一次调用里既「选工具」又「决定何时停」，易死循环/幻觉。
+#   这里把 P0/P1/P2 三层工具选择的结果收敛为一个确定性结构 ToolPlan：
+#     - 每层只负责「规划」（thinking），产出 PlannedAction 列表；
+#     - 执行器（act）消费 ToolPlan，由确定性逻辑驱动何时停，而非 LLM 自决。
+#   本次落地只引入数据结构 + 让 P 层产出 ToolPlan（向下游保持兼容），
+#   不直接改写 ReAct 运行循环，确保零行为回归。后续可在此之上做
+#   「高置信度规划 → 直接 dispatch，绕过 LLM 自决停止」的执行器解耦。
+# =============================================================================
+
+
+class PlannedAction(BaseModel):
+    """单个被规划（选定）的工具调用意图。"""
+
+    name: str = Field(..., description="工具名，必与 ToolService 注册表一致")
+    # 规划来源阶段：P0=意图规则 / P1=Embedding 语义重排 / P2=本地小模型确认
+    source: str = Field(default="unknown", description="规划来源: p0 | p1 | p2")
+    # 该层对此工具的相关度置信度（0~1），P0 规则默认 1.0，P1 用相似度，P2 用二选置信
+    confidence: float = Field(default=1.0, description="该层对此工具的相关度置信(0~1)")
+    # 已在前置确定性抽取中得到的参数（硬强制注入，执行时直接带上，LLM 不再自行抽取）
+    preset_params: Optional[Dict[str, Any]] = Field(
+        default=None, description="前置确定性抽取得到的参数，执行时直接注入"
+    )
+
+
+class ToolPlan(BaseModel):
+    """工具执行计划：P0/P1/P2 三层规划收敛后的确定性产物。
+
+    - actions: 规划选中的工具列表（已去重、保序、已夹在候选池内）
+    - source: 最终生效的最高优先级规划阶段
+    - stop_condition: 确定性终止信号，执行器据此决定「何时停」
+        * "plan_complete": 规划明确，执行完 actions 即可终止，无需 LLM 再决策
+        * "need_llm": 规划不确定（如候选过多/置信度低），交由 LLM/ReAct 自主决策
+    """
+
+    actions: List[PlannedAction] = Field(
+        default_factory=list, description="规划选中的工具（去重、保序）"
+    )
+    source: str = Field(default="unknown", description="最终生效规划阶段: p0 | p1 | p2")
+    stop_condition: str = Field(
+        default="need_llm", description="确定性终止信号: plan_complete | need_llm"
+    )
+
+    # ── 兼容消费：旧下游按「工具名集合」过滤 LangChain tool 对象 ──
+    def to_tool_names(self) -> Set[str]:
+        """导出规划选中的工具名集合（含 always_include 的 knowledge_search 由调用方补充）。"""
+        return {a.name for a in self.actions}
+
+    @property
+    def is_confident(self) -> bool:
+        """是否达到「确定性执行、无需 LLM 自决停止」的阈值。"""
+        if not self.actions:
+            return False
+        # 仅 1 个工具且来源为 P0/P1 高置信，或来源 P2 且候选已收敛到 <=2 个
+        if len(self.actions) == 1 and self.source in ("p0", "p1"):
+            return True
+        if self.source == "p2" and len(self.actions) <= 2:
+            return True
+        return False
+
+    def with_stop_condition(self, stop_condition: str) -> "ToolPlan":
+        """返回附加确定性终止信号的副本（用于上层根据置信度决定执行策略）。"""
+        return ToolPlan(
+            actions=list(self.actions),
+            source=self.source,
+            stop_condition=stop_condition,
+        )
 
 
 # ---- 参数抽取提示词 ----

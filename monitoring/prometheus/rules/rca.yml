@@ -1,0 +1,22 @@
+# Monitoring Agent RCA 根因分析告警（方案：RCA → Prometheus 指标 → Alertmanager 通知）
+#
+# 设计（替代原 Grafana /api/alerts 推送）：
+#   - monitoring-agent /metrics 暴露 rca_total{severity}（事件计数）+ rca_last_info（最近值）；
+#   - 本文件用 count_over_time/increase 检测「新增 RCA」，命中即告警；
+#   - severity 随 rca_total 标签传播，供 Alertmanager 分组/路由/抑制。
+#
+# 告警只表达「有新根因分析」这一事件；根因内容在 Grafana 面板查询 rca_last_info 展示
+# （见 monitoring/grafana/dashboards/monitoring-agent.json）。
+groups:
+  - name: rca
+    rules:
+      - alert: MonitoringAgentRCA
+        # 15s 窗口内产生新的 RCA 事件即触发（counter 累计）
+        expr: increase(rca_total[15s]) > 0
+        for: 15s
+        labels:
+          severity: P2
+          channel: rca
+        annotations:
+          summary: "监控 Agent 产出新的根因分析 (sev={{ $labels.severity }})"
+          description: "最近 5 分钟产生新的 RCA 事件，severity={{ $labels.severity }}。根因详情请在 Grafana → Monitoring Agent 面板查询 rca_last_info。"

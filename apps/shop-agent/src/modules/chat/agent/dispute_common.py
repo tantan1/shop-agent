@@ -165,7 +165,7 @@ def _fuse_confidence(
     format_validity: float,
     refusal_score: float,
 ) -> float:
-    """按博客 07 篇融合公式合成置信度（各输入归一化到 [0,1]）。"""
+    """按博客 16 篇（模型路由与级联策略）融合公式合成置信度（各输入归一化到 [0,1]）。"""
     return 0.4 * logprob + 0.3 * tool_confidence + 0.2 * format_validity + 0.1 * refusal_score
 
 

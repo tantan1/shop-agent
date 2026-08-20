@@ -1,0 +1,9 @@
+otel-gateway|4317|4317|1562
+ollama|11434|11434|1564
+order-service|8080|80|1566
+skywalking-oap|11800|11800|1568
+redis|6379|6379|1570
+postgres|5432|5432|1572
+gateway|8001|80|1574
+langfuse-web|3000|3000|1576
+milvus|19530|19530|1578

@@ -1,0 +1,14 @@
+# Grafana 统一通知出口：转发给 Alertmanager（再由 alertmanager.yml 路由到 monitoring-agent）
+# 参考 Grafana 11.3 官方 file provisioning 格式：
+# contact point 下嵌套 receivers 列表，type 用 prometheus-alertmanager，settings.url 指向外部 AM。
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: am-external
+    receivers:
+      - uid: am-external-receiver
+        type: prometheus-alertmanager
+        disableResolveMessage: false
+        settings:
+          url: http://alertmanager:9093

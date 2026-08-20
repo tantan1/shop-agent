@@ -79,7 +79,7 @@ def test_rule_attribution_gateway_down(monkeypatch):
                     "annotations": {"summary": "gw down"}}]
     })
     topology = {"gateway": {"status": False}, "shop-agent": {"status": True}}
-    res = rca.analyze(ev, topology)
+    res = asyncio.run(rca.analyze(ev, topology))
     assert res.severity == "P1"
     assert "网关链路中断" in res.root_cause
     assert res.affected == ["gateway"]
@@ -101,7 +101,7 @@ def test_prom_unavailable_not_false_negative(monkeypatch):
                     "annotations": {"summary": "something odd"}}]
     })
     topology = {"gateway": {"status": True}, "shop-agent": {"status": True}}
-    res = rca.analyze(ev, topology)
+    res = asyncio.run(rca.analyze(ev, topology))
     assert "Prometheus 不可达" in res.root_cause, "应如实标注数据源缺失降级"
     assert "无法确认是否无异常" in res.root_cause, "不能误报为无异常"
     # 应引导看板/日志，而非凭空结论
@@ -222,7 +222,7 @@ def test_record_rca_publishes_metrics():
     main._record_rca(res)
     assert main._rca_total["P1"] == 1, "counter 应累计"
 
-    body = asyncio.get_event_loop().run_until_complete(main.metrics())
+    body = asyncio.run(main.metrics())
     text = body.body.decode()
     assert "rca_total{severity=\"P1\"} 1" in text, "counter 应输出"
     assert "rca_last_info" in text, "info gauge 应输出"
@@ -268,7 +268,9 @@ def test_build_targets_merge_priority(monkeypatch):
     # 静态显式配置最高优先（k8s 外服务场景）
     assert targets["gateway"] == "http://ext-gw:9000/health"
     # down 的 target 不新增覆盖（但静态默认清单中的组件仍需探测——巡检本就要发现故障）
-    assert targets["milvus"] == "http://standalone:9091/healthz"
+    # 注意：HTTP_TARGETS 中 milvus 的默认 url 即 http://milvus:9091/healthz，
+    # down 的动态 target 被过滤后保留该默认项（服务名是 milvus，不是 standalone）。
+    assert targets["milvus"] == "http://milvus:9091/healthz"
     assert "10.0.0.7" not in targets.get("milvus", ""), "down target 不应覆盖静态 url"
     # 默认清单中的静态组件兜底保留
     assert targets["minio"] == "http://minio:9000/minio/health/live"
@@ -418,7 +420,7 @@ def test_analyze_injects_cascade_evidence(monkeypatch):
             {"source": "external-svc", "target": "shop-agent"},
         ],
     }
-    res = rca.analyze(ev, topology)
+    res = asyncio.run(rca.analyze(ev, topology))
     assert res.evidence["cascade"]["root"] == ["gateway"]
     assert res.evidence["cascade"]["victims"] == ["shop-agent"]
     assert "依赖级联" in res.root_cause, "根因文案应含级联收敛提示"

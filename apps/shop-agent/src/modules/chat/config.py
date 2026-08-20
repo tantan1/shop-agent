@@ -36,6 +36,15 @@ class ChatConfig:
     vllm_tool_selector_model: str = config.VLLM_TOOL_SELECTOR_MODEL
     vllm_timeout: int = config.VLLM_TIMEOUT
 
+    # P2 本地工具选择（小模型专项辅助层）。
+    # 设计决策（承接架构评审）：本地 1.7B 只作为「意图加权软过滤」的补充确认，
+    # 而非通用兜底。因此：
+    #  - enable_p2_local_classify=False 时完全跳过本地模型，直接用 P1 结果；
+    #  - 即便开启，也只在候选工具数 > p2_local_classify_min_candidates（默认 4）
+    #    时才介入，避免对少量候选做无意义的二次推理。
+    enable_p2_local_classify: bool = config.ENABLE_P2_LOCAL_CLASSIFY
+    p2_local_classify_min_candidates: int = config.P2_LOCAL_CLASSIFY_MIN_CANDIDATES
+
     embedding_model: str = config.EMBEDDING_MODEL
     # Embedding 后端: local=进程内 sentence-transformers | ollama=进程外 Ollama API | vllm=vLLM bge-m3 直连
     embedding_provider: str = config.EMBEDDING_PROVIDER

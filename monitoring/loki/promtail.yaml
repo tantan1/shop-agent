@@ -1,0 +1,70 @@
+# Promtail 配置文件（Docker Compose 单机版）
+# 读取 Docker 容器日志 → Loki，提供结构化日志查询。
+# Docker json-file driver 包装格式: {"log":"...app stdout...","stream":"stdout","time":"..."}
+# structlog 输出 JSON，嵌套在 Docker 的 "log" 字段中。
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-logs
+    pipeline_stages:
+      # 第一层：解析 Docker json-file wrapper → 提取 log/stream/time
+      - json:
+          expressions:
+            log: log
+      # 第二层：解析 structlog JSON → 提取 level/service/trace_id/span_id/msg
+      - json:
+          source: log
+          expressions:
+            level: level
+            service: service
+            trace_id: trace_id
+            span_id: span_id
+            msg: msg
+          # 保留解析失败的原始日志（keep_original 防止数据丢失）
+          keep_original: true
+      # PII 脱敏（value-based regex，镜像 otel-agent redaction processor）
+      # operate 不指定 source，默认修改 log body（即替换后的日志内容）
+      - replace:
+          source: log
+          expression: '(?i)(api[_-]?key|secret|token|password|passwd)[=:]\s*"[A-Za-z0-9_-]{8,}"'
+          replace: '${1}=***'
+      - replace:
+          source: log
+          expression: '\b1[3-9]\d{9}\b'
+          replace: '***'
+      - replace:
+          source: log
+          expression: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+          replace: '***'
+      - replace:
+          source: log
+          expression: '\b\d{17}[\dXx]\b'
+          replace: '***'
+      # 将 structlog 字段提升为 Loki 标签，便于 {service="shop-agent"} 查询
+      - labels:
+          service:
+          trace_id:
+          span_id:
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        target: docker
+        refresh_interval: 5s
+    relabel_configs:
+      # 仅采集业务服务日志
+      - source_labels: [__meta_docker_container_name]
+        regex: '/(shop-agent|gateway|monitoring-agent|otel-gateway|loki|promtail)'
+        action: keep
+      # container → Loki label
+      - source_labels: [__meta_docker_container_name]
+        regex: '/(.+)'
+        target_label: container
+        replacement: $1

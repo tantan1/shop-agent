@@ -11,10 +11,16 @@ global:
     monitor: 'shop-agent-monitor'
     environment: '${ENVIRONMENT:-development}'
 
-# 告警规则文件 (可选，后续可添加)
+# 告警规则文件
 rule_files:
   - "rules/*.yml"
-  # - "alerts.yml"
+
+# Alertmanager 告警推送（RCA/业务告警的通知出口）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
 
 # 抓取配置
 scrape_configs:
@@ -26,10 +32,10 @@ scrape_configs:
     scrape_timeout: 10s
     # 指标路径
     metrics_path: '/api/v1/monitoring/metrics'
-    # 静态配置 - 使用宿主机网络访问
-    # 注意：确保 shop-agent 应用已启动并在 8000 端口监听
+    # 静态配置 - 使用 Docker Compose 服务名（host.docker.internal 仅 Docker Desktop 主机网络可用，
+    # 容器内无法透过服务名访问宿主机的发布端口）
     static_configs:
-      - targets: ['host.docker.internal:8000']
+      - targets: ['shop-agent:8000']
         labels:
           service: 'shop-agent'
           env: '${ENVIRONMENT:-development}'
@@ -58,6 +64,44 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['grafana:3000']
   #   metrics_path: /metrics
+
+  # ============ Monitoring Agent 自身存活 ============
+  # 监控组件自身的可用性由采集器发现：agent 挂了 → up 掉 → 告警。
+  # 不依赖 agent 多副本互备（见 04 篇「单实例边界」）。
+  - job_name: 'monitoring-agent'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ['monitoring-agent:9091']
+        labels:
+          service: 'monitoring-agent'
+
+  # ============ LLM Gateway 业务级指标（09） ============
+  # 网关 /metrics 暴露请求量/延迟/token/限流/预算/循环/缓存/注入/护栏等。
+  # 09 业务级可观测的核心数据源：延迟 P99 + 成本突增 + 循环风暴 + 质量退化驱动。
+  - job_name: 'gateway'
+    scrape_interval: 10s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['gateway:8001']
+        labels:
+          service: 'llm-gateway'
+          env: '${ENVIRONMENT:-development}'
+
+  # ============ etcd 监控（Milvus 元数据存储）============
+  # 原 etcd 因 CPU/内存过低（250m/512Mi）导致 7s+ 超时，
+  # 进而 Milvus streaming node persistCheckpoint 失败、session 过期。
+  # 监控 etcd 请求延迟/CPU/内存/磁盘，提前发现性能衰减。
+  - job_name: 'etcd'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['etcd:2381']
+        labels:
+          service: 'etcd'
+          env: '${ENVIRONMENT:-development}'
 
 # 远程写入配置 (可选，用于长期存储)
 # remote_write:

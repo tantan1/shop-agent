@@ -10,9 +10,9 @@ data:
       resolve_timeout: 5m
     route:
       group_by: ['alertname', 'channel']
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
+      group_wait: 5s
+      group_interval: 1m
+      repeat_interval: 30m
       receiver: 'monitoring-agent'
     receivers:
       - name: 'monitoring-agent'

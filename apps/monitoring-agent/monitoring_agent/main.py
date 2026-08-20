@@ -34,20 +34,57 @@ from . import skywalking_client as sky
 from . import ws as ws_hub
 from .logging_json import setup_logging, trace_binding_middleware
 from .rca import RcaResult, analyze
+from . import store as store_mod
+from .remediation import generate_script, validate_script, preview_script, apply_script, RemediationError
 
 setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("monitoring_agent")
 
 app = FastAPI(title="Monitoring Agent", version="1.2.0")
 
-# 允许 demo 前端跨域访问（前端跑在 http://localhost，API 在 :9091/:30091）。
-# 固定白名单：本地 demo（80）、port-forward（9091）、LoadBalancer（30091）。
-_CORS_ORIGINS = [
-    "http://localhost",
-    "http://localhost:80",
-    "http://localhost:9091",
-    "http://localhost:30091",
-]
+
+@app.on_event("startup")
+async def _init_store():
+    if not MONITORING_PERSIST:
+        logger.info("MONITORING_PERSIST=0，持久化层已禁用")
+        return
+    try:
+        await store_mod.ensure_schema()
+        logger.info("DB schema 已就绪")
+    except store_mod.StoreUnavailable as exc:
+        logger.warning("DB schema 初始化失败（降级模式）: %s", exc)
+    # 启动 TTL 清理后台任务（保留策略：默认 30 天，TTL_INTERVAL_S 可调）
+    try:
+        asyncio.create_task(_ttl_loop())
+    except Exception as exc:  # 后台任务注册失败不影响主链路
+        logger.warning("TTL 清理任务注册失败（非致命）: %s", exc)
+
+
+_TTL_INTERVAL_S = float(os.getenv("TTL_INTERVAL_S", "86400"))  # 默认每日一次
+_TTL_DAYS = int(os.getenv("TTL_DAYS", "30"))
+
+
+async def _ttl_loop() -> None:
+    """周期清理过期记录（保留策略），DB 不可达时静默跳过。"""
+    while True:
+        await asyncio.sleep(_TTL_INTERVAL_S)
+        if not MONITORING_PERSIST:
+            continue
+        try:
+            await store_mod.cleanup_old(days=_TTL_DAYS)
+        except store_mod.StoreUnavailable as exc:
+            logger.warning("TTL 清理跳过（DB 不可用）: %s", exc)
+        except Exception as exc:
+            logger.exception("TTL 清理异常: %s", exc)
+
+# 跨域白名单改为可配置（ALLOWED_ORIGINS，逗号分隔）。
+# 生产环境必须显式配置，不再硬编码 localhost demo 地址。
+_ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "").strip()
+_CORS_ORIGINS = (
+    [o.strip() for o in _ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+    if _ALLOWED_ORIGINS_RAW
+    else []
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
@@ -65,6 +102,9 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "local-redis-password")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "local-postgres-password")
+MONITORING_PERSIST = os.getenv("MONITORING_PERSIST", "1") == "1"
+MONITORING_DB_NAME = os.getenv("MONITORING_DB_NAME", "postgres")
+MONITORING_DB_DSN = os.getenv("MONITORING_DB_DSN", "")
 
 # 告警摄入端点鉴权（B-6）：告警 webhook 是写入口，必须带 Bearer token。
 # 不配置 MONITORING_WEBHOOK_TOKEN 时仅允许本地回环（default-deny 在生产必须配置）。
@@ -396,13 +436,32 @@ async def metrics():
         affected = _escape_label(str(_rca_last.get("affected", "")))
         recs = _escape_label(str(_rca_last.get("recommendations", "")))
         sev = _escape_label(str(_rca_last.get("severity", "")))
+        used_llm = _escape_label(str(_rca_last.get("used_llm", "")))
+        confidence = _escape_label(str(_rca_last.get("confidence", "")))
+        contradicts = _escape_label(str(_rca_last.get("contradicts_rule", "")))
         ts = float(_rca_last.get("ts", 0) or 0)
         lines.append(
             f'rca_last_info{{severity="{sev}",'
-            f'used_llm="{_rca_last.get("used_llm", "")}",'
+            f'used_llm="{used_llm}",'
+            f'confidence="{confidence}",'
+            f'contradicts_rule="{contradicts}",'
             f'root_cause="{rc}",affected="{affected}",recommendations="{recs}"}} 1'
         )
         lines.append(f"rca_last_timestamp_seconds{{severity=\"{sev}\"}} {ts}")
+
+    # 持久化指标（接真实运行计数，替代原硬编码 0 占位）
+    lines.append("# TYPE rca_persisted_total counter")
+    lines.append(f"rca_persisted_total {_rca_persisted_total}")
+    lines.append("# TYPE persist_failure_total counter")
+    lines.append(f"persist_failure_total {_persist_failure_total}")
+    lines.append("# TYPE remediate_plans_total counter")
+    lines.append(f"remediate_plans_total {_remediate_plans_total}")
+    lines.append("# TYPE approvals_total counter")
+    lines.append(f'approvals_total{{decision="approved"}} {_approvals_total["approved"]}')
+    lines.append(f'approvals_total{{decision="rejected"}} {_approvals_total["rejected"]}')
+    lines.append("# TYPE executions_total counter")
+    lines.append('executions_total{result="success"} %d' % _executions_total["success"])
+    lines.append('executions_total{result="failure"} %d' % _executions_total["failure"])
     return Response("\n".join(lines) + "\n", media_type="text/plain")
 
 
@@ -458,6 +517,11 @@ async def ingest_alert(request: Request):
         logging.warning("ingest/alert payload 非 JSON: %s | raw=%r", exc, raw[:500])
         return JSONResponse(status_code=400, content={"error": "invalid json body", "detail": str(exc)})
     event = parse_alertmanager(payload)
+    # 告警去重：窗口内同 source+alertname+labels 的重复告警不重复触发 RCA，
+    # 避免告警风暴下对同一故障反复分析（设计 §14 演进项）。
+    if _is_duplicate(event):
+        return _json_safe({"accepted": True, "deduped": True,
+                            "detail": "窗口内重复告警，已跳过 RCA"})
     # 现场聚合真实拓扑（含 redis 等必备依赖的实时探测），让 RCA 能据真实
     # 健康矩阵收敛根因（如 redis 不可达 → 产出结构化修复动作）。
     # 若告警 payload 自带 topology 快照则优先采用（兼容外部传入）。
@@ -541,6 +605,181 @@ async def demo_remediate(request: Request):
     return {"remediated": True, **result}
 
 
+# ── 自愈闭环：干跑预览 → 审批 → 执行 ─────────────────────────────────────
+
+
+@app.post("/remediate/preview")
+async def remediate_preview(request: Request):
+    """干跑预览：生成脚本 + 沙箱验证，产出 plan_id + 证据包。"""
+    if not _auth_ok(request):
+        return _deny()
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid json", "detail": str(exc)})
+
+    raw = payload.get("script") or payload
+    if not isinstance(raw, dict):
+        return JSONResponse(status_code=400, content={"error": "script 或 action 对象缺失"})
+
+    try:
+        script = generate_script(raw)
+    except RemediationError as exc:
+        return JSONResponse(status_code=400, content={"error": "bad_script", "detail": str(exc)})
+
+    try:
+        validate_script(script)
+    except RemediationError as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid_script", "detail": str(exc)})
+
+    evidence = preview_script(script)
+    plan_id = None
+    if MONITORING_PERSIST:
+        try:
+            plan_id = await store_mod.create_plan(
+                run_id=None, script=script.to_dict(), evidence=evidence
+            )
+        except store_mod.StoreUnavailable as exc:
+            logger.warning("create_plan 降级: %s", exc)
+            _rca_persist_failure()
+        else:
+            _bump_plan()
+
+    return _json_safe({"plan_id": plan_id, "status": "pending_approval", "evidence": evidence})
+
+
+@app.post("/remediate/approve")
+async def remediate_approve(request: Request):
+    """人工审批：仅 pending_approval 可转 approved/rejected。"""
+    if not _auth_ok(request):
+        return _deny()
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid json", "detail": str(exc)})
+
+    plan_id = payload.get("plan_id")
+    decision = payload.get("decision")
+    approver = payload.get("approver", "")
+    reason = payload.get("reason", "")
+
+    if not plan_id or decision not in ("approved", "rejected"):
+        return JSONResponse(
+            status_code=400, content={"error": "plan_id 与 decision(approved|rejected) 必填"}
+        )
+
+    updated = False
+    if MONITORING_PERSIST:
+        try:
+            updated = await store_mod.approve_plan(plan_id, decision, approver, reason)
+        except store_mod.StoreUnavailable as exc:
+            logger.warning("approve_plan 降级: %s", exc)
+            _rca_persist_failure()
+        else:
+            _bump_approval(decision)
+    else:
+        updated = True
+        _bump_approval(decision)
+
+    if not updated:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "state_conflict", "detail": "plan 当前状态不允许此操作"},
+        )
+
+    return {"accepted": True, "plan_id": plan_id, "status": decision}
+
+
+@app.post("/remediate/apply")
+async def remediate_apply(request: Request):
+    """受限执行：仅 approved 可转 executed/failed。"""
+    if not _auth_ok(request):
+        return _deny()
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid json", "detail": str(exc)})
+
+    plan_id = payload.get("plan_id")
+    script_dict = payload.get("script") or {}
+    approved = payload.get("approved", False)
+
+    if not plan_id or not script_dict:
+        return JSONResponse(status_code=400, content={"error": "plan_id 与 script 必填"})
+
+    applied = False
+    already_at_target = False
+    error_msg = ""
+    result = None
+
+    try:
+        script = generate_script(script_dict)
+        result = apply_script(script, approved=approved)
+        applied = True
+    except RemediationError as exc:
+        error_msg = str(exc)
+        logger.warning("apply_script 拒绝: %s", exc)
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.exception("apply_script 异常: %s", exc)
+
+    exec_id = None
+    if MONITORING_PERSIST:
+        try:
+            exec_id = await store_mod.save_execution(
+                plan_id=plan_id,
+                applied=applied,
+                already_at_target=already_at_target,
+                result=result,
+                error=error_msg,
+            )
+        except store_mod.StoreUnavailable as exc:
+            logger.warning("save_execution 降级: %s", exc)
+            _rca_persist_failure()
+        else:
+            _bump_execution(applied)
+
+    return _json_safe({
+        "plan_id": plan_id,
+        "applied": applied,
+        "already_at_target": already_at_target,
+        "error": error_msg or None,
+        "execution_id": exec_id,
+    })
+
+
+@app.get("/rca/history")
+async def rca_history(request: Request, limit: int = 20):
+    """最近 N 条 RCA 运行记录。"""
+    if not _auth_ok(request):
+        return _deny()
+    limit = max(1, min(limit, 100))
+    if not MONITORING_PERSIST:
+        return []
+    try:
+        rows = await store_mod.list_rca_runs(limit=limit)
+    except store_mod.StoreUnavailable as exc:
+        logger.warning("list_rca_runs 降级: %s", exc)
+        return JSONResponse(status_code=503, content={"error": "db_unavailable", "detail": str(exc)})
+    return _json_safe(rows)
+
+
+@app.get("/remediate/plans")
+async def remediate_plans(request: Request, status: str = "", limit: int = 20):
+    """查询计划（按状态过滤）。"""
+    if not _auth_ok(request):
+        return _deny()
+    limit = max(1, min(limit, 100))
+    if not MONITORING_PERSIST:
+        return []
+    try:
+        rows = await store_mod.list_plans(status=status or None, limit=limit)
+    except store_mod.StoreUnavailable as exc:
+        logger.warning("list_plans 降级: %s", exc)
+        return JSONResponse(status_code=503, content={"error": "db_unavailable", "detail": str(exc)})
+    return _json_safe(rows)
+
+
 @app.post("/rca")
 async def run_rca_manual(request: Request):
     """手动触发 RCA：给定事件 payload（含 source 标识）+ 可选拓扑快照。"""
@@ -593,6 +832,26 @@ async def _run_rca(event: IngestEvent, topology: dict | None = None) -> dict:
         await ws_hub.broadcast(ws_hub.build_alert_message(result))
     except Exception as exc:
         logger.warning("WebSocket 广播失败（不影响 RCA 响应）: %s", exc)
+
+    # best-effort 落库（DB 降级不影响主链路）
+    if MONITORING_PERSIST:
+        try:
+            await store_mod.save_rca_run(
+                source=event.source,
+                severity=result.severity,
+                root_cause=result.root_cause,
+                affected=result.affected,
+                recommendations=result.recommendations,
+                evidence=result.evidence,
+                remediation=result.remediation,
+                used_llm=result.used_llm,
+            )
+        except store_mod.StoreUnavailable as exc:
+            logger.warning("RCA 落库失败（降级）: %s", exc)
+            _rca_persist_failure()
+        else:
+            _bump_persisted()
+
     return _json_safe({
         "accepted": True,
         "severity": result.severity,
@@ -601,17 +860,85 @@ async def _run_rca(event: IngestEvent, topology: dict | None = None) -> dict:
 
 
 def _record_rca(result: RcaResult) -> None:
-    """把 RCA 结果登记为 Prometheus 指标（事件计数 + 最近值 info gauge）。"""
+    """把 RCA 结果登记为 Prometheus 指标（事件计数 + 最近值 info gauge）。
+
+    额外从 evidence["llm_analysis"] 提取 confidence / contradicts_rule，
+     供 Grafana 观测「模型推翻规则」频率（设计文档 §5）。
+     """
     global _rca_last
     _rca_total[result.severity] = _rca_total.get(result.severity, 0) + 1
+    llm_analysis = (result.evidence or {}).get("llm_analysis") or {}
+    confidence = llm_analysis.get("confidence")
+    contradicts = bool(llm_analysis.get("contradicts_rule"))
     _rca_last = {
         "severity": result.severity,
         "used_llm": str(result.used_llm).lower(),
+        "confidence": str(confidence) if confidence is not None else "",
+        "contradicts_rule": str(contradicts).lower(),
         "root_cause": redact(result.root_cause),
         "affected": ",".join(result.affected) if result.affected else "none",
         "recommendations": " | ".join(redact(r) for r in result.recommendations),
         "ts": time.time(),
     }
+
+
+_persist_failure_total = 0
+
+# 自愈/审计链路运行计数（供 /metrics 暴露，替代原硬编码 0 占位）
+_rca_persisted_total = 0
+_remediate_plans_total = 0
+_approvals_total = {"approved": 0, "rejected": 0}
+_executions_total = {"success": 0, "failure": 0}
+
+# 告警去重：{(source, dedup_key): 最近处理时间戳}，窗口内重复告警不重复触发 RCA
+_dedup: dict[tuple, float] = {}
+DEDUP_WINDOW_S = float(os.getenv("DEDUP_WINDOW_S", "300"))
+
+
+def _rca_persist_failure() -> None:
+    """落库失败计数器（Prometheus 可观测）。"""
+    global _persist_failure_total
+    _persist_failure_total += 1
+
+
+def _bump_persisted() -> None:
+    global _rca_persisted_total
+    _rca_persisted_total += 1
+
+
+def _bump_plan() -> None:
+    global _remediate_plans_total
+    _remediate_plans_total += 1
+
+
+def _bump_approval(decision: str) -> None:
+    if decision in _approvals_total:
+        _approvals_total[decision] += 1
+
+
+def _bump_execution(success: bool) -> None:
+    key = "success" if success else "failure"
+    _executions_total[key] += 1
+
+
+def _dedup_key(event) -> tuple:
+    """从告警生成去重键：source + alertname + 排序 labels。"""
+    primary = event.alerts[0] if event.alerts else {}
+    labels = primary.get("labels", {}) or {}
+    alertname = labels.get("alertname", "unknown")
+    sig = "|".join(f"{k}={labels[k]}" for k in sorted(labels))
+    return (event.source, alertname, sig)
+
+
+def _is_duplicate(event) -> bool:
+    """窗口内重复则返回 True 并刷新时间戳。"""
+    key = _dedup_key(event)
+    now = time.time()
+    last = _dedup.get(key)
+    if last is not None and (now - last) < DEDUP_WINDOW_S:
+        return True
+    _dedup[key] = now
+    return False
 
 
 if __name__ == "__main__":

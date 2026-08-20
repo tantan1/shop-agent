@@ -38,6 +38,56 @@ class TestToolSelectionFilter:
         message = "   "
         assert not message.strip()
 
+    def test_single_skill_convergence_includes_allowed_tools(self, agent):
+        """单 skill 收敛（skill_filter）应构建该 skill 自身 + allowed_tools 关联工具。
+
+        回归保护：query-order 的 allowed-tools 含 check-shipping，
+        收敛路径下二者都必须注册，否则模型无法在订单场景顺带查物流
+        （与 INTENT_TOOL_MAP 候选集语义一致）。
+        """
+        conv = ReActAgent(
+            llm_service=agent._llm_service,
+            tool_service=agent._tool_service,
+            embedding_service=agent._embedding_service,
+            skill_filter="query-order",
+        )
+        names = {getattr(t, "name", "") for t in conv._all_tools}
+        # 主工具 + 关联工具都应存在；不应只有 query-order 一个
+        assert "query-order" in names
+        assert "check-shipping" in names
+
+    def test_single_skill_convergence_single_tool_skill(self, agent):
+        """单工具 skill（如 check-balance）收敛后仍只含自身，不引入无关工具。"""
+        conv = ReActAgent(
+            llm_service=agent._llm_service,
+            tool_service=agent._tool_service,
+            embedding_service=agent._embedding_service,
+            skill_filter="check-balance",
+        )
+        names = {getattr(t, "name", "") for t in conv._all_tools}
+        assert names == {"check-balance"}
+
+    def test_general_entry_builds_from_allowed_tools_union(self, agent):
+        """通用入口（未指定 skill_filter）应基于 allowed-tools 并集（意图候选全集）构建工具。
+
+        回归保护：通用入口不再盲目注册整张 skill 注册表，而是取所有 skill 的
+        ``allowed_tools`` 并集（含关联工具），与 P0 的 INTENT_TOOL_MAP 同源。
+        本仓库 5 个 skill 的 allowed-tools 并集恰好覆盖全部 5 个 action，
+        （check-shipping 与 query-order 互引），故通用入口应注册全部业务工具。
+        """
+        names = {getattr(t, "name", "") for t in agent._all_tools}
+        business = names - {"knowledge_search"}
+        # 所有意图候选 action 都应在通用入口可见
+        assert business == {
+            "check-balance",
+            "check-shipping",
+            "coupon-inquiry",
+            "query-order",
+            "request-return",
+        }
+        # 关联工具对：query-order 与 check-shipping 都必须出现在通用入口
+        assert {"query-order", "check-shipping"} <= business
+
 
 class TestInterruptStore:
     """人在回路：中断上下文持久化。"""
@@ -73,6 +123,59 @@ class TestInterruptStore:
         stored = _INTERRUPT_MEM[thread_id]
         assert stored[2] == "conv-1"
         assert stored[4] == "ecommerce"
+
+        _INTERRUPT_MEM.pop(thread_id, None)
+
+    @pytest.mark.asyncio
+    async def test_resume_execution_falls_back_to_dispatch(self, monkeypatch):
+        """审批恢复：ApprovalGate 无记录时降级直接 dispatch 执行，而非误报失败。
+
+        回归保护：退款链路未走 ApprovalGate.execute_with_approval，
+        command_service.approve(thread_id) 必然 failed。此前会 fail-closed 返回
+        「执行失败」导致审批通过却无反馈。修复后应在 approve 失败时改用中断上下文
+        直接 dispatch 退款确认执行。
+        """
+        thread_id = "test-thread-resume"
+        _INTERRUPT_MEM.pop(thread_id, None)
+
+        mock_redis = MagicMock()
+        mock_redis.is_available = False
+        monkeypatch.setattr(
+            "src.modules.chat.agent.react_agent_interrupt.get_redis_cache_service",
+            lambda: mock_redis,
+        )
+
+        from src.modules.chat.agent.react_agent import _store_interrupt, InterruptContext
+        _store_interrupt(
+            InterruptContext(
+                thread_id=thread_id,
+                graph=None,
+                config={},
+                conversation_id="conv-resume",
+                intent_steps=[],
+                domain="ecommerce",
+                order_id="ORDER-456",
+                reason="质量问题",
+            )
+        )
+
+        # mock tool_service.dispatch：模拟退款确认执行成功
+        mock_tool = MagicMock()
+        mock_tool.dispatch = AsyncMock(return_value="退款已批准并执行，单号 R789")
+
+        response = await ReActAgent.resume_execution(
+            thread_id=thread_id, confirm=True, tool_service=mock_tool
+        )
+
+        # 必须真正调用了 dispatch 执行退款（而非失败分支）
+        mock_tool.dispatch.assert_awaited_once()
+        _, dispatch_params = mock_tool.dispatch.await_args.args
+        assert dispatch_params["order_id"] == "ORDER-456"
+        assert dispatch_params["confirm"] is True
+
+        assert response is not None
+        assert response.status == "completed"
+        assert "R789" in response.message
 
         _INTERRUPT_MEM.pop(thread_id, None)
 

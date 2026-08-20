@@ -1,0 +1,101 @@
+# etcd 告警规则（Milvus 元数据存储）
+#
+# 背景：etcd 曾因 CPU/内存过低（250m/512Mi）导致 7s+ 超时，
+# 进而 Milvus streaming node 的 persistCheckpoint 失败、session 过期。
+# 这些告警帮助提前发现 etcd 性能衰减，避免雪崩。
+#
+# 指标来源：Prometheus 抓取 etcd:2381/metrics（job=etcd）。
+groups:
+  # ---------- 可用性 ----------
+  - name: etcd-availability
+    rules:
+      - alert: EtcdDown
+        expr: up{job="etcd"} == 0
+        for: 1m
+        labels:
+          severity: P1
+          channel: etcd-availability
+        annotations:
+          summary: "etcd 实例不可达"
+          description: "Prometheus 已持续 1 分钟无法抓取 etcd metrics。Milvus 元数据服务中断，所有依赖 etcd 的操作（建表、checkpoint、session 注册）将失败。请检查 etcd Pod 状态与资源占用。"
+
+      - alert: EtcdMemberDown
+        expr: etcd_cluster_has_leader == 0
+        for: 30s
+        labels:
+          severity: P1
+          channel: etcd-availability
+        annotations:
+          summary: "etcd 集群无 Leader"
+          description: "etcd 集群 30 秒内无 Leader，意味着整个集群不可用。检查 etcd 进程是否存活、网络是否连通、磁盘是否满。"
+
+  # ---------- 性能/延迟 ----------
+  - name: etcd-performance
+    rules:
+      # etcd 请求延迟 > 1s 持续 2 分钟 → 可能导致 Milvus 客户端超时
+      - alert: EtcdHighRequestLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, operation) (
+              rate(etcd_server_request_duration_seconds_bucket[5m])
+            )
+          ) > 1
+        for: 2m
+        labels:
+          severity: P2
+          channel: etcd-performance
+        annotations:
+          summary: "etcd 请求延迟过高 (P99 > 1s)"
+          description: "etcd P99 请求延迟持续 2 分钟 > 1s，operation={{ $labels.operation }}。这可能导致 Milvus 的 persistCheckpoint 超时（如日志中 7s+ 超时）。请检查 etcd CPU/内存占用、磁盘 I/O、WAL 大小。"
+
+      # etcd CPU 使用率 > 80% 持续 3 分钟
+      - alert: EtcdHighCPU
+        expr: |
+          rate(etcd_server_cpu_seconds_total[5m]) > 0.8
+        for: 3m
+        labels:
+          severity: P2
+          channel: etcd-performance
+        annotations:
+          summary: "etcd CPU 使用率过高 (>80%)"
+          description: "etcd CPU 使用率持续 3 分钟 > 80%。etcd 请求处理串行，对 CPU 极度敏感。建议增加 CPU 资源或检查是否有异常请求爆发。"
+
+      # etcd 内存使用率 > 85%
+      - alert: EtcdHighMemory
+        expr: |
+          (etcd_server_quota_backend_bytes - etcd_mvcc_db_total_size_in_bytes) / etcd_server_quota_backend_bytes < 0.15
+        for: 2m
+        labels:
+          severity: P2
+          channel: etcd-performance
+        annotations:
+          summary: "etcd 内存/存储接近配额上限"
+          description: "etcd 后端存储使用率 > 85%。接近 ETCD_QUOTA_BACKEND_BYTES 配额将触发告警并拒绝写入，导致 Milvus 操作失败。请检查是否需要扩大配额或清理无用 key。"
+
+  # ---------- 磁盘 I/O ----------
+  - name: etcd-disk
+    rules:
+      # etcd WAL fsync 延迟 > 100ms
+      - alert: EtcdSlowFsync
+        expr: |
+          etcd_disk_backend_commit_duration_seconds > 0.1
+        for: 2m
+        labels:
+          severity: P2
+          channel: etcd-disk
+        annotations:
+          summary: "etcd WAL fsync 延迟过高 (>100ms)"
+          description: "etcd WAL fsync 延迟持续 2 分钟 > 100ms。磁盘 I/O 不足会直接导致 etcd 请求超时，进而 Milvus checkpoint 持久化失败。请检查磁盘 I/O 性能或更换更快的存储。"
+
+      # etcd 磁盘使用率 > 80%
+      - alert: EtcdDiskFull
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/etcd-data"} / node_filesystem_size_bytes{mountpoint="/etcd-data"}) < 0.2
+        for: 2m
+        labels:
+          severity: P1
+          channel: etcd-disk
+        annotations:
+          summary: "etcd 数据盘使用率过高 (>80%)"
+          description: "etcd 数据盘剩余空间不足 20%。磁盘满将导致 etcd 崩溃，Milvus 元数据丢失。请扩容存储或清理旧数据。"
