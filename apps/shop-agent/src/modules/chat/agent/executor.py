@@ -114,6 +114,7 @@ class GeneralAgentExecutor:
         self,
         request: ChatRequest,
         langfuse_handler=None,
+        user_id: str = "",
     ) -> ChatResponse:
         """执行完整的 Agent 流程（Langfuse → Pipeline → 缓存 → 响应构建）。"""
         callback = get_prometheus_callback()
@@ -143,7 +144,7 @@ class GeneralAgentExecutor:
         question_embedding: Optional[List[float]] = None
 
         try:
-            # 预计算向量（供 step3 复用，避免重复调 embedding API）
+            # 预计算向量（供 step3 和记忆召回复用）
             if self.embedding_service:
                 question_embedding = await self.embedding_service.embed_query(request.message)
 
@@ -158,8 +159,36 @@ class GeneralAgentExecutor:
                 redis_cache_service=self.redis_cache_service,
                 langfuse_handler=self._langfuse_handler,
                 conversation_id=conversation_id,
+                user_id=user_id,
                 question_embedding=question_embedding,
             )
+
+            # MRAG：记忆召回（仅 RAG 路径）
+            if user_id and question_embedding:
+                try:
+                    from src.modules.chat.core.memory_retrieval import MemoryRetrieval
+                    from src.modules.chat.core.memory_service import LongTermMemory, ShortTermMemory
+
+                    short_term = ShortTermMemory()
+                    long_term = LongTermMemory(
+                        pg_session=None,
+                        milvus_service=self.milvus_service,
+                        embedding_service=self.embedding_service,
+                    )
+                    retrieval = MemoryRetrieval(
+                        milvus_service=self.milvus_service,
+                        short_term=short_term,
+                        long_term=long_term,
+                        embedding_service=self.embedding_service,
+                    )
+                    memory_ctx = await retrieval.retrieve(
+                        user_id=user_id,
+                        query=request.message,
+                        query_embedding=question_embedding,
+                    )
+                    ctx.memory_context = memory_ctx.to_prompt_context()
+                except Exception as e:
+                    logger.warning(f"记忆召回失败: {e}")
 
             # 图查询与 Pipeline 并行执行
             graph_task = self._query_graph_context(request.message)

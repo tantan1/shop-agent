@@ -101,10 +101,17 @@
 
 ### V-3.5 ✅ 沙箱验证预览（已实现）
 - 操作：`POST /remediate/preview` 传入 `{action, target, params}`
-- 预期：返回 `plan_id` + `evidence`（含 `current/plan/effective/call_sequence`），使用 `FakeK8sClient` 干跑
+- 预期：返回 `plan_id` + `evidence`（含 `current/plan/effective/call_sequence`），默认使用 `FakeK8sClient` 干跑
 - e2e 断言：`evidence.call_sequence` 含 `read_current` + `would_apply`；`dry_run=true`
 
-### V-3.6 ✅ 计划查询（已实现）
+### V-3.6 ✅ Docker 沙箱（已实现，默认关闭）
+- 实现：新增 `DockerSandboxBackend`，与 `FakeK8sClient` 接口兼容
+- 安全约束：`--network=none` + 资源上限（timeout 30s / Mem 256m / CPU 0.5 / PIDs 64）+ 库白名单（AST 扫描）+ 降权运行（nobody）+ 只读文件系统
+- 启用方式：`SANDBOX_ENABLED=1` + 挂载 `/var/run/docker.sock`
+- 触发条件：LLM 生成任意脚本 / 自动触碰生产 / 第三方不可信探测插件（设计文档 §10.4）
+- e2e 断言：`SANDBOX_ENABLED=1` 时 `evidence.call_sequence` 含 `sandbox=docker` 标记；不可用时自动回退 `FakeK8sClient`
+
+### V-3.7 ✅ 计划查询（已实现）
 - 操作：`GET /remediate/plans?status=&limit=`
 - 预期：返回计划列表，支持按 `pending_approval/approved/executed/failed/rejected` 过滤
 - e2e 断言：`GET /remediate/plans` → 200；`GET /rca/history` → 最近 RCA 记录
@@ -120,7 +127,7 @@ kubectl -n shop-agent port-forward svc/monitoring-agent 9091:80
 pwsh apps/monitoring-agent/scripts/verify_monitoring_e2e.ps1 -BaseUrl http://localhost:9091
 ```
 
-脚本覆盖：V-1.1 / V-1.2 / V-1.3 / V-2.1 / V-2.2 / V-2.3 / V-3.1 / V-3.2 / V-3.3 / V-3.4 / V-3.5 / V-3.6。
+脚本覆盖：V-1.1 / V-1.2 / V-1.3 / V-2.1 / V-2.2 / V-2.3 / V-3.1 / V-3.2 / V-3.3 / V-3.4 / V-3.5 / V-3.6 / V-3.7。
 
 ## 结果记录表（执行后填写）
 
@@ -138,4 +145,5 @@ pwsh apps/monitoring-agent/scripts/verify_monitoring_e2e.ps1 -BaseUrl http://loc
 | V-3.3 入站脱敏 | ☐ | |
 | V-3.4 HITL 审批 | ☐ 已实现 | preview/approve/apply |
 | V-3.5 沙箱验证预览 | ☐ 已实现 | evidence 包 |
-| V-3.6 计划查询 | ☐ 已实现 | /remediate/plans |
+| V-3.6 Docker 沙箱 | ☐ 已实现 | 默认关闭，SANDBOX_ENABLED=1 启用 |
+| V-3.7 计划查询 | ☐ 已实现 | /remediate/plans |

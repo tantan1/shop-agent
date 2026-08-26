@@ -4,6 +4,7 @@ from __future__ import annotations
 import re as _re
 import time as _time
 
+from src.modules.chat.core.param_extractor import LocalParamExtractor
 from src.modules.chat.schemas import ChatResponse
 from src.shared.logger import APILogger
 
@@ -157,8 +158,8 @@ async def _prepare_intent_params(orchestrator, request, intent_result, langfuse_
     ]
 
     t0 = _time.perf_counter()
-    extracted_params = await orchestrator._intent_recognizer.extract_params(
-        request.message, intent_result.action, langfuse_handler=langfuse_handler
+    extracted_params = LocalParamExtractor.extract(
+        request.message, intent_result.action
     )
     t_params = (_time.perf_counter() - t0) * 1000
     if extracted_params:

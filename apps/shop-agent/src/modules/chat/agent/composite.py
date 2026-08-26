@@ -27,6 +27,7 @@ class AgentContext:
     emotion_level: Any = None
     order_id: Optional[str] = None
     conversation_id: str = ""
+    user_id: str = ""
     domain: str = "ecommerce"
 
 

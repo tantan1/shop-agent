@@ -132,6 +132,39 @@ agent_chat_counter = Counter(
     ["status"],  # success/error
 )
 
+# ============ L2 短期记忆指标 ============
+
+l2_save_triggered_total = Counter(
+    "shop_agent_l2_save_triggered_total",
+    "L2 保存触发次数",
+    ["trigger"],  # turn / timeout / batch
+)
+
+l2_save_success_total = Counter(
+    "shop_agent_l2_save_success_total",
+    "L2 保存成功次数",
+    ["trigger"],
+)
+
+l2_save_failure_total = Counter(
+    "shop_agent_l2_save_failure_total",
+    "L2 保存失败次数",
+    ["trigger", "error"],  # error: milvus_unavailable / llm_error / redis_error
+)
+
+l2_save_duration_ms = Histogram(
+    "shop_agent_l2_save_duration_ms",
+    "L2 保存耗时（摘要生成 + Milvus 写入）",
+    ["trigger"],
+    buckets=(50, 100, 200, 500, 1000, 2000, 5000),
+)
+
+l2_summary_tokens = Histogram(
+    "shop_agent_l2_summary_tokens",
+    "L2 摘要 token 数",
+    buckets=(50, 100, 200, 500, 1000, 2000),
+)
+
 # 异常统计
 exception_counter = Counter(
     "shop_agent_exceptions_total",
@@ -274,3 +307,49 @@ def track_milvus_search(collection: str = "default"):
             return sync_wrapper
 
     return decorator
+
+
+# ============ 记忆系统指标 ============
+
+# 记忆召回统计（L2/L3/Profile）
+memory_recall_counter = Counter(
+    "shop_agent_memory_recall_total",
+    "记忆召回总次数",
+    ["layer"],  # l2 / l3 / profile
+)
+
+# 记忆召回耗时
+memory_recall_duration = Histogram(
+    "shop_agent_memory_recall_duration_seconds",
+    "记忆召回耗时",
+    ["layer"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float("inf")),
+)
+
+# 记忆块统计（按类型）
+memory_block_counter = Counter(
+    "shop_agent_memory_blocks_total",
+    "记忆块总数（按类型）",
+    ["block_type"],  # summary / preference / profile / fact ...
+)
+
+# 遗忘任务指标
+forgetting_job_counter = Counter(
+    "shop_agent_forgetting_job_total",
+    "遗忘任务执行次数",
+    ["action"],  # archive / delete
+)
+
+forgetting_job_duration = Histogram(
+    "shop_agent_forgetting_job_duration_seconds",
+    "遗忘任务耗时",
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf")),
+)
+
+# MRAG 记忆上下文大小（字符数）
+memory_context_size = Histogram(
+    "shop_agent_memory_context_chars",
+    "MRAG 记忆上下文字符数",
+    ["layer"],  # short_term / long_term / profile
+    buckets=(50, 100, 200, 500, 1000, 2000, 5000),
+)

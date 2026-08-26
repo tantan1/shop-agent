@@ -1,0 +1,54 @@
+﻿============================================================
+Redis ��ʵ�ָ��������� �� Docker ɳ�����
+============================================================
+
+[0] �������
+[OK] ������ Docker ����
+[OK] Docker ɳ���������ҿ���
+
+[1] ģ�� Redis ���ϣ�replicas=0��
+   ��ǰ Redis ������: 0������״̬��
+
+[2] ���ɻָ��ű���scale_up��
+   �ű�: {'action': 'scale_up', 'target': 'redis', 'params': {'replicas': 1}}
+
+[3] Docker ɳ����֤�ָ��ű�
+   ��ǰ״̬: {'redis': 1}
+   �ƻ�: {'action': 'scale_up', 'target': 'redis', 'params': {'replicas': 1}}
+   Ԥ�ڽ��: {'redis': 1}
+   ��������:
+     - {'step': 'read_current', 'target': 'redis', 'replicas': 0}
+     - {'step': 'would_apply', 'target': 'redis', 'replicas': 1, 'dry_run': True}
+
+[4] ��֤ Docker ִ�н��
+   ���� ID: b052b64a8abb
+   �˳���: 0
+   ִ��ʱ��: 119.61 ms
+   stdout: [sandbox] ģ�� k8s scale deployment/redis --replicas=1
+[sandbox] ��������: �ָ�
+[sandbox] Ŀ��: redis
+[sandbox] ������: 1
+{"name": "redis", "replicas": 1, "dry_run": true, "sandbox": "docker", "message": "\u6062\u...
+   stderr: (empty)
+[OK] Docker ɳ��ָ��ű�ִ�гɹ�
+
+[5] ��֤��ȫԼ��
+   [OK] �������: --network=none���������޷������ⲿ���磩
+   [OK] ��Դ����: timeout 30s + Mem 256m + CPU 0.5 + PIDs 64
+   [OK] �������: AST ɨ�裨�� stdlib + kubernetes��
+   [OK] ��Ȩ����: --user nobody���� root��
+   [OK] ֻ���ļ�ϵͳ: --read-only���� /tmp �⣩
+
+[6] ģ��������ִ�лָ�����
+   ����״̬: approved
+   ����ʵ�ָ����� k8s ��Ⱥ��ִ�У���ǰ������ k8s���˴�����֤ɳ�����̣�
+
+============================================================
+�����ܽ�
+============================================================
+  ����״̬: Redis replicas = 0
+  �ָ�����: scale_up replicas = 1
+  ɳ��ģʽ: DockerSandboxBackend
+  ִ�н��: �ɹ�
+  ��ȫԼ��: ������� + ��Դ���� + ������� + ��Ȩ + ֻ��
+============================================================

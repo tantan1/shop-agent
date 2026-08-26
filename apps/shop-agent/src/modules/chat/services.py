@@ -254,13 +254,17 @@ class ChatAgentService:
         """
         await self._initialize()
 
-        from src.modules.chat.agent.react_agent import ReActAgent
+        from src.modules.chat.agent.postgres_approval_store import PostgresApprovalStore
+        from src.shared.database import get_async_session
 
-        response = await ReActAgent.resume_execution(
-            thread_id=request.conversation_id,
-            confirm=request.confirm,
-            tool_service=self._tool_service,
-        )
+        async with get_async_session() as db:
+            approval_store = PostgresApprovalStore(db)
+            response = await ReActAgent.resume_execution(
+                thread_id=request.conversation_id,
+                confirm=request.confirm,
+                tool_service=self._tool_service,
+                approval_store=approval_store,
+            )
 
         if response is None:
             raise ValidationException(

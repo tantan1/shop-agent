@@ -3,15 +3,17 @@
 职责分层：
 - 保持纯函数、不落库（持久化由 main.py 接线层调用 store 完成）；
 - 脚本 DSL 收敛为类型化动作（scale_up/scale_down）+ 白名单目标 + 参数上限；
-- 沙箱用 FakeK8sClient 做干跑，产出证据包供审批人核对；
+- 沙箱默认用 FakeK8sClient 做干跑，产出证据包供审批人核对；
+- 当 SANDBOX_ENABLED=1 时，自动切换为 DockerSandboxBackend（真容器隔离）；
 - 生产执行仅当 approved=True 时才调用 k8s_client.set_replicas。
 
-设计对齐：docs/monitoring-agent-remediation-safety-design.md §6.2 / §10.3
+设计对齐：docs/monitoring-agent-remediation-safety-design.md §6.2 / §10.3 / §10.6
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -97,11 +99,15 @@ def validate_script(script: Script) -> None:
             )
 
 
-# ── 3) 沙箱验证（FakeK8sClient） ──
+# ── 3) 沙箱验证（FakeK8sClient / DockerSandboxBackend） ──
 
 
 class FakeK8sClient:
-    """假 k8s 后端：只读动作返回当前状态，写动作不真发，记录「将执行什么」。"""
+    """假 k8s 后端：只读动作返回当前状态，写动作不真发，记录「将执行什么」。
+    
+    本期默认沙箱（类型化动作，零隔离开销）。
+    当 SANDBOX_ENABLED=1 时，自动切换为 DockerSandboxBackend（真容器隔离）。
+    """
 
     def __init__(self) -> None:
         self._state: dict[str, int] = {"redis": 1}
@@ -119,12 +125,36 @@ class FakeK8sClient:
         return {"name": name, "replicas": replicas, "dry_run": True}
 
 
+def get_default_backend() -> Any:
+    """根据环境变量返回默认沙箱后端。
+
+    - SANDBOX_ENABLED=1 且 Docker 可用 → DockerSandboxBackend（真容器隔离）
+    - SANDBOX_ENABLED=1 但 Docker 不可用 → 回退到 FakeK8sClient
+    - 否则 → FakeK8sClient（内存模拟，本期默认）
+    """
+    if os.getenv("SANDBOX_ENABLED", "0") != "1":
+        return FakeK8sClient()
+    try:
+        from .sandbox import DockerSandboxBackend
+        backend = DockerSandboxBackend()
+        if not backend.is_available():
+            logger.warning("Docker 沙箱不可用，回退到 FakeK8sClient")
+            return FakeK8sClient()
+        return backend
+    except Exception as exc:
+        logger.warning("Docker 沙箱初始化失败，回退到 FakeK8sClient: %s", exc)
+        return FakeK8sClient()
+
+
 def preview_script(
     script: Script, backend: Any = None
 ) -> dict[str, Any]:
-    """在沙箱假后端上执行脚本，产出证据包（current/plan/effective/call_sequence）。"""
+    """在沙箱后端上执行脚本，产出证据包（current/plan/effective/call_sequence）。
+
+    backend 为 None 时使用默认后端（受 SANDBOX_ENABLED 控制）。
+    """
     if backend is None:
-        backend = FakeK8sClient()
+        backend = get_default_backend()
 
     calls: list[dict[str, Any]] = []
 

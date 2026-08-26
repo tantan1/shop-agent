@@ -1,3 +1,4 @@
+import uuid  # noqa: E402
 from typing import Optional  # noqa: E402
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile  # noqa: E402
@@ -199,6 +200,12 @@ async def agent_chat(
     ),
 ):
 
+    # ── 解析 user_id：header > request.body > 匿名生成 ──
+    x_user_id = req.headers.get("X-User-ID")
+    user_id = request.user_id or x_user_id
+    if not user_id:
+        user_id = f"anon_{uuid.uuid4().hex[:8]}"
+
     # ── 设置 Token 限流上下文 ──
     try:
         from src.core.config import config as core_config  # noqa: E402
@@ -219,7 +226,7 @@ async def agent_chat(
 
         exp_service = ExperimentService.get_instance()
         if exp_service.is_initialized:
-            user_id = request.conversation_id or client_ip
+            # 优先使用 user_id 进行实验分组
             experiment_assignment = exp_service.assign(user_id, request.domain)
     except Exception:
         pass  # 实验分配失败不影响主流程

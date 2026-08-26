@@ -245,6 +245,8 @@ ECOMMERCE_TEMPLATES = {
 # 历史咨询
 {chat_history}
 
+{memory_context}
+
 请综合商品关系与详情生成推荐回复。""",
 }
 

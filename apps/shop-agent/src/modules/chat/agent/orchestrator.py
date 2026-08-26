@@ -61,6 +61,7 @@ class AgentRoutingContext:
     request: ChatRequest
     intent_result: IntentResult
     domain: str
+    user_id: str = ""
     langfuse_handler: Any = None
     emotion_result: Any = None
     input_truncated: bool = False
@@ -243,7 +244,7 @@ class AgentOrchestrator:
         if ctx.intent_result.intent == "call_remote_api" and ctx.intent_result.action:
             return await handle_remote_intent(self, ctx)
         return await self._chat_with_rag_agent(
-            ctx.request, ctx.domain,
+            ctx.request, ctx.domain, ctx.user_id,
             langfuse_handler=ctx.langfuse_handler,
             input_truncated=ctx.input_truncated,
         )
@@ -261,29 +262,38 @@ class AgentOrchestrator:
         return response
 
     async def _chat_with_react_agent(self, ctx: AgentRoutingContext) -> ChatResponse:
+        from src.modules.chat.agent.postgres_approval_store import PostgresApprovalStore
+        from src.modules.chat.agent.postgres_execution_store import PostgresExecutionStore
         from src.modules.chat.agent.react_agent import ReActAgent
+        from src.shared.database import get_async_session
 
-        react = ReActAgent(
-            llm_service=self._llm_service,
-            tool_service=self._tool_service,
-            embedding_service=self._embedding_service,
-            milvus_service=self._milvus_service,
-            emotion_result=ctx.emotion_result,
-            input_truncated=ctx.input_truncated,
-        )
-        return await react.run(ReActRunContext(
-            request=ctx.request,
-            intent_result=ctx.intent_result,
-            conversation_id=ctx.request.conversation_id or "",
-            domain=ctx.domain,
-            intent_steps=ctx.intent_steps or [],
-            langfuse_handler=ctx.langfuse_handler,
-        ))
+        async with get_async_session() as db:
+            execution_store = PostgresExecutionStore(db)
+            approval_store = PostgresApprovalStore(db)
+            react = ReActAgent(
+                llm_service=self._llm_service,
+                tool_service=self._tool_service,
+                embedding_service=self._embedding_service,
+                milvus_service=self._milvus_service,
+                emotion_result=ctx.emotion_result,
+                input_truncated=ctx.input_truncated,
+                approval_store=approval_store,
+            )
+            return await react.run(ReActRunContext(
+                request=ctx.request,
+                intent_result=ctx.intent_result,
+                conversation_id=ctx.request.conversation_id or "",
+                user_id=ctx.user_id,
+                domain=ctx.domain,
+                intent_steps=ctx.intent_steps or [],
+                langfuse_handler=ctx.langfuse_handler,
+            ))
 
     async def chat_with_agent(self, request: ChatRequest, experiment_assignment=None) -> ChatResponse:
         from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
         domain = getattr(request, "domain", "ecommerce")
+        user_id = getattr(request, "user_id", "") or f"anon_{int(_time.time())}"
         conversation_id = request.conversation_id or f"conv_{int(_time.time())}"
         t_overall_start = _time.perf_counter()
 
@@ -321,6 +331,7 @@ class AgentOrchestrator:
                 request=request,
                 intent_result=intent_result,
                 domain=domain,
+                user_id=user_id,
                 langfuse_handler=langfuse_handler,
                 emotion_result=emotion_result,
                 input_truncated=_was_truncated,
@@ -332,6 +343,27 @@ class AgentOrchestrator:
             response = self._inject_response_metadata(
                 response, _was_truncated, orig_tokens, trunc_tokens, experiment_assignment
             )
+
+            # 异步触发 L3 记忆提取（不阻塞响应）
+            try:
+                from src.modules.chat.core.memory_extraction_trigger import ExtractionContext, MemoryExtractionTrigger
+                trigger = MemoryExtractionTrigger(self._llm_service)
+                import asyncio
+                asyncio.create_task(
+                    trigger.try_extract(
+                        ExtractionContext(
+                            user_id=user_id,
+                            conversation_id=conversation_id,
+                            chat_history=[],
+                            user_message=request.message,
+                            last_intent=intent_result.action,
+                            is_ended=True,
+                            turn_number=getattr(request, "turn_number", 0),
+                        )
+                    )
+                )
+            except Exception:
+                pass
 
             t_overall = (_time.perf_counter() - t_overall_start) * 1000
             logger.debug(
@@ -347,7 +379,7 @@ class AgentOrchestrator:
                 langfuse_ctx.__exit__(None, None, None)
 
     async def _chat_with_rag_agent(
-        self, request: ChatRequest, domain: str,
+        self, request: ChatRequest, domain: str, user_id: str = "",
         langfuse_handler=None, input_truncated: bool = False,
     ) -> ChatResponse:
         from src.modules.chat.agent.executor import GeneralAgentExecutor
@@ -369,7 +401,7 @@ class AgentOrchestrator:
                     )
                 }
             )
-        response = await executor.execute(request, langfuse_handler=langfuse_handler)
+        response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
         response.domain = domain
         logger.log_business_event(
             f"{executor.agent_name}对话",

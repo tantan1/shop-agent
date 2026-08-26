@@ -1,0 +1,62 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.3, pytest-9.0.3, pluggy-1.6.0
+codspeed: 5.0.3 (disabled, mode: walltime, callgraph: not supported, timer_resolution: 100.0ns)
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: E:\workspace\shop-agent\apps\shop-agent
+configfile: pyproject.toml
+plugins: anyio-4.13.0, Faker-40.19.1, langsmith-0.8.6, locust-2.46.3, asyncio-1.4.0, benchmark-5.2.3, codspeed-5.0.3, cov-7.1.0, recording-0.13.4, socket-0.8.0, syrupy-5.2.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2 items
+
+tests\test_tool_select_perf.py 2026-08-18 21:52:09 [info     ] ���� Skill: check-balance        file=E:\workspace\shop-agent\apps\shop-agent\skills\check-balance\SKILL.md
+2026-08-18 21:52:09 [info     ] ���� Skill: check-shipping       file=E:\workspace\shop-agent\apps\shop-agent\skills\check-shipping\SKILL.md
+2026-08-18 21:52:09 [info     ] ���� Skill: coupon-inquiry       file=E:\workspace\shop-agent\apps\shop-agent\skills\coupon-inquiry\SKILL.md
+2026-08-18 21:52:09 [info     ] ���� Skill: query-order          file=E:\workspace\shop-agent\apps\shop-agent\skills\query-order\SKILL.md
+2026-08-18 21:52:09 [info     ] ���� Skill: request-return       file=E:\workspace\shop-agent\apps\shop-agent\skills\request-return\SKILL.md
+2026-08-18 21:52:09 [info     ] Skills �������                    names=['check-balance', 'check-shipping', 'coupon-inquiry', 'query-order', 'request-return'] total=5
+
+=== ����ѡ����ˮ�����ܶԱȣ���ʽ 1��===
+��׼ query ��: 7
+������(��ǰ T5): {'n': 7, 'total_ms': {'p50': 0.14, 'p95': 0.18, 'max': 0.26}, 'p1_ms_p95': 0.17, 'p2_invoked_rate': 0.286, 'p2_ms_p95': 0.03, 'accuracy': 1.0}
+Ӳ����(�� P2) : {'n': 7, 'total_ms': {'p50': 0.07, 'p95': 0.08, 'max': 0.11}, 'p1_ms_p95': 0.08, 'p2_invoked_rate': 0.0, 'p2_ms_p95': 0.0, 'accuracy': 1.0}
+P95 ѡ���ߺ�ʱ��(��-Ӳ): 0.1 ms  �� �� P2 Сģ��+��������Ķ��⿪��
+P2 ������: ��=0.286 Ӳ=0.0
+׼ȷ��: ��=1.0 Ӳ=1.0
+
+������ϸ:
+  Q01 intent=check-balance p2=0 total=  0.01ms selected=['check-balance']
+  Q02 intent=check-shipping p2=0 total=  0.17ms selected=['check-shipping', 'query-order']
+  Q03 intent=coupon-inquiry p2=0 total=  0.01ms selected=['coupon-inquiry']
+  Q04 intent=query-order p2=0 total=  0.18ms selected=['check-shipping', 'query-order']
+  Q05 intent=request-return p2=0 total=  0.00ms selected=['request-return']
+  Q06 intent=unknown    p2=1 total=  0.26ms selected=['check-balance', 'check-shipping', 'query-order']
+  Q07 intent=unknown    p2=1 total=  0.14ms selected=['check-shipping', 'query-order', 'request-return']
+2026-08-18 21:52:09 [info     ] ���� embedding �����������            dim=64 tool_count=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('check-shipping', 0.5988), ('query-order', 0.3862)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('query-order', 0.639), ('check-shipping', 0.4401)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-balance', 0.7349), ('coupon-inquiry', 0.7164), ('check-shipping', 0.645), ('query-order', 0.595), ('request-return', 0.4354)] top_k=5
+2026-08-18 21:52:09 [warning  ] P2 ������ P1 top-1 ���ߣ�����Сģ�����У�׷�ӻؽ���� p1_selected=['check-shipping', 'query-order', 'request-return'] p2_ranked=['check-balance', 'coupon-inquiry', 'check-shipping'] p2_top1=check-balance
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-shipping', 0.3845), ('coupon-inquiry', 0.2491), ('check-balance', 0.2352), ('query-order', 0.1222), ('request-return', 0.096)] top_k=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('check-shipping', 0.5988), ('query-order', 0.3862)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('query-order', 0.639), ('check-shipping', 0.4401)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-balance', 0.7349), ('coupon-inquiry', 0.7164), ('check-shipping', 0.645), ('query-order', 0.595), ('request-return', 0.4354)] top_k=5
+2026-08-18 21:52:09 [warning  ] P2 ������ P1 top-1 ���ߣ�����Сģ�����У�׷�ӻؽ���� p1_selected=['check-shipping', 'query-order', 'request-return'] p2_ranked=['check-balance', 'coupon-inquiry', 'check-shipping'] p2_top1=check-balance
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-shipping', 0.3845), ('coupon-inquiry', 0.2491), ('check-balance', 0.2352), ('query-order', 0.1222), ('request-return', 0.096)] top_k=5
+2026-08-18 21:52:09 [info     ] ���� embedding �����������            dim=64 tool_count=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('check-shipping', 0.5988), ('query-order', 0.3862)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('query-order', 0.639), ('check-shipping', 0.4401)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-balance', 0.7349), ('coupon-inquiry', 0.7164), ('check-shipping', 0.645), ('query-order', 0.595), ('request-return', 0.4354)] top_k=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-shipping', 0.3845), ('coupon-inquiry', 0.2491), ('check-balance', 0.2352), ('query-order', 0.1222), ('request-return', 0.096)] top_k=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('check-shipping', 0.5988), ('query-order', 0.3862)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=2 scores=[('query-order', 0.639), ('check-shipping', 0.4401)] top_k=2
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-balance', 0.7349), ('coupon-inquiry', 0.7164), ('check-shipping', 0.645), ('query-order', 0.595), ('request-return', 0.4354)] top_k=5
+2026-08-18 21:52:09 [info     ] Embedding �����������               candidates=5 scores=[('check-shipping', 0.3845), ('coupon-inquiry', 0.2491), ('check-balance', 0.2352), ('query-order', 0.1222), ('request-return', 0.096)] top_k=5
+.s
+
+============================== warnings summary ===============================
+src\core\config.py:5
+  E:\workspace\shop-agent\apps\shop-agent\src\core\config.py:5: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class Settings(BaseSettings):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 1 passed, 1 skipped, 1 warning in 17.21s ===================

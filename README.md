@@ -121,6 +121,7 @@ P0/P1/P2 三层工具选择只产出**结构化的 `ToolPlan`**，不再由 LLM/
   - **审计查询**：`GET /rca/history`（RCA 历史）、`GET /remediate/plans`（计划/审批/执行记录）
   - **持久化**：PostgreSQL（`rca_runs/remediation_plans/approvals/executions`），DB 降级不影响主链路
   - **Prometheus 指标**：`rca_total`、`rca_persisted_total`、`persist_failure_total`、`remediate_plans_total`、`approvals_total`、`executions_total`
+  - **Docker 沙箱**（已实现，本期默认关闭）：可切换的隔离执行环境，当前默认仿真后端干跑验证；触发条件满足时（LLM 生成任意脚本 / 自动执行 / 第三方插件）切换为 Docker 容器隔离（网络受限 + 资源上限 + 库白名单），确保不可信代码在可控边界内运行，不直接影响生产环境
 - **Prometheus**：自动暴露 HTTP 请求指标，业务自定义指标（API 调用、数据库查询、向量检索、Embedding 请求、缓存、Agent 对话、Token 消耗、异常统计），LangChain 标准回调处理器追踪 LLM/Agent/Tool 事件
 - **SkyWalking**：gRPC 上报分布式链路追踪，与 Prometheus 互补，不可用时优雅降级
 - **Langfuse**：全链路追踪 LLM 调用、Agent 执行、意图识别、参数抽取、工具匹配，shutdown 时 flush 确保数据不丢失
@@ -163,6 +164,23 @@ P0/P1/P2 三层工具选择只产出**结构化的 `ToolPlan`**，不再由 LLM/
 - **流程与 Skill 正交**：Skill = 单节点的 SOP 与工具实现；流程 = 节点的连接顺序。一个 Skill 可被多流程节点引用，一个流程可串多个 Skill + 非 Skill 原语。
 - **细粒度编排（子图）**：`react` 节点可用 `subgraph` 引用子图，将 ReAct 内部步骤（查单→校验→确认→执行）显式拆为子图节点，编译器内联展开（`<node.id>__<sub_id>` 前缀），子图内 `human_approval` 的 `interrupt` 落在父图层，resume 与顶层一致。RAG 固定四步也可拆为 `rag_rewrite` / `rag_review` / `rag_retrieve` / `rag_generate` 四个 YAML 节点。
 - **校验与调试**：内置 YAML 校验器（`validator.py`）做必填字段、边引用合法性、entry 存在性、read_from 存在性与 required 校验；解析器兼容 LangGraph Studio 调试入口（`get_graph()`）。
+
+### 14. 分层记忆架构
+
+系统实现四层记忆体系，解决 Agent "每天失忆"问题：
+
+- **L1 工作记忆**：Redis List 存储当前对话轮次（最近 20 轮），1 天 TTL
+- **L2 短期记忆**：Milvus 向量存储，最近 7 天对话摘要，轮次触发（每 5 轮）+ 批量兜底
+- **L3 长期记忆**：PostgreSQL（用户画像/订单/投诉结构化数据）+ Milvus（向量化记忆），LLM 提取 + 事件驱动更新
+- **L4 知识记忆**：现有 RAG 知识库，商品信息/政策文档/FAQ
+
+核心能力：
+- **MRAG 检索融合**：RAG 路径自动召回 L2/L3 记忆，与知识库结果统一注入 Prompt
+- **记忆提取**：LLM 从对话中提取结构化记忆（偏好/订单/投诉/待办），异步执行不阻塞响应
+- **遗忘机制**：重要性加权遗忘（90 天归档 / 365 天删除），K8s CronJob 每日执行
+- **可观测性**：Prometheus 指标覆盖召回延迟/命中率/上下文大小，黄金对回归测试
+
+记忆作为横切关注点集成，不修改现有 Pipeline 的 4 步序列。
 
 ---
 
@@ -234,7 +252,7 @@ flowchart TD
 | `src/modules/auth` | Bearer Token API Key 认证鉴权 |
 | `src/modules/chat` | 智能客服核心模块，含 A2A 协议路由 |
 | `src/modules/chat/agent` | Agent 编排、通用执行器、ReAct Agent、Skill 加载器、提示词管理、纠纷协调器 |
-| `src/modules/chat/core` | LLM 服务、Embedding 服务、向量检索服务、Redis 缓存服务、意图识别器、文档服务、Reranker 服务、工具注册与服务、本地模型服务、内容安全过滤、同义词归一化、情绪检测、图查询服务、参数抽取器、MCP Server、A2A 任务服务、A2A Webhook 服务、Agent Card 构建器 |
+| `src/modules/chat/core` | LLM 服务、Embedding 服务、向量检索服务、Redis 缓存服务、意图识别器、文档服务、Reranker 服务、工具注册与服务、本地模型服务、内容安全过滤、同义词归一化、情绪检测、图查询服务、参数抽取器、**记忆服务（L2/L3/MRAG/遗忘）**、MCP Server、A2A 任务服务、A2A Webhook 服务、Agent Card 构建器 |
 | `src/modules/items` | 企业信息查询，路由前缀 `/reports` |
 | `src/modules/monitoring` | Prometheus 指标定义 + LangChain 回调 + Langfuse 回调 + SkyWalking 分布式追踪客户端 |
 
@@ -338,6 +356,15 @@ JSON 格式结构化日志，FastAPI 中间件自动记录每个请求的方法�
 - 过期时间控制，最大返回条数限制
 - 回答生成时从 Redis 获取历史，截断后注入 prompt
 - 不可用时返回空历史静默降级
+
+### 记忆架构：四层分层 + MRAG 融合
+
+- **分层设计**：L1（Redis，1 天）/ L2（Milvus，7 天摘要）/ L3（PG+Milvus，永久结构化记忆）/ L4（Milvus，知识库）
+- **单 Collection 复用**：L2/L3/L4 共用 `memory_blocks` Collection，通过 `block_type` 区分
+- **记忆块原子性**：一条块 = 一个事实，状态变更更新原块，历史事实新建块
+- **MRAG 检索**：仅 RAG 路径加载 L2/L3，ReAct/direct_tool/纠纷协调不加载，避免性能损耗
+- **Prompt 注入顺序**：用户画像 → 近期对话摘要 → 历史记忆 → 知识库结果
+- **降级优先**：记忆系统故障时静默降级为纯 RAG，不影响主链路
 
 ### Token 消耗优化
 

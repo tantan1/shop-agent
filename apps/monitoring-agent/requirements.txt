@@ -8,3 +8,4 @@ psycopg2-binary
 psycopg[binary]
 kubernetes>=28.1.0
 pydantic
+docker

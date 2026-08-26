@@ -86,7 +86,8 @@ def _compile_router(conditions: List[Condition]):
 # ───────────────────────────── 节点函数工厂 ─────────────────────────────
 
 def _make_node_fn(node: NodeDef, *, llm_service=None, tool_service=None, skill_registry=None,
-                  embedding_service=None, milvus_service=None, redis_cache_service=None):
+                  embedding_service=None, milvus_service=None, redis_cache_service=None,
+                  approval_store=None, execution_store=None):
     """构造 LangGraph 节点函数：负责 read_from 组装 + 调 handler + write_to 写回。
 
     同时把守卫（input_filter/output_filter）作为节点前后置包装（阶段 2.6）。
@@ -97,6 +98,7 @@ def _make_node_fn(node: NodeDef, *, llm_service=None, tool_service=None, skill_r
         skill_registry=skill_registry,
         embedding_service=embedding_service, milvus_service=milvus_service,
         redis_cache_service=redis_cache_service,
+        approval_store=approval_store, execution_store=execution_store,
     )
     read_from = node.config.read_from
     write_to = node.config.write_to
@@ -139,15 +141,20 @@ class FlowCompiler:
     """FlowFile → CompiledGraph（阶段 2.1-2.9）。"""
 
     def __init__(self, *, llm_service=None, tool_service=None, skill_registry=None,
-                 embedding_service=None, milvus_service=None, redis_cache_service=None):
+                 embedding_service=None, milvus_service=None, redis_cache_service=None,
+                 approval_store=None, execution_store=None):
         self._llm = llm_service
         self._tool = tool_service
         self._skill_registry = skill_registry
         self._embedding = embedding_service
         self._milvus = milvus_service
         self._redis = redis_cache_service
+        self._approval_store = approval_store
+        self._execution_store = execution_store
 
-    def compile(self, flow: FlowFile, checkpointer=None) -> CompiledFlow:
+    def compile(self, flow: FlowFile, checkpointer=None, *, approval_store=None, execution_store=None) -> CompiledFlow:
+        approval_store = approval_store or self._approval_store
+        execution_store = execution_store or self._execution_store
         # 编译期安全强校验：敏感 Skill 必须有 SOP（5.3）且高后果字段强制绑定（5.2）。
         # 纯结构校验在 loader 已做；此处带 registry 做语义强校验（fail-closed 拒绝发布）。
         validate_flow(flow, skill_registry=self._skill_registry)
@@ -212,6 +219,7 @@ class FlowCompiler:
                 skill_registry=self._skill_registry,
                 embedding_service=self._embedding, milvus_service=self._milvus,
                 redis_cache_service=self._redis,
+                approval_store=approval_store, execution_store=execution_store,
             )
             workflow.add_node(nid, fn)
 
@@ -256,7 +264,7 @@ class FlowCompiler:
         else:
             workflow.set_entry_point(entry)
 
-        return CompiledFlow(workflow, checkpointer=checkpointer)
+        return CompiledFlow(workflow, checkpointer=checkpointer, execution_store=execution_store)
 
     # ── Studio 兼容（阶段 2.10）──
     def get_graph(self, flow: FlowFile):

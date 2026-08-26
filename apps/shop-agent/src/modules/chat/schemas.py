@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
         description="用户消息，限制 1-5000 字符。超过内置 token 预算会自动智能截断并提示用户",
     )
     conversation_id: Optional[str] = Field(default=None, description="对话ID，用于多轮对话")
+    user_id: Optional[str] = Field(default=None, description="用户ID，匿名用户可不传")
     stream: bool = Field(default=True, description="是否启用流式输出")
     domain: str = Field(
         default="ecommerce", description="业务领域: medical/ecommerce/customer_service/general"

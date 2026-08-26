@@ -22,6 +22,14 @@ from src.modules.chat.core.tool_registry import ToolService
 class TestIntentRecognizer:
     """意图识别器单元测试 —— 5个远程API意图 + 复杂性门控"""
 
+    @pytest.fixture(autouse=True)
+    def clean_faiss_class_state(self):
+        yield
+        from src.modules.chat.core.intent_recognizer import IntentRecognizer as IR
+        IR._faiss_index = None
+        IR._intent_actions = []
+        IR._intent_dim = 0
+
     @pytest.mark.asyncio
     async def test_recognize_query_order(self):
         """查订单意图识别"""
@@ -134,10 +142,9 @@ class TestIntentRecognizer:
         mock_es.get_embeddings.return_value = mock_emb
 
         recognizer = IntentRecognizer(embedding_service=mock_es)
-        # 注入 mock 的 FAISS 索引和对应 labels
-        recognizer._faiss_index = mock_index
-        recognizer._intent_actions = actions_flat
-        recognizer._intent_dim = 768
+        IntentRecognizer._faiss_index = mock_index
+        IntentRecognizer._intent_actions = actions_flat
+        IntentRecognizer._intent_dim = 768
         return recognizer
 
 

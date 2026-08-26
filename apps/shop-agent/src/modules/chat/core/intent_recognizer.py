@@ -1,25 +1,20 @@
 """
-意图识别器 —— 本地 FAISS 向量匹配 + LLM 兜底 + 参数抽取
+意图识别器 —— 本地 FAISS 向量匹配
 
 负责：
 1. FAISS 意图向量索引构建（复用已有 BGE 模型）
 2. 否定词过滤 → 直接回退 RAG
 3. 意图命中后的复杂性检测（simple vs multi_step）
-4. 参数字段抽取（local / local_model / llm 三模式）
-5. LLM 意图识别（兜底模式）
 """
 
-import json
 import time as _perf_time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import faiss
 import numpy as np
 
 from src.core.config import config
-from src.modules.chat.core.param_extractor import LocalParamExtractor
-from src.modules.chat.schemas import INTENT_PARAM_SCHEMAS, PARAM_EXTRACTION_PROMPTS, IntentResult
-from src.modules.monitoring.langfuse_callback import observe
+from src.modules.chat.schemas import IntentResult
 from src.shared.logger import APILogger
 
 logger = APILogger("intent_recognizer")
@@ -255,229 +250,13 @@ class IntentRecognizer:
         return complexity, reason
 
     # ════════════════════════════════════════════════════════════════════════
-    # 参数抽取
+    # 统一入口
+    # ════════════════════════════════════════════════════════════════════════
+    # 统一入口
     # ════════════════════════════════════════════════════════════════════════
 
-    async def extract_params(
-        self, message: str, action: str, langfuse_handler=None
-    ) -> Dict[str, Any]:
-        """
-        参数抽取（支持 local / local_model / llm 三种模式）。
-
-        在意图命中后，从用户原话中提取结构化参数，如 order_id、tracking_number 等。
-
-        按 PARAM_EXTRACTION_MODE 指定的起点开始，逐级兜底：
-        - local       → 纯正则失败后自动降级到 local_model → llm
-        - local_model → 从 transformers 小模型开始，失败降级到 llm
-        - llm         → 直接调用 Qwen structured output
-        - local_strict → 只用正则，不降级（零API调用保证）
-
-        Args:
-            message: 用户原始消息
-            action:  意图 action (query-order / check-shipping / ...)
-            langfuse_handler: 外部 Langfuse CallbackHandler
-
-        Returns:
-            参数字典，如 {"order_id": "WB202405270001"}；抽取失败返回 {}
-        """
-        mode = getattr(config, "PARAM_EXTRACTION_MODE", "local")
-        t_start = _perf_time.perf_counter()
-
-        # ── local_strict: 只用正则，不做任何 API 调用 ──
-        if mode == "local_strict":
-            result = await self._extract_via_local(message, action)
-            t_total = (_perf_time.perf_counter() - t_start) * 1000
-            print(f"[⏱] 参数抽取 [local_strict] {t_total:.0f}ms (action={action})")
-            logger.info(f"参数抽取耗时 [local_strict]: {t_total:.1f}ms (action={action})")
-            return result
-
-        # ── local（默认）: 正则 → 失败则 local_model → 失败则 llm ──
-        if mode == "local":
-            # 正则优先：订单号/单号是字面量，正则逐字符复制，不会像 LLM 那样抄错位数
-            # （实测 qwen 把「111335」抽成「11133」、把「111」抽成「1111」）。
-            t0 = _perf_time.perf_counter()
-            result = await self._extract_via_local(message, action)
-            if result:
-                t_total = (_perf_time.perf_counter() - t_start) * 1000
-                t_local = (_perf_time.perf_counter() - t0) * 1000
-                print(
-                    f"[⏱] 参数抽取 [local✓] total={t_total:.0f}ms local={t_local:.0f}ms (action={action})"
-                )
-                logger.info(
-                    f"参数抽取耗时 [local✓]: total={t_total:.1f}ms, local={t_local:.1f}ms (action={action})"
-                )
-                return result
-            logger.info(f"正则参数抽取无果(action={action})，降级到 local_model")
-            t0 = _perf_time.perf_counter()
-            result = await self._extract_via_local_model(message, action)
-            t_local_model = (_perf_time.perf_counter() - t0) * 1000
-            if result:
-                t_total = (_perf_time.perf_counter() - t_start) * 1000
-                print(
-                    f"[⏱] 参数抽取 [local→local_model✓] total={t_total:.0f}ms local_model={t_local_model:.0f}ms (action={action})"  # noqa: E501
-                )
-                logger.info(
-                    f"参数抽取耗时 [local→local_model✓]: total={t_total:.1f}ms, local_model={t_local_model:.1f}ms (action={action})"  # noqa: E501
-                )
-                return result
-            logger.info(f"小模型参数抽取无果(action={action})，降级到 llm")
-            t0 = _perf_time.perf_counter()
-            llm_result = await self._extract_via_llm(
-                message, action, langfuse_handler=langfuse_handler
-            )
-            t_llm = (_perf_time.perf_counter() - t0) * 1000
-            t_total = (_perf_time.perf_counter() - t_start) * 1000
-            print(
-                f"[⏱] 参数抽取 [local→local_model✗→llm] total={t_total:.0f}ms local_model={t_local_model:.0f}ms llm={t_llm:.0f}ms (action={action})"  # noqa: E501
-            )
-            logger.info(
-                f"参数抽取耗时 [local→local_model✗→llm]: total={t_total:.1f}ms, local_model={t_local_model:.1f}ms, llm={t_llm:.1f}ms (action={action})"  # noqa: E501
-            )
-            return llm_result
-
-        # ── local_model: 小模型 → 失败则 llm ──
-        if mode == "local_model":
-            t0 = _perf_time.perf_counter()
-            result = await self._extract_via_local_model(message, action)
-            t_local_model = (_perf_time.perf_counter() - t0) * 1000
-            if result:
-                t_total = (_perf_time.perf_counter() - t_start) * 1000
-                print(
-                    f"[⏱] 参数抽取 [local_model✓] total={t_total:.0f}ms local_model={t_local_model:.0f}ms (action={action})"  # noqa: E501
-                )
-                logger.info(
-                    f"参数抽取耗时 [local_model✓]: total={t_total:.1f}ms, local_model={t_local_model:.1f}ms (action={action})"  # noqa: E501
-                )
-                return result
-            logger.info(f"小模型参数抽取无果(action={action})，降级到 llm")
-            t0 = _perf_time.perf_counter()
-            llm_result = await self._extract_via_llm(
-                message, action, langfuse_handler=langfuse_handler
-            )
-            t_llm = (_perf_time.perf_counter() - t0) * 1000
-            t_total = (_perf_time.perf_counter() - t_start) * 1000
-            print(
-                f"[⏱] 参数抽取 [local_model✗→llm] total={t_total:.0f}ms local_model={t_local_model:.0f}ms llm={t_llm:.0f}ms (action={action})"  # noqa: E501
-            )
-            logger.info(
-                f"参数抽取耗时 [local_model✗→llm]: total={t_total:.1f}ms, local_model={t_local_model:.1f}ms, llm={t_llm:.1f}ms (action={action})"  # noqa: E501
-            )
-            return llm_result
-
-        # ── llm ──
-        result = await self._extract_via_llm(message, action, langfuse_handler=langfuse_handler)
-        t_total = (_perf_time.perf_counter() - t_start) * 1000
-        print(f"[⏱] 参数抽取 [llm] {t_total:.0f}ms (action={action})")
-        logger.info(f"参数抽取耗时 [llm]: {t_total:.1f}ms (action={action})")
-        return result
-
-    # ── 三级抽取方法 ─────────────────────────────────────────────────
-
-    @staticmethod
-    async def _extract_via_local(message: str, action: str) -> Dict[str, Any]:
-        """纯正则 + 关键词（毫秒级，零 API）"""
-        try:
-            params = LocalParamExtractor.extract(message, action)
-            logger.info(
-                "本地参数抽取",
-                action=action,
-                mode="local",
-                extracted=list(params.keys()),
-                values=str(params)[:200],
-            )
-            return params
-        except Exception as e:
-            logger.warning(f"本地参数抽取异常(action={action}): {str(e)[:150]}")
-            return {}
-
-    @staticmethod
-    @observe(name="intent.extract_params_local_model")
-    async def _extract_via_local_model(message: str, action: str) -> Dict[str, Any]:
-        """transformers 本地小模型（免费，智能，秒级）"""
-        param_schema = INTENT_PARAM_SCHEMAS.get(action)
-        extraction_prompt = PARAM_EXTRACTION_PROMPTS.get(action)
-        if param_schema is None:
-            logger.warning(f"未注册参数 schema: {action}")
-            return {}
-
-        try:
-            from src.modules.chat.core.local_model_service import LocalModelService
-
-            local_model = LocalModelService.get_instance()
-            params = await local_model.extract_params(
-                extraction_prompt=extraction_prompt,
-                message=message,
-                output_schema=param_schema,
-                max_retries=2,
-            )
-            logger.info(
-                "本地模型参数抽取",
-                action=action,
-                mode="local_model",
-                extracted=list(params.keys()),
-                values=str(params)[:200],
-            )
-            return params
-        except Exception as e:
-            logger.warning(f"本地模型参数抽取失败(action={action}): {str(e)[:150]}")
-            return {}
-
-    async def _extract_via_llm(
-        self, message: str, action: str, langfuse_handler=None
-    ) -> Dict[str, Any]:
-        """Qwen structured output（最精准，需 API）"""
-        param_schema = INTENT_PARAM_SCHEMAS.get(action)
-        extraction_prompt = PARAM_EXTRACTION_PROMPTS.get(action)
-
-        if param_schema is None:
-            logger.warning(f"未注册参数 schema: {action}，返回空参数")
-            return {}
-
-        if self._llm_service is None:
-            logger.warning("LLM服务未初始化，无法进行LLM参数抽取，返回空参数")
-            return {}
-
-        try:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一个参数提取助手。根据指令从用户消息中提取结构化参数。"
-                        "只返回 JSON，不要额外解释。"
-                    ),
-                },
-                {"role": "user", "content": f"{extraction_prompt}\n\n用户消息: {message}"},
-            ]
-
-            result = await self._llm_service.chat_qwen_structured(
-                messages=messages,
-                output_schema=param_schema,
-                langfuse_handler=langfuse_handler,
-                temperature=0.0,
-            )
-
-            params = {k: v for k, v in result.model_dump().items() if v is not None}
-
-            logger.info(
-                "LLM参数抽取",
-                action=action,
-                mode="llm",
-                extracted=list(params.keys()),
-                values=str(params)[:200],
-            )
-            return params
-
-        except Exception as e:
-            logger.warning(f"LLM参数抽取失败(action={action}): {str(e)[:150]}, 回退到空参数")
-            return {}
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 本地意图识别（否定过滤 + FAISS 向量匹配）
-    # ════════════════════════════════════════════════════════════════════════
-
-    @observe(name="intent.recognize_local")
-    async def _recognize_local(self, message: str) -> IntentResult:
-        """本地意图识别（否定过滤 + FAISS向量匹配）。无LLM调用，延迟 < 5ms"""
+    async def recognize(self, message: str, langfuse_handler=None) -> IntentResult:
+        """本地意图识别（否定过滤 + FAISS 向量匹配）。无 LLM 调用，延迟 < 5ms"""
         t_total_start = _perf_time.perf_counter()
 
         # ---- 第一层：否定模式过滤（咨询类问题走 RAG） ----
@@ -507,16 +286,13 @@ class IntentRecognizer:
 
                 query_vec_np = np.array([query_vec], dtype=np.float32)
 
-                # FAISS IndexFlatIP.search: 返回 (distances, indices)
-                # distances = 内积即余弦相似度（BGE向量已归一化）
-                k = min(2, IntentRecognizer._faiss_index.ntotal)  # 取 top-2 便于观察第二名差距
+                k = min(2, IntentRecognizer._faiss_index.ntotal)
                 scores, indices = IntentRecognizer._faiss_index.search(query_vec_np, k)
 
                 best_score = float(scores[0][0])
                 best_idx = int(indices[0][0])
                 best_action = IntentRecognizer._intent_actions[best_idx]
 
-                # 可选：输出 top-2 用于调试
                 if k >= 2:
                     second_score = float(scores[0][1])
                     second_action = IntentRecognizer._intent_actions[int(indices[0][1])]
@@ -527,7 +303,6 @@ class IntentRecognizer:
 
                 threshold = getattr(config, "INTENT_VECTOR_SIMILARITY_THRESHOLD", 0.65)
                 if best_score > threshold:
-                    # 意图命中后，做复杂性检测：是需要 ReAct 还是直接调 tool
                     complexity, reason = self.assess_complexity(message, best_action, best_score)
                     t_total = (_perf_time.perf_counter() - t_total_start) * 1000
                     print(
@@ -559,55 +334,3 @@ class IntentRecognizer:
             f"embed={t_embed:.0f}ms"
         )
         return IntentResult(intent="rag_answer")
-
-    # ════════════════════════════════════════════════════════════════════════
-    # LLM 意图识别（兜底）
-    # ════════════════════════════════════════════════════════════════════════
-
-    async def _recognize_llm(self, message: str, langfuse_handler=None) -> IntentResult:
-        """使用 LLM 识别用户意图（兜底模式）"""
-        from src.modules.chat.agent.prompts import PromptTemplateManager
-
-        template = PromptTemplateManager.get("ecommerce", "ecommerce_intent_recognition")
-        if not template:
-            logger.warning("意图识别模板未配置，回退到 rag_answer")
-            return IntentResult(intent="rag_answer")
-
-        if self._llm_service is None:
-            logger.warning("LLM服务未初始化，回退到 rag_answer")
-            return IntentResult(intent="rag_answer")
-
-        prompt_content = template.format()
-        messages = [
-            {"role": "system", "content": prompt_content},
-            {"role": "user", "content": f"用户消息：{message}"},
-        ]
-
-        try:
-            raw = await self._llm_service.chat_qwen(
-                messages, temperature=0.0, langfuse_handler=langfuse_handler
-            )
-            raw = raw.strip()
-            # 兼容 markdown code block
-            if raw.startswith("```json"):
-                raw = raw.split("```json")[1].split("```")[0].strip()
-            elif raw.startswith("```"):
-                raw = raw.split("```")[1].split("```")[0].strip()
-            data = json.loads(raw)
-            result = IntentResult(**data)
-            logger.info("LLM意图识别完成", intent=result.intent, action=result.action)
-            return result
-        except Exception as e:
-            logger.warning(f"LLM意图识别JSON解析失败，回退到 rag_answer: {str(e)}")
-            return IntentResult(intent="rag_answer")
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 统一入口
-    # ════════════════════════════════════════════════════════════════════════
-
-    async def recognize(self, message: str, langfuse_handler=None) -> IntentResult:
-        """意图识别（根据配置选择 LLM 或本地识别）"""
-        mode = getattr(config, "INTENT_RECOGNITION_MODE", "local")
-        if mode == "llm":
-            return await self._recognize_llm(message, langfuse_handler=langfuse_handler)
-        return await self._recognize_local(message)

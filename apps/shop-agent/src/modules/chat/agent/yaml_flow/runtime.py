@@ -1,7 +1,8 @@
 """YAML 编排运行时状态与图封装（阶段 2.7 / 2.9）。
 
 定义 LangGraph 用的 GraphState（与 YAML state.fields 对齐），以及编译后图的
-ainvoke 入口封装。checkpointer 默认 MemorySaver（v1），线上替换为 Redis。
+ainvoke 入口封装。checkpointer 默认 RedisCheckpointSaver（Redis 不可用时
+自动降级为内存 MemorySaver）。
 """
 
 from __future__ import annotations
@@ -9,9 +10,10 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 from langgraph.types import Command
+
+from src.modules.chat.agent.yaml_flow.checkpointer import RedisCheckpointSaver
 
 # GraphState：节点间共享状态（与 YAML state.fields 对齐，阶段 1.5a）。
 # - messages：对话历史（list[dict]，累加 reducer）
@@ -56,8 +58,16 @@ class CompiledFlow:
     提供 ainvoke 入口，内部用 checkpointer 支撑 human_approval 的 interrupt/resume。
     """
 
-    def __init__(self, workflow: StateGraph, *, checkpointer=None, recursion_limit: int = 25):
-        self._checkpointer = checkpointer or MemorySaver()
+    def __init__(
+        self,
+        workflow: StateGraph,
+        *,
+        checkpointer=None,
+        execution_store=None,
+        recursion_limit: int = 25,
+    ):
+        self._checkpointer = checkpointer or RedisCheckpointSaver()
+        self._execution_store = execution_store
         self._recursion_limit = recursion_limit
         self._graph = workflow.compile(
             checkpointer=self._checkpointer,
@@ -79,10 +89,31 @@ class CompiledFlow:
         转成「等待审批」响应（阶段 3.1 / 3.2）。
         """
         tid = thread_id or state.get("thread_id") or "default"
-        result = await self._graph.ainvoke(
-            state,
-            config={"configurable": {"thread_id": tid}, "recursion_limit": self._recursion_limit},
-        )
+        try:
+            result = await self._graph.ainvoke(
+                state,
+                config={"configurable": {"thread_id": tid}, "recursion_limit": self._recursion_limit},
+            )
+        except Exception as exc:
+            if self._execution_store is not None:
+                await self._execution_store.save_execution(
+                    thread_id=tid,
+                    state=state,
+                    current_node=state.get("current_node", ""),
+                    status="failed",
+                    error_message=str(exc),
+                )
+            raise
+
+        if self._execution_store is not None:
+            is_suspended = result.get("hitl_pending") is not None
+            status = "suspended" if is_suspended else "completed"
+            await self._execution_store.save_execution(
+                thread_id=tid,
+                state=result,
+                current_node=result.get("current_node", ""),
+                status=status,
+            )
         return result
 
     async def aresume(self, thread_id: str, confirm: bool) -> Dict[str, Any]:
@@ -99,10 +130,24 @@ class CompiledFlow:
         Returns:
             恢复执行后的最终 state（dict）
         """
+        if self._execution_store is not None:
+            await self._execution_store.append_event(
+                thread_id=thread_id,
+                event_type="resumed",
+                payload={"confirm": confirm},
+                node_name="human_approval",
+            )
         result = await self._graph.ainvoke(
             Command(resume=confirm),
             config={"configurable": {"thread_id": thread_id}, "recursion_limit": self._recursion_limit},
         )
+        if self._execution_store is not None:
+            await self._execution_store.save_execution(
+                thread_id=thread_id,
+                state=result,
+                current_node=result.get("current_node", ""),
+                status="completed",
+            )
         return result
 
     def get_graph(self):

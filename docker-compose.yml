@@ -634,6 +634,14 @@ services:
       SKYWALKING_URL: ${SKYWALKING_URL:-http://skywalking-oap:12800}
       SKYWALKING_ENABLED: ${SKYWALKING_ENABLED:-1}
       STATIC_DEPENDENCIES: ${STATIC_DEPENDENCIES:-}
+      # Docker 沙箱（§10.6）：默认关闭，显式启用后 monitoring-agent 可通过 Docker socket 创建隔离容器
+      SANDBOX_ENABLED: ${SANDBOX_ENABLED:-0}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.11-slim}
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
+      SANDBOX_MEM_LIMIT: ${SANDBOX_MEM_LIMIT:-256m}
+      SANDBOX_CPU_LIMIT: ${SANDBOX_CPU_LIMIT:-0.5}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker 沙箱必需（Docker-in-Docker）
     depends_on:
       shop-agent: { condition: service_started }
       gateway: { condition: service_started }

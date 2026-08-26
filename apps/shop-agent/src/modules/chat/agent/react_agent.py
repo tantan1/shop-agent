@@ -36,7 +36,6 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.modules.chat.agent.react_agent_interrupt import (
     InterruptContext,
-    _INTERRUPT_MEM,
     _pop_interrupt,
     _store_interrupt,
 )
@@ -123,8 +122,9 @@ class ReActRunContext:
     request: ChatRequest
     intent_result: IntentResult
     conversation_id: str
-    domain: str
-    intent_steps: list
+    user_id: str = ""
+    domain: str = ""
+    intent_steps: list = None
     langfuse_handler: Any = None
 
 
@@ -165,6 +165,7 @@ class ReActAgent:
         emotion_result: Any = None,
         input_truncated: bool = False,
         skill_filter: str | None = None,
+        approval_store=None,
     ):
         self._llm_service = llm_service
         self._tool_service = tool_service
@@ -173,13 +174,15 @@ class ReActAgent:
         self._max_iterations = max_iterations
         self._emotion_result = emotion_result
         self._input_truncated = input_truncated
-        # 单 skill 收敛：指定后仅构建该 skill 工具集，绕过节点内 P0/P1/P2 精选
         self._skill_filter = skill_filter
 
         self._skill_registry = _skill_registry()
 
         from src.modules.chat.agent.command_tool_service import CommandToolService
-        self._command_tool_service = CommandToolService(tool_service=self._tool_service)
+        self._command_tool_service = CommandToolService(
+            tool_service=self._tool_service,
+            approval_store=approval_store,
+        )
 
         self._all_tools = self._build_tools()
 
@@ -896,18 +899,7 @@ class ReActAgent:
             order_id=order_id,
             approval_id=approval_id,
         )
-        _store_interrupt(
-            InterruptContext(
-                thread_id=approval_ctx.conversation_id,
-                graph=approval_ctx.agent_graph,
-                config=approval_ctx.config,
-                conversation_id=approval_ctx.conversation_id,
-                intent_steps=approval_ctx.intent_steps,
-                domain=approval_ctx.domain,
-                order_id=order_id,
-                reason=reason,
-            )
-        )
+        # 中断上下文由 PostgreSQL human_approvals 管理，不再写入 Redis
 
         if approval_ctx.langfuse_ctx:
             approval_ctx.langfuse_ctx.__exit__(None, None, None)
@@ -1031,16 +1023,28 @@ class ReActAgent:
         thread_id: str,
         confirm: bool,
         tool_service: "ToolService | None" = None,
+        approval_store=None,
     ) -> "ChatResponse | None":
         """恢复被人在回路中断的退款执行（命令模式）。"""
         from src.modules.chat.agent.command_tool_service import CommandToolService
 
-        stored = _pop_interrupt(thread_id)
-        if stored is None:
-            logger.warning(f"未找到待恢复的中断: thread_id={thread_id}")
-            return None
+        if approval_store is not None:
+            approval = await approval_store.get_approval(thread_id)
+            if not approval:
+                logger.warning(f"未找到待恢复的审批: approval_id={thread_id}")
+                return None
+            conversation_id = approval.get("conversation_id", "")
+            intent_steps = approval.get("custom_metadata", {}).get("intent_steps", [])
+            domain = approval.get("domain", "ecommerce")
+            order_id = approval.get("params", {}).get("order_id", "")
+            reason = approval.get("params", {}).get("reason", "")
+        else:
+            stored = _pop_interrupt(thread_id)
+            if stored is None:
+                logger.warning(f"未找到待恢复的中断: thread_id={thread_id}")
+                return None
 
-        _, __, conversation_id, intent_steps, domain, order_id, reason = stored
+            _, __, conversation_id, intent_steps, domain, order_id, reason = stored
 
         if not confirm:
             logger.log_business_event(

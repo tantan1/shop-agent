@@ -613,7 +613,12 @@ class RedisCacheService:
 
         try:
             history_key = self.CHAT_HISTORY_KEY.format(conversation_id=conversation_id)
-            message = json.dumps({"role": role, "content": content}, ensure_ascii=False)
+            # 全局单调递增序号：用于 L2 增量摘要的游标（避免重复/遗漏）
+            seq = self._client.incr(f"{history_key}:seq")
+            message = json.dumps(
+                {"role": role, "content": content, "seq": seq},
+                ensure_ascii=False,
+            )
             pipe = self._client.pipeline()
             pipe.rpush(history_key, message)
             # 保留最近 max_turns * 2 条（每轮一对 user+assistant）
@@ -654,6 +659,46 @@ class RedisCacheService:
             return messages
         except redis.RedisError as e:
             logger.error(f"获取对话消息失败: {str(e)}")
+            return []
+
+    def get_chat_messages_since(
+        self,
+        conversation_id: str,
+        since_seq: int = 0,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """获取 seq 大于 since_seq 的对话消息（用于 L2 增量摘要）。
+
+        Args:
+            conversation_id: 会话ID
+            since_seq: 上次已摘要到的最后一条消息 seq，只返回更大的
+            limit: 最多返回条数（从最近 limit 条中过滤）
+
+        Returns:
+            消息列表 [{"role": ..., "content": ..., "seq": ...}, ...]
+        """
+        if not self.is_available:
+            return []
+
+        try:
+            history_key = self.CHAT_HISTORY_KEY.format(conversation_id=conversation_id)
+            items = self._client.lrange(history_key, -limit, -1)
+
+            messages = []
+            for item in items:
+                try:
+                    msg = json.loads(item)
+                    if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+                        continue
+                    seq = msg.get("seq", 0)
+                    if seq > since_seq:
+                        messages.append(msg)
+                except json.JSONDecodeError:
+                    continue
+
+            return messages
+        except redis.RedisError as e:
+            logger.error(f"获取增量对话消息失败: {str(e)}")
             return []
 
     def get_frequent_questions(self, top_n: int = 20) -> List[Dict[str, Any]]:

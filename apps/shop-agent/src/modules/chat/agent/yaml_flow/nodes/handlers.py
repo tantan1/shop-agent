@@ -480,9 +480,18 @@ class HumanApprovalHandler(NodeHandler):
 
     needs_tool_service = True
 
-    def __init__(self, approval_type: str = "confirm", *, tool_service=None):
+    def __init__(
+        self,
+        approval_type: str = "confirm",
+        *,
+        tool_service=None,
+        approval_store=None,
+        execution_store=None,
+    ):
         self._approval_type = approval_type
         self._tool_service = tool_service
+        self._approval_store = approval_store
+        self._execution_store = execution_store
 
     async def run(self, state, inputs):
         from langgraph.types import interrupt
@@ -498,7 +507,7 @@ class HumanApprovalHandler(NodeHandler):
         conversation_id = state.get("thread_id", "")
         domain = state.get("intent", {}).get("domain", "ecommerce")
 
-        # ── 1. 登记 pending 审批记录（跨请求持久化到 Redis/内存）──
+        # ── 1. 登记 pending 审批记录（PostgreSQL / Redis / 内存）──
         command_name = self._approval_type or state.get("intent", {}).get("action") or "manual_approval"
         command = _ApprovalCommand(command_name)
         ctx = ToolContext(
@@ -507,11 +516,26 @@ class HumanApprovalHandler(NodeHandler):
             conversation_id=conversation_id,
             domain=domain,
         )
-        gate = ApprovalGate(approval_store=None)
+        gate = ApprovalGate(approval_store=self._approval_store)
         pending = await gate.execute_with_approval(command, ctx)
         approval_id = pending.approval_id
         if not approval_id:
             raise RuntimeError("human_approval 创建审批记录失败（approval_id 为空）")
+
+        # ── 1.5 写入执行事件（审批创建）──
+        if self._execution_store is not None:
+            await self._execution_store.append_event(
+                thread_id=conversation_id,
+                event_type="approval_created",
+                payload={
+                    "approval_id": approval_id,
+                    "command_name": command_name,
+                    "action": command_name,
+                    "params_masked": params,
+                    "status": "pending_approval",
+                },
+                node_name="human_approval",
+            )
 
         # ── 2. 挂起前输出安全过滤（阶段 3.5 前）──
         cf = ContentFilterService.get_instance()
@@ -534,8 +558,22 @@ class HumanApprovalHandler(NodeHandler):
         # ── 4. 审批双分支（阶段 3.4）──
         if confirm:
             result = await gate.approve(approval_id)
+            event_type = "approval_approved"
         else:
             result = await gate.reject(approval_id)
+            event_type = "approval_rejected"
+
+        if self._execution_store is not None:
+            await self._execution_store.append_event(
+                thread_id=conversation_id,
+                event_type=event_type,
+                payload={
+                    "approval_id": approval_id,
+                    "confirm": confirm,
+                    "result_status": result.status,
+                },
+                node_name="human_approval",
+            )
 
         # ── 5. 审批后输出安全过滤（阶段 3.5 后，fail-closed）──
         message = result.message or ("操作已执行。" if confirm else "操作已取消。")
@@ -578,6 +616,8 @@ def build_handler(
     milvus_service=None,
     redis_cache_service=None,
     skill_registry=None,
+    approval_store=None,
+    execution_store=None,
 ):
     """节点类型 → handler 实例（阶段 2.4 / 2.5 / 2.6）。
 
@@ -689,8 +729,12 @@ def build_handler(
             skill_registry=skill_registry,
         )
     if node_type == "human_approval":
-        # 编译期不强制 tool_service（图可构建）；运行期 run 再 fail-closed 校验
-        return HumanApprovalHandler(approval_type=approval_type or "confirm", tool_service=tool_service)
+        return HumanApprovalHandler(
+            approval_type=approval_type or "confirm",
+            tool_service=tool_service,
+            approval_store=approval_store,
+            execution_store=execution_store,
+        )
     if node_type in ("input_filter", "output_filter", "lock", "persist", "observe"):
         return GuardHandler(node_type)
 

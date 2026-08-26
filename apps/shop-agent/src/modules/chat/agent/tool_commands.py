@@ -86,13 +86,14 @@ class ApprovalGate:
         if not command.requires_approval():
             return await command.execute(ctx)
 
-        # 执行命令（产生 pending 状态）
         result = await command.execute(ctx)
         if result.status != "pending_approval":
             return result
 
-        # 存储审批记录
-        approval_id = await self._store_approval(command, ctx, result)
+        if self._store is not None:
+            approval_id = await self._store.create_approval(command, ctx, result)
+        else:
+            approval_id = await self._store_approval(command, ctx, result)
         logger.info(
             "Tool 等待审批",
             command=command.command_name,
@@ -108,11 +109,13 @@ class ApprovalGate:
 
     async def approve(self, approval_id: str) -> ToolResult:
         """审批通过：确认执行。"""
-        approval = await self._get_approval(approval_id)
+        if self._store is None:
+            return ToolResult(status="failed", error="审批存储未配置")
+        approval = await self._store.get_approval(approval_id)
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
-        command: ToolCommand = approval.get("command") or approval.get("_command_ref")
+        command: ToolCommand = approval.get("command")
         ctx: ToolContext = approval["context"]
         if command is None:
             return ToolResult(status="failed", error=f"审批命令对象缺失: {approval_id}")
@@ -126,11 +129,13 @@ class ApprovalGate:
 
     async def reject(self, approval_id: str) -> ToolResult:
         """审批拒绝：撤销执行。"""
-        approval = await self._get_approval(approval_id)
+        if self._store is None:
+            return ToolResult(status="failed", error="审批存储未配置")
+        approval = await self._store.get_approval(approval_id)
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
-        command: ToolCommand = approval.get("command") or approval.get("_command_ref")
+        command: ToolCommand = approval.get("command")
         ctx: ToolContext = approval["context"]
         if command is None:
             return ToolResult(status="failed", error=f"审批命令对象缺失: {approval_id}")

@@ -144,7 +144,11 @@ class GenerateStep(BaseStep):
         build_ctx: PromptBuildContext,
     ) -> Tuple[str, str]:
         """构建 prompt 并在超出 token 预算时缩减 RAG 上下文。"""
+        memory_context = getattr(build_ctx.ctx, "memory_context", "") or ""
         def _format_prompt(rag: str) -> str:
+            memory_ctx = ""
+            if memory_context:
+                memory_ctx = f"\n# 用户长期记忆\n{memory_context}\n"
             return build_ctx.template.format(
                 current_time=build_ctx.current_time,
                 graph_context=build_ctx.graph_context or "（无相关商品关系数据）",
@@ -157,6 +161,7 @@ class GenerateStep(BaseStep):
                 knowledge_base=rag,
                 context=rag,
                 category="",
+                memory_context=memory_ctx,
             )
 
         rag_context = build_ctx.rag_context
@@ -232,7 +237,7 @@ class GenerateStep(BaseStep):
         return response, quality_evaluation, output_filter_safe
 
     async def _store_chat_history(self, ctx: AgentContext, request_message: str, response: str):
-        """存储用户和助手消息到 Redis 缓存。"""
+        """存储用户和助手消息到 Redis 缓存，并触发 L2 保存。"""
         if not (ctx.redis_cache_service and ctx.redis_cache_service.is_available):
             return
         try:
@@ -244,8 +249,74 @@ class GenerateStep(BaseStep):
                 ctx.conversation_id, "assistant", response[:4096],
                 max_turns=ctx.config.max_history_turns, expire_days=1,
             )
+
+            # 轮次计数器 + L2 触发
+            turn_key = f"chat:turn_count:{ctx.conversation_id}"
+            turn_number = ctx.redis_cache_service._client.incr(turn_key)
+            ctx.redis_cache_service._client.expire(turn_key, 1 * 86400)
+            if turn_number % 5 == 0:
+                import asyncio
+                asyncio.create_task(
+                    self._trigger_l2_save(ctx, turn_number)
+                )
         except Exception as e:
             logger.warning(f"[{ctx.domain}] 存储缓存失败: {str(e)[:100]}")
+
+    async def _trigger_l2_save(self, ctx: AgentContext, turn_number: int) -> None:
+        """触发 L2 短期记忆保存"""
+        import time
+
+        from src.modules.monitoring.metrics import (
+            l2_save_duration_ms,
+            l2_save_failure_total,
+            l2_save_success_total,
+            l2_save_triggered_total,
+            l2_summary_tokens,
+        )
+
+        start_time = time.perf_counter()
+        l2_save_triggered_total.labels(trigger="turn").inc()
+        try:
+            from src.modules.chat.core.memory_service import ShortTermMemory
+
+            redis = ctx.redis_cache_service
+            dedup_key = f"chat:l2_saved:{ctx.conversation_id}"
+            if redis._client.exists(dedup_key):
+                return
+
+            short_term = ShortTermMemory()
+            history = redis.get_chat_messages(ctx.conversation_id, max_turns=50)
+            if not history:
+                return
+
+            summary = "; ".join([m.get("content", "") for m in history[-10:]])
+            key_entities = []
+
+            try:
+                from src.modules.chat.core.embedding_service import EmbeddingService
+                emb_svc = EmbeddingService.get_instance()
+                embedding = await emb_svc.embed_query(summary)
+            except Exception as e:
+                l2_save_failure_total.labels(trigger="turn", error="embedding_error").inc()
+                logger.warning(f"L2 摘要 embedding 失败: {e}")
+                return
+
+            await short_term.store_summary(
+                user_id=ctx.user_id,
+                conversation_id=ctx.conversation_id,
+                summary=summary,
+                key_entities=key_entities,
+                turn_number=turn_number,
+                embedding=embedding,
+            )
+            redis._client.setex(dedup_key, 7 * 86400, "1")
+            l2_save_success_total.labels(trigger="turn").inc()
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            l2_save_duration_ms.labels(trigger="turn").observe(duration_ms)
+            l2_summary_tokens.observe(len(summary.split()))
+        except Exception:
+            l2_save_failure_total.labels(trigger="turn", error="unknown").inc()
+            logger.debug("L2 保存失败，跳过", exc_info=True)
 
     def _build_success_result(
         self,

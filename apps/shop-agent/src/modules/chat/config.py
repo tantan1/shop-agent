@@ -131,6 +131,12 @@ class ChatConfig:
     mock_llm_error_rate: float = config.MOCK_LLM_ERROR_RATE
     mock_llm_output_tokens: int = config.MOCK_LLM_OUTPUT_TOKENS
 
+    # 遗忘机制配置
+    forgetting_enabled: bool = True
+    forgetting_archive_days: int = 90
+    forgetting_delete_days: int = 365
+    forgetting_check_interval_hours: int = 24
+
 
 chat_config = ChatConfig()
 
@@ -184,6 +190,7 @@ class AgentConfig(BaseModel):
     # 检索配置
     top_k: int = 5
     max_history_turns: int = 10
+    long_conversation_threshold: int = 10  # 长对话阈值：轮次超过该值才启动 L3 每 5 轮兜底提取（电商对话多在 5-10 轮内解决）
     max_history_chars: int = 300  # 回放进窗口时单条历史消息的最大字符数（截断以控制 token 消耗）
     max_retrieval_queries: int = 3
     retrieval_score_threshold: float = (

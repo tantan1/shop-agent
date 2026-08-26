@@ -22,8 +22,10 @@ class AgentContext:
     redis_cache_service: Any = None
     langfuse_handler: Any = None
     conversation_id: str = ""
+    user_id: str = ""
     question_embedding: Optional[List[float]] = None
     graph_context: str = ""
+    memory_context: str = ""  # MRAG 记忆检索结果
 
 
 class BaseStep(ABC):
