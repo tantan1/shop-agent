@@ -68,6 +68,53 @@ class ToolPermissionError(PermissionError):
         super().__init__(f"权限不足：调用方 {client_id}（角色 {role}）无权调用工具 '{tool_name}'")
 
 
+# ── MCP 敏感工具 HITL 清单 ──
+# 经 MCP 调用这些工具时需人工确认（先拦截生成审批单，approve 时才真实调用远程服务）。
+# 设计来源：order-service MCP 工具表（risk=high, hitl=true）。可由运维按需在 config 扩展。
+MCP_SENSITIVE_TOOLS = {
+    "check-balance",
+    "request-return",
+    "refund-confirm",
+}
+
+
+class McpToolCommand:
+    """MCP 远程工具的命令封装（供 ApprovalGate 管理 HITL）。
+
+    采用「先拦截后执行」模型：dispatch 阶段只 create_pending_approval（不真实调用），
+    人工 approve 时 ApprovalGate.approve → command.execute 才真正 call_tool，避免未授权副作用。
+    """
+
+    def __init__(self, action: str, params: Dict[str, Any]):
+        self.command_name = action
+        self._params = params
+
+    async def execute(self, ctx) -> "ToolResult":
+        from src.modules.chat.agent.tool_commands import ToolResult
+
+        # 真实调用远程 MCP 工具（高后果字段由 hardcode 注入，详见 _try_mcp_dispatch）
+        try:
+            client = await get_mcp_client()
+        except Exception as e:
+            return ToolResult(status="failed", error=f"MCP 客户端不可用: {e}")
+
+        from src.modules.chat.core.mcp_client import HIGH_CONSEQUENCE_FIELDS
+
+        hardcode = {k: v for k, v in self._params.items() if k in HIGH_CONSEQUENCE_FIELDS}
+        call_params = {k: v for k, v in self._params.items() if k not in HIGH_CONSEQUENCE_FIELDS}
+        try:
+            result = await client.call_tool(self.command_name, call_params, hardcode=hardcode or None)
+            return ToolResult(status="success", data=result, message=result)
+        except Exception as e:
+            return ToolResult(status="failed", error=str(e))
+
+    async def undo(self, ctx) -> "ToolResult":
+        from src.modules.chat.agent.tool_commands import ToolResult
+
+        # MCP 远程撤销需服务端支持，默认标记不支持
+        return ToolResult(status="failed", error=f"{self.command_name} 不支持撤销")
+
+
 class ToolService:
     """工具执行服务：Tool 定义 + 分发 + 远程 API 调用"""
 
@@ -200,6 +247,12 @@ class ToolService:
 
         替代原 mock_refund_confirmation（仅打印）。订单服务不可用时仅记日志、不抛错，
         人工审批流程由 /agent/refund/confirm 独立驱动。
+
+        ── Phase 5：REST 降级通道（直连 POST）──
+        该退款确认当前经 REST 直连订单服务，尚未迁移到 MCP（order-service 的 MCP 写工具
+        refund-confirm 尚未实现）。dispatch 优先级中 refund-confirm 若走 MCP 路径且已暴露，
+        将经由 McpToolCommand + HITL；本直连通道作为该工具 MCP 化前的承载/兜底。
+        下线条件：order-service 补齐 refund-confirm MCP 工具且生产验证通过后，移除本直连 POST。
         """
         base_url = getattr(config, "ORDER_SERVICE_URL", "")
         if not base_url:
@@ -294,11 +347,28 @@ class ToolService:
         )
 
     @staticmethod
-    async def _call_order_api(action: str, params: Optional[Dict[str, Any]] = None) -> str:
+    async def _call_order_api(
+        action: str,
+        params: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+    ) -> str:
         """调用订单服务（Rust + PostgreSQL）的业务 API，替代原本地 Mock。
 
         契约与 _call_remote_api 兼容：POST {ORDER_SERVICE_URL}/api/<endpoint>，
         响应形如 {"message": ..., "data": {...}}，最终走 _format_remote_api_response 格式化。
+
+        方案 A 配套：将调用方身份 user_id 注入请求体，由后端做数据级归属校验；
+        后端返回 403/404 时转为对用户友好的反问话术（不泄漏原文）。
+
+        ── Phase 5 评估结论（REST 降级通道）──
+        dispatch 优先级为「MCP Client > 本地注册表/REST > mockapi」。当 MCP 已启用且对应
+        工具存在时，调用走 MCP（含高后果字段硬强制 + HITL），本 REST 通道不会触发。
+        当前 order-service 的 MCP Server 仅暴露只读工具（query-order / get-evidence /
+        list-coupons），写操作与余额类工具（check-balance / request-return / refund-confirm
+        / coupon-inquiry）仍需本 REST 通道承载。
+        ⇒ 现阶段【保留】本 REST 降级通道作为过渡；下线条件：order-service 补齐上述 MCP 写工具
+          且生产验证通过后，移除 _execute_* 中的 ORDER_SERVICE_URL 分支与 _record_refund_confirm
+          的直连 POST。本通道当前是「MCP 不可用/未覆盖时的兜底」，非主路径。
 
         Raises:
             OrderServiceError: 订单服务未配置或调用失败（供上层优雅降级到本地 Mock）。
@@ -310,18 +380,46 @@ class ToolService:
             "check-balance": "/api/account/balance",
             "coupon-inquiry": "/api/coupons/list",
             "request-return": "/api/returns/create",
+            "refund-confirm": "/api/refunds/confirm",
         }
         endpoint = endpoint_map.get(action, f"/api/{action}")
         url = f"{base_url.rstrip('/')}{endpoint}"
         params = params or {}
+        # 注入调用方身份，供后端归属校验（方案 A）
+        # 未显式传入时，从当前会话调用方自动取 client_id 作为 user_id
+        if not user_id:
+            try:
+                cur = get_current_client()
+                if cur is not None:
+                    user_id = cur.client_id
+            except Exception:
+                user_id = None
+        if user_id:
+            params = {**params, "user_id": user_id}
         try:
             async with httpx.AsyncClient(
                 timeout=getattr(config, "ORDER_SERVICE_TIMEOUT", 5)
             ) as client:
                 resp = await client.post(url, json={"action": action, **params})
+                if resp.status_code in (403, 404):
+                    # 后端拒绝（无权限 / 订单不存在）→ 友好反问，不泄漏 403 原文
+                    logger.warning(f"订单服务拒绝 ({action}): {resp.status_code}")
+                    return (
+                        "抱歉，您提供的订单号似乎不存在，或不属于当前账号。"
+                        "请核对订单号后重试，或联系客服协助处理。"
+                    )
                 resp.raise_for_status()
                 data = resp.json()
             return ToolService._format_remote_api_response(action, data)
+        except httpx.HTTPStatusError as e:
+            # 其他 4xx/5xx 也走友好兜底，避免把后端错误原文透传给用户
+            if e.response.status_code in (403, 404):
+                return (
+                    "抱歉，您提供的订单号似乎不存在，或不属于当前账号。"
+                    "请核对订单号后重试，或联系客服协助处理。"
+                )
+            logger.error(f"订单服务调用失败 ({action}): {e}")
+            raise OrderServiceError(str(e)) from e
         except Exception as e:
             logger.error(f"订单服务调用失败 ({action}): {e}")
             raise OrderServiceError(str(e)) from e
@@ -381,12 +479,74 @@ class ToolService:
         if not client.has_tool(action):
             return None
 
-        logger.info("MCP tools/call", action=action, params=params)
+        # ── 硬强制：高后果字段（order_id 等）由确定性来源注入，覆盖模型输入（防篡改）──
+        # params 中的高后果字段来自上游 _prepare_intent_params 的 extra_required 正则提取，
+        # 此处显式作为 hardcode 传入 call_tool，确保即便模型侧传入也以确定性值为准。
+        from src.modules.chat.core.mcp_client import HIGH_CONSEQUENCE_FIELDS
+
+        hardcode = {k: v for k, v in params.items() if k in HIGH_CONSEQUENCE_FIELDS}
+        call_params = {k: v for k, v in params.items() if k not in HIGH_CONSEQUENCE_FIELDS}
+
+        # ── 敏感工具 HITL：先拦截生成审批单，approve 时才真实调用远程服务 ──
+        if action in MCP_SENSITIVE_TOOLS:
+            from src.modules.chat.agent.tool_commands import (
+                ApprovalGate,
+                ToolContext,
+            )
+
+            ctx = ToolContext(
+                action=action,
+                params=params,
+                conversation_id=str(params.get("conversation_id", "")),
+            )
+            command = McpToolCommand(action, params)
+            gate = ApprovalGate()
+            approval_id = await gate.create_pending_approval(
+                command,
+                ctx,
+                message=f"该操作（{action}）需人工确认后执行。",
+            )
+            logger.info("MCP 敏感工具进入 HITL", action=action, approval_id=approval_id)
+            return json.dumps(
+                {
+                    "status": "waiting_for_confirmation",
+                    "approval_id": approval_id,
+                    "action": action,
+                    "message": f"该操作（{action}）需人工确认后执行。请回复「确认」以继续。",
+                },
+                ensure_ascii=False,
+            )
+
+        logger.info("MCP tools/call", action=action, params=call_params, hardcode=hardcode)
         try:
-            return await client.call_tool(action, params)
+            return await client.call_tool(action, call_params, hardcode=hardcode or None)
         except Exception as e:
             logger.error(f"MCP tools/call 失败: {action}: {e}，回退到本地/HTTP")
             return None
+
+    # ── MCP HITL 确认入口 ────────────────────────────────────────
+    # 供对话层在用户「确认」后调用：approve 时 ApprovalGate.approve → McpToolCommand.execute
+    # 才真实 call_tool（先拦截后执行模型）。
+
+    @staticmethod
+    async def approve_mcp_tool(approval_id: str) -> str:
+        """审批通过 MCP 敏感工具：真实调用远程服务。"""
+        from src.modules.chat.agent.tool_commands import ApprovalGate
+
+        gate = ApprovalGate()
+        result = await gate.approve(approval_id)
+        if result.status == "success":
+            return result.data if isinstance(result.data, str) else str(result.data)
+        return f"审批执行失败：{result.error or result.message}"
+
+    @staticmethod
+    async def reject_mcp_tool(approval_id: str) -> str:
+        """审批拒绝 MCP 敏感工具：撤销（远程不支持时为 no-op）。"""
+        from src.modules.chat.agent.tool_commands import ApprovalGate
+
+        gate = ApprovalGate()
+        result = await gate.reject(approval_id)
+        return result.message or "已拒绝该操作。"
 
     # ── 远程 API ──────────────────────────────────────────────────
 

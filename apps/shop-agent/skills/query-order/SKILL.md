@@ -10,6 +10,10 @@ tags:
   - 订单号
 allowed-tools: query-order check-shipping
 priority: 10
+examples:
+  - 我的订单 WB202405270001 现在什么状态
+  - 帮我查一下最近买的东西
+  - 这个订单付款了吗
 ---
 
 # 订单查询 Skill

@@ -1,5 +1,5 @@
 """
-记忆系统评估套件：黄金对 + 相关性评分 + 自动回归测试
+记忆系统评估套件：标准测试 + 相关性评分 + 自动回归测试
 """
 import time
 from dataclasses import dataclass
@@ -75,7 +75,7 @@ class MemoryEvalSuite:
         return results
 
     def _evaluate_pair(self, pair: GoldenPair, ctx: RetrievalContext, latency: float) -> EvalResult:
-        """评估单条黄金对"""
+        """评估单条标准测试"""
         l2_count = len(ctx.short_term_memories)
         l3_count = len(ctx.long_term_memories)
 
@@ -124,7 +124,7 @@ class MemoryEvalSuite:
 
 @pytest.mark.asyncio
 async def test_memory_golden_set():
-    """记忆系统黄金对回归测试"""
+    """记忆系统标准测试回归测试"""
     mock_milvus = MagicMock()
     mock_milvus.hybrid_search.return_value = []
     mock_milvus.search.return_value = []

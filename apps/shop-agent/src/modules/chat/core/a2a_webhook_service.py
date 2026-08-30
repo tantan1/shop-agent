@@ -64,10 +64,17 @@ class A2AWebhookService:
             events=events or ["task.completed", "task.failed"],
             created_at=now,
             expires_at=expires,
+            secret=secret,  # 内部保存，用于回调 HMAC 签名（响应中 exclude）
         )
 
         self._subscriptions[sub_id] = sub
-        logger.info("Webhook 订阅已创建", subscription_id=sub_id, url=url, events=sub.events)
+        logger.info(
+            "Webhook 订阅已创建",
+            subscription_id=sub_id,
+            url=url,
+            events=sub.events,
+            signed=bool(secret),
+        )
         return sub
 
     def unsubscribe(self, subscription_id: str) -> bool:

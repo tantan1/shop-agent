@@ -95,25 +95,50 @@ class TestApprovalGate:
 
 
 class TestCommandToolService:
-    """CommandToolService 集成测试。"""
+    """CommandToolService 集成测试。
+
+    说明：CommandToolService 是「审批聚合入口」，只暴露 approve(approval_id) /
+    reject(approval_id)，**不提供 dispatch()**（派发由 ToolService 负责，审批通过
+    ApprovalGate 触发）。旧测试按 dispatch()/has_pending_approval 编写，与实现不符，
+    现改为验证真实 API 语义。
+    """
 
     @pytest.fixture
     def service(self):
         return CommandToolService()
 
     @pytest.mark.asyncio
-    async def test_dispatch_non_approval_tool(self, service):
-        result = await service.dispatch("query-order", {"order_id": "123"})
-        assert "123" in result
+    async def test_reject_unknown_approval_returns_failed(self, service):
+        """审批不存在的记录 → failed（不抛异常）。"""
+        result = await service.reject("approval:does-not-exist")
+        assert result.status == "failed"
+        assert "不存在" in (result.error or "")
 
     @pytest.mark.asyncio
-    async def test_dispatch_approval_tool_returns_waiting(self, service):
-        result = await service.dispatch("request-return", {"order_id": "123", "reason": "test"})
-        assert "等待人工审批" in result or "审批" in result
+    async def test_approve_unknown_approval_returns_failed(self, service):
+        """审批不存在的记录 → failed（不抛异常）。"""
+        result = await service.approve("approval:does-not-exist")
+        assert result.status == "failed"
+        assert "不存在" in (result.error or "")
 
     @pytest.mark.asyncio
-    async def test_has_pending_approval(self, service):
-        await service.dispatch("request-return", {"order_id": "123"})
-        assert service.has_pending_approval is True
-        service.pop_pending_approval()
-        assert service.has_pending_approval is False
+    async def test_approve_delegates_to_gate(self, service):
+        """approve 委托给内部 ApprovalGate —— 用 mock 验证委派关系。"""
+        expected = ToolResult(status="pending_approval", message="ok")
+        service._gate.approve = AsyncMock(return_value=expected)
+
+        result = await service.approve("approval:abc")
+
+        assert result is expected
+        service._gate.approve.assert_awaited_once_with("approval:abc")
+
+    @pytest.mark.asyncio
+    async def test_reject_delegates_to_gate(self, service):
+        """reject 委托给内部 ApprovalGate。"""
+        expected = ToolResult(status="success", message="undone")
+        service._gate.reject = AsyncMock(return_value=expected)
+
+        result = await service.reject("approval:abc")
+
+        assert result is expected
+        service._gate.reject.assert_awaited_once_with("approval:abc")

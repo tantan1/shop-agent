@@ -67,6 +67,24 @@ class ChatRequest(BaseModel):
         default=None,
         description="A/B实验组标识（如 control / treatment_A），留空则由服务端自动分配",
     )
+    # ── 硬路由字段（A2A / MCP 等确定性调用方使用）──
+    skill_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "指定要执行的 skill（须存在于 SkillRegistry，否则报错）。"
+            "传入后跳过意图识别，直接把 action 锁定为该 skill —— 供对端 Agent 在"
+            "已通过 Agent Card 完成能力发现后做确定性路由，避免意图识别漂移。"
+            "留空则走常规 P0/P1/P2 意图识别。"
+        ),
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "结构化入参（键值对）。配合 skill_id 使用：入口已按该 skill 的参数契约"
+            "校验，此处作为确定性参数注入 IntentResult.params，模型不再从 message 里"
+            "重新抽取（与「参数硬强制注入」同思路）。留空则照常由抽取流水线产出参数。"
+        ),
+    )
 
 
 class ChatResponse(BaseModel):
@@ -571,23 +589,80 @@ class AgentCard(BaseModel):
 
 
 class A2ATaskRequest(BaseModel):
-    """A2A 异步任务提交请求。"""
+    """A2A 异步任务提交请求。
 
-    skill_id: Optional[str] = Field(default=None, description="指定 skill（不传则自动路由意图）")
+    路由约定（单入口 + 能力声明，不按业务类型拆端点）：
+      - 对端先 GET /.well-known/agent-card.json 做能力发现（读 skills[].id / examples）；
+      - 提交时若已确定 skill，传 skill_id 走硬路由（跳过意图识别，最稳）；
+      - 否则留空，由服务端 P0/P1/P2 意图识别兜底；
+      - 置信度不足时任务进入 input-required 态，由对端补信息后 resume。
+    """
+
+    skill_id: Optional[str] = Field(
+        default=None, description="指定 skill（须在 Agent Card skills 内；不传则自动路由意图）"
+    )
     message: str = Field(..., min_length=1, max_length=5000, description="用户自然语言消息")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="上下文透传（键值对）")
+    context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "结构化上下文（键值对）。传了 skill_id 时，按该 skill 的参数契约校验："
+            "未知字段与必填缺失一律 422 拒绝，不做静默丢弃。"
+        ),
+    )
     callback_url: Optional[str] = Field(default=None, description="任务完成后回调的 Webhook URL")
     conversation_id: Optional[str] = Field(default=None, description="对话 ID（多轮）")
     domain: str = Field(default="ecommerce", description="业务领域")
 
 
+class A2ATaskInputRequest(BaseModel):
+    """向 input-required 状态的任务补充输入（A2A 澄清 / 人工审批回执）。"""
+
+    confirm: bool = Field(default=True, description="是否确认继续: true=批准, false=拒绝")
+    remark: Optional[str] = Field(default=None, max_length=1000, description="备注（审批意见/补充信息）")
+
+
+class A2AArtifact(BaseModel):
+    """A2A 任务产物 —— 结构化输出，避免对端 Agent 反向解析自然语言文本。
+
+    A2A 规范里 task 的产物是 artifacts（带 mimeType），而非单一字符串。
+    本实现至少产出两类：
+      - name="result",  mimeType="text/plain"       → 给终端用户看的自然语言回复
+      - name="trace",   mimeType="application/json" → 给对端 Agent 看的执行轨迹
+    """
+
+    name: str = Field(..., description="产物名（result / trace / ...）")
+    mime_type: str = Field(default="application/json", description="MIME 类型")
+    parts: List[Dict[str, Any]] = Field(
+        default_factory=list, description="内容分片（A2A 规范：一个 artifact 可含多个 part）"
+    )
+
+
+# ── A2A 任务状态全量（含 input-required：等待对端补充输入 / 人工审批）──
+# 说明：仅作「枚举值清单」供外部引用（序列化/文档/校验提示）。
+# Pydantic 的 Literal 必须是字面量，不能直接吃这个元组（PEP 586），
+# 故 A2ATaskStatusResponse.status 仍内联书写，此处保持同步。
+A2A_TASK_STATUSES = (
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "input-required",
+)
+
+
 class A2ATaskStatusResponse(BaseModel):
-    """A2A 任务状态查询响应。"""
+    """A2A 任务状态查询响应。
+
+    status="input-required" 表示任务已暂停，等待外部补充输入（信息不足需澄清，
+    或高后果动作需人工审批）。此时 message 为给调用方的提示，interrupt_data 携带
+    恢复所需的上下文；对端通过 POST /a2a/tasks/{task_id}/input 恢复执行。
+    """
 
     task_id: str = Field(..., description="任务唯一 ID")
-    status: Literal["pending", "running", "completed", "failed", "cancelled"] = Field(
-        ..., description="任务状态"
-    )
+    status: Literal[
+        "pending", "running", "completed", "failed", "cancelled", "input-required"
+    ] = Field(..., description="任务状态（与 A2A_TASK_STATUSES 保持同步）")
     result: Optional[str] = Field(default=None, description="任务结果（completed 时填充）")
     error: Optional[str] = Field(default=None, description="错误信息（failed 时填充）")
     created_at: str = Field(..., description="创建时间 (ISO 8601)")
@@ -595,6 +670,18 @@ class A2ATaskStatusResponse(BaseModel):
     completed_at: Optional[str] = Field(default=None, description="完成时间 (ISO 8601)")
     conversation_id: Optional[str] = Field(default=None, description="关联对话 ID")
     domain: str = Field(default="ecommerce", description="业务领域")
+    skill_id: Optional[str] = Field(
+        default=None, description="执行的 skill（硬路由时与请求一致；意图识别时为识别结果）"
+    )
+    message: Optional[str] = Field(
+        default=None, description="给调用方的提示（input-required 时说明缺什么/待谁审批）"
+    )
+    interrupt_data: Optional[Dict[str, Any]] = Field(
+        default=None, description="中断上下文（input-required 时携带，恢复执行所需）"
+    )
+    artifacts: List[A2AArtifact] = Field(
+        default_factory=list, description="结构化产物（completed 时填充）"
+    )
 
 
 class A2ATaskListResponse(BaseModel):
@@ -624,13 +711,27 @@ class WebhookSubscriptionRequest(BaseModel):
 
 
 class WebhookSubscriptionResponse(BaseModel):
-    """Webhook 订阅响应。"""
+    """Webhook 订阅响应。
+
+    注意：secret 属于敏感信息，不出现在对外响应中（model_dump 时会被排除），
+    仅在服务内部保存，供回调签名使用。
+    """
 
     subscription_id: str = Field(..., description="订阅唯一 ID")
     url: str = Field(..., description="回调 URL")
     events: List[str] = Field(default_factory=list, description="订阅事件")
     created_at: str = Field(..., description="创建时间 (ISO 8601)")
     expires_at: Optional[str] = Field(default=None, description="过期时间 (ISO 8601)")
+    secret: Optional[str] = Field(
+        default=None,
+        exclude=True,  # 不出现在响应/日志中
+        description="HMAC 签名密钥（内部保存，用于回调签名；不外泄）",
+    )
+
+    @property
+    def has_signature(self) -> bool:
+        """该订阅是否配置了签名密钥（供订阅方确认回调可被验证）。"""
+        return bool(self.secret)
 
 
 # =============================================================================

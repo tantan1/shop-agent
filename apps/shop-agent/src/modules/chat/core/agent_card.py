@@ -73,7 +73,14 @@ _A2A_ENDPOINTS: List[dict] = [
         "method": "POST",
         "path": "/a2a/tasks/{task_id}/cancel",
         "identifier": "task_cancel",
-        "description": "取消进行中的任务",
+        "description": "取消进行中的任务（含等待审批的 input-required 任务）",
+        "requires_auth": True,
+    },
+    {
+        "method": "POST",
+        "path": "/a2a/tasks/{task_id}/input",
+        "identifier": "task_input",
+        "description": "向 input-required 任务补充输入（人工审批回执 / 澄清）",
         "requires_auth": True,
     },
     {
@@ -172,7 +179,9 @@ def build_agent_card() -> "AgentCard":
                     name=skill.display_name or skill.name,
                     description=skill.description,
                     tags=skill.tags,
-                    examples=[],  # SKILL.md 暂无 example 字段，可后续扩展
+                    # 触发示例 —— 对端 Agent 据以判断「该不该路由给这个 skill」。
+                    # 来源：SKILL.md frontmatter 的 examples 字段（SkillDef.examples）。
+                    examples=getattr(skill, "examples", []) or [],
                 )
             )
     except Exception as e:
@@ -181,7 +190,10 @@ def build_agent_card() -> "AgentCard":
     # ── 3. Capabilities（动态检测 + 硬编码） ──
 
     capabilities = AgentCapabilities(
-        streaming=True,
+        # A2A Tasks API 当前为非流式（a2a_task_service 中 ChatRequest 固定 stream=False），
+        # 故这里如实声明 False，避免对外声称与实现不符。
+        # 需要流式对话请走主对话接口 /api/chatagent/agent/chat。
+        streaming=False,
         pushNotifications=False,  # webhook 订阅接口已提供，但 push 需主动注册
         asyncTasks=True,  # A2A Tasks API 已实现
     )

@@ -14,6 +14,10 @@ allowed-tools: request-return
 priority: 10
 risk: high
 hitl: true
+examples:
+  - 我要退货
+  - 帮我申请退款
+  - 这个订单不想要了，退掉
 ---
 
 # 退货退款 Skill

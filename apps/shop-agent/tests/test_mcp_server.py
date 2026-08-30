@@ -22,26 +22,48 @@ from src.modules.chat.core.tool_registry import ToolService
 from src.modules.chat.core.schema_driven_extractor import SchemaDrivenExtractor
 
 
+# ────────────────────────────────────────────────────────────────
+# 测试辅助：构造真实的 SkillDef
+# ────────────────────────────────────────────────────────────────
+#
+# 背景：params 的单一数据源是 Pydantic 模型（schemas.INTENT_PARAM_SCHEMAS），
+# 而非 SKILL.md（SKILL.md 中的 params 块仅供人类浏览，代码忽略）。
+# 旧测试用 `type("Skill", (), {"name": ...})()` 造假对象，缺少 params 属性，
+# 在实现改为「从 SkillDef.params 生成 schema」后全部失效。
+# 这里改为走真实加载路径，确保测试与实现对齐。
+
+
+def _real_skill(name: str):
+    """按真实链路构造 SkillDef（params 来自 Pydantic 模型）。
+
+    未在 INTENT_PARAM_SCHEMAS 中注册的名字 → params 为空字典，
+    用于验证「未知 skill 不应生成任何属性」的降级行为。
+    """
+    from src.modules.chat.agent.skill_loader import SkillDef, SkillLoader
+    from src.modules.chat.schemas import INTENT_PARAM_SCHEMAS
+
+    model = INTENT_PARAM_SCHEMAS.get(name)
+    params = SkillLoader._params_from_pydantic(model) if model is not None else {}
+    return SkillDef(name=name, display_name=name, description="", params=params)
+
+
 class TestInputSchemaBuilder:
 
     def test_query_order_schema(self):
-        schema = _build_input_schema(
-            type("Skill", (), {"name": "query-order"})()
-        )
+        schema = _build_input_schema(_real_skill("query-order"))
         assert schema["type"] == "object"
         assert "order_id" in schema["properties"]
         assert schema["properties"]["order_id"]["type"] == "string"
 
     def test_check_balance_schema(self):
-        schema = _build_input_schema(
-            type("Skill", (), {"name": "check-balance"})()
-        )
-        assert schema["properties"] == {}
+        """check-balance 的参数来自 Pydantic 模型（当前为 phone）。"""
+        schema = _build_input_schema(_real_skill("check-balance"))
+        assert "phone" in schema["properties"]
+        assert schema["properties"]["phone"]["type"] == "string"
 
     def test_unknown_skill_schema(self):
-        schema = _build_input_schema(
-            type("Skill", (), {"name": "nonexistent"})()
-        )
+        """未注册 skill 无参数定义 → 生成空属性（降级不报错）。"""
+        schema = _build_input_schema(_real_skill("nonexistent"))
         assert schema["properties"] == {}
 
 
@@ -131,9 +153,7 @@ class TestMCPWithSchemaDrivenExtractor:
 
     def test_extractor_uses_schema_from_mcp(self):
         """SchemaDrivenExtractor 接收 mcp tool 的 inputSchema"""
-        schema = _build_input_schema(
-            type("Skill", (), {"name": "query-order"})()
-        )
+        schema = _build_input_schema(_real_skill("query-order"))
 
         result = SchemaDrivenExtractor.extract(
             "查订单 WB202405270001 手机 13800138000",
@@ -149,9 +169,7 @@ class TestMCPWithSchemaDrivenExtractor:
 
     def test_full_flow_extract_then_dispatch(self):
         """完整流程：从消息提取参数 → MCP tools/call"""
-        schema = _build_input_schema(
-            type("Skill", (), {"name": "query-order"})()
-        )
+        schema = _build_input_schema(_real_skill("query-order"))
 
         # Step 1: 提取参数
         params = SchemaDrivenExtractor.extract(

@@ -4,7 +4,15 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.modules.chat.agent.react_agent import ReActAgent, _INTERRUPT_MEM
+from src.modules.chat.agent.react_agent import ReActAgent
+# 中断上下文相关符号已随模块拆分迁至 react_agent_interrupt
+# （此前从 react_agent 导入 _INTERRUPT_MEM 会导致整个模块 ImportError，
+#   进而使本文件所有用例被静默跳过 —— 测试套件因此存在"假绿"风险）
+from src.modules.chat.agent.react_agent_interrupt import (
+    InterruptContext,
+    _INTERRUPT_MEM,
+    _store_interrupt,
+)
 from src.modules.chat.agent.react_agent_selection import _make_business_args_schema
 from src.modules.chat.schemas import IntentResult, ChatRequest
 
@@ -105,7 +113,6 @@ class TestInterruptStore:
             lambda: mock_redis,
         )
 
-        from src.modules.chat.agent.react_agent import _store_interrupt, InterruptContext
         _store_interrupt(
             InterruptContext(
                 thread_id=thread_id,
@@ -120,9 +127,12 @@ class TestInterruptStore:
         )
 
         assert thread_id in _INTERRUPT_MEM
+        # 内存降级存储为 8 元组：
+        # (graph, config, conversation_id, intent_steps, domain, order_id, reason, ...)
         stored = _INTERRUPT_MEM[thread_id]
         assert stored[2] == "conv-1"
         assert stored[4] == "ecommerce"
+        assert stored[5] == "ORDER-123"
 
         _INTERRUPT_MEM.pop(thread_id, None)
 
@@ -145,7 +155,6 @@ class TestInterruptStore:
             lambda: mock_redis,
         )
 
-        from src.modules.chat.agent.react_agent import _store_interrupt, InterruptContext
         _store_interrupt(
             InterruptContext(
                 thread_id=thread_id,

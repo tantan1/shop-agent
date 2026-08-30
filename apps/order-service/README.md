@@ -6,13 +6,40 @@ Rust + PostgreSQL 实现的轻量订单服务，作为 `shop-agent` 的**外部�
 
 - **axum** —— HTTP 框架（路由 / JSON）
 - **sqlx**（runtime-tokio + postgres + json） —— 异步 PostgreSQL 访问，纯 Rust 驱动，运行时不依赖 libpq
+- **rmcp 3.1.4** —— MCP Server（Streamable HTTP），向 shop-agent 暴露业务工具
 - **PostgreSQL 16** —— 真实持久化的订单 / 举证数据
 
-## 接口
+## MCP 工具（推荐集成方式）
+
+`POST /mcp` —— MCP Streamable HTTP 端点，与 REST 接口共存于同一 axum 进程、共用同一个 sqlx 连接池。
+
+shop-agent 侧通过 `MCP_CLIENT_SERVERS` 配置连接，用 `tools/list` 动态发现工具，替代硬编码接口映射。
+
+| MCP tool | 对应能力 | 底层函数 |
+|---|---|---|
+| `query-order` | 按订单号查询订单完整信息 | `query_order_core` |
+| `get-evidence` | 售后举证摘要（买家/卖家举证 + 物流 + 金额） | `get_evidence_core` |
+| `coupon-inquiry` | 优惠券查询（可按类型过滤） | `list_coupons_core` |
+
+**设计约束**：
+
+- 工具名**必须**是连字符（用 `#[tool(name = "query-order")]` 显式指定）——
+  `rmcp` 默认以 Rust 方法名的蛇形暴露，与 shop-agent 的 action 名不一致。
+  已有单测锁定，防止重构退化。
+- MCP tool **不另写业务逻辑**，只做参数转换 + 调用 `*_core` 函数，与 REST handler 同源。
+- **当前只暴露只读工具**。敏感写操作（`request-return` / `refund-confirm` / `check-balance`）
+  待后续阶段接入；破坏性与管理类接口（`DELETE` / `PUT` / `POST /orders`）**永不暴露**。
+- `order_id` 在服务端 schema 中**必须声明**（契约完整性）。
+  字段级硬强制由 shop-agent 侧在消费时剥离——安全策略不外包给外部服务。
+
+相关文档：`docs/architecture/order-service-mcp-design.md`（设计）、
+`docs/architecture/order-service-mcp-implementation-plan.md`（实施计划 + Phase 0 Spike 结论）
+
+## REST 接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET  | `/health` | 健康检查 |
+| GET  | `/health` | 健康检查（JSON，含 mcp 状态） |
 | GET  | `/orders` | 订单列表 |
 | POST | `/orders` | 创建 / 更新订单（upsert） |
 | GET  | `/orders/:order_id` | 单个订单完整数据 |

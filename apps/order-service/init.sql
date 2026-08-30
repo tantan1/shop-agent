@@ -10,12 +10,13 @@ CREATE TABLE IF NOT EXISTS orders (
     buyer_evidence     JSONB NOT NULL,
     seller_evidence    JSONB NOT NULL,
     logistics          JSONB NOT NULL,
+    user_id            TEXT NOT NULL DEFAULT 'default',   -- 归属用户（方案A：数据级权限基础）
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 注入原 Python Mock 中的示例举证数据，使迁移后行为一致
 -- 注意：JSON 内不含单引号，可直接作为 SQL 字符串字面量
-INSERT INTO orders (order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics)
+INSERT INTO orders (order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics, user_id)
 VALUES (
     'ORDER_WM20240601_001',
     3299,
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS returns (
     id          SERIAL PRIMARY KEY,
     return_id   TEXT NOT NULL,
     order_id    TEXT NOT NULL,
+    user_id     TEXT NOT NULL DEFAULT 'default',
     reason      TEXT,
     status      TEXT NOT NULL DEFAULT '待审核',
     refund_amount DOUBLE PRECISION,
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS returns (
 CREATE TABLE IF NOT EXISTS refunds (
     id          SERIAL PRIMARY KEY,
     order_id    TEXT NOT NULL,
+    user_id     TEXT NOT NULL DEFAULT 'default',
     reason      TEXT,
     refund_amount DOUBLE PRECISION,
     status      TEXT NOT NULL DEFAULT 'PENDING_HUMAN_APPROVAL',

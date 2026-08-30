@@ -2,11 +2,15 @@
 A2A (Agent-to-Agent) 路由 —— 所有 A2A 协议端点。
 
 端点概览：
-  P0: 异步任务
+  P0: 异步任务（单入口 —— 不按业务类型拆端点，按 skill_id 硬路由 + 意图识别兜底）
     POST   /a2a/tasks/send              — 提交异步任务
     GET    /a2a/tasks/{task_id}         — 查询任务状态/结果
     POST   /a2a/tasks/{task_id}/cancel  — 取消任务
+    POST   /a2a/tasks/{task_id}/input   — 向 input-required 任务补充输入/人工审批
     GET    /a2a/tasks                   — 列出任务
+
+  路由约定：对端先 GET /.well-known/agent-card.json 做能力发现（skills[].id / examples），
+  提交时传 skill_id 走确定性硬路由（跳过意图识别）；不传则由服务端 P0/P1/P2 识别兜底。
 
   P1: Webhook 订阅
     POST   /a2a/webhooks                — 注册回调
@@ -36,15 +40,74 @@ from src.modules.chat.schemas import (
     A2AConversationListResponse,
     A2AConversationSummary,
     A2AHealthResponse,
+    A2ATaskInputRequest,
     A2ATaskRequest,
     WebhookSubscriptionRequest,
 )
+from src.shared.logger import APILogger
 from src.shared.responses import error_response, success_response
 
 router = APIRouter(prefix="/a2a", tags=["A2A Agent-to-Agent"])
 
+logger = APILogger("a2a_router")
+
 # ── 服务启动时间（用于 uptime 计算） ──
 _START_TIME = time.time()
+
+
+def _validate_skill_routing(
+    skill_id: str | None, context: dict | None
+) -> tuple[int, str] | None:
+    """校验 A2A 硬路由请求 —— 失败即 fail-closed，返回 (状态码, 错误说明)。
+
+    两道闸：
+      1. skill_id 必须存在于 SkillRegistry（否则对端可能指向一个不存在的/私有的能力）；
+      2. context 的字段必须落在该 skill 的参数契约内，未在契约中的字段一律拒绝
+         —— 而不是静默丢弃（静默丢弃会让对端以为参数生效了）。
+
+    若该 skill 没有参数契约（params 为空，无法可依），则跳过第 2 道闸并记录告警，
+    避免因为缺元数据把所有调用都挡在门外。
+    """
+    if not skill_id:
+        return None
+
+    try:
+        from src.modules.chat.agent.skill_loader import get_skill_registry
+
+        registry = get_skill_registry()
+    except Exception as e:  # pragma: no cover - 注册表不可用属于基础设施故障
+        logger.error("SkillRegistry 不可用，无法校验 skill_id", skill_id=skill_id, error=str(e))
+        return 503, "能力注册表暂不可用，无法校验 skill_id，请稍后重试"
+
+    skill = next((s for s in registry.skills if s.name == skill_id), None)
+    if skill is None:
+        available = sorted({s.name for s in registry.skills})
+        return (
+            400,
+            f"未知 skill_id '{skill_id}'；请从 /.well-known/agent-card.json 的 "
+            f"skills[].id 中选择。当前可用：{', '.join(available) or '(无)'}",
+        )
+
+    if not context:
+        return None
+
+    declared = set(skill.params or {})
+    if not declared:
+        logger.warning(
+            "skill 无参数契约，跳过 context 严格校验",
+            skill_id=skill_id,
+            context_keys=sorted(context),
+        )
+        return None
+
+    unknown = sorted(set(context) - declared)
+    if unknown:
+        return (
+            422,
+            f"context 含未声明字段 {unknown}；skill '{skill_id}' 接受的参数为："
+            f"{', '.join(sorted(declared))}",
+        )
+    return None
 
 
 # =============================================================================
@@ -60,10 +123,20 @@ async def a2a_send_task(
 ):
     """提交异步任务，立即返回 task_id。外部系统通过 GET /a2a/tasks/{task_id} 轮询结果。
 
-    请求示例:
+    路由方式二选一：
+      - 传 `skill_id`：硬路由，跳过意图识别，action 锁定为该 skill（推荐，最稳）。
+        skill_id 必须在 Agent Card 的 skills[].id 内，否则 400。
+      - 不传 `skill_id`：由服务端 P0/P1/P2 意图识别兜底。
+
+    传了 skill_id 时，`context` 会按该 skill 的参数契约校验（未声明字段 422），
+    校验通过后作为确定性参数注入，模型不再从 message 里重新抽取。
+
+    请求示例（硬路由）:
     ```json
     {
-        "message": "帮我查一下订单 ORD-2024-001 的物流状态",
+        "message": "帮我查一下这个订单的状态",
+        "skill_id": "query-order",
+        "context": {"order_id": "WB202405270001"},
         "domain": "ecommerce",
         "conversation_id": "ext_conv_001",
         "callback_url": "https://your-system.com/webhooks/shop-agent"
@@ -80,11 +153,25 @@ async def a2a_send_task(
             "status": "pending",
             "created_at": "2026-06-25T03:00:00.000Z",
             "conversation_id": "ext_conv_001",
-            "domain": "ecommerce"
+            "domain": "ecommerce",
+            "skill_id": "query-order"
         }
     }
     ```
     """
+    invalid = _validate_skill_routing(request.skill_id, request.context)
+    if invalid:
+        status_code, detail = invalid
+        logger.warning(
+            "A2A 任务路由校验失败",
+            skill_id=request.skill_id,
+            status_code=status_code,
+            detail=detail,
+        )
+        return JSONResponse(
+            status_code=status_code, content=error_response(message=detail, code=status_code)
+        )
+
     service = get_a2a_task_service()
 
     task = service.create_task(
@@ -120,11 +207,14 @@ async def a2a_get_task(
     """查询异步任务的状态和结果。
 
     状态说明:
-    - pending:   排队等待执行
-    - running:   正在执行
-    - completed: 执行成功（result 字段含回复文本）
-    - failed:    执行失败（error 字段含错误信息）
-    - cancelled: 已取消
+    - pending:        排队等待执行
+    - running:        正在执行
+    - completed:      执行成功（result 含回复文本，artifacts 含结构化产物）
+    - failed:         执行失败（error 字段含错误信息）
+    - cancelled:      已取消
+    - input-required: 已暂停，等待外部补充输入或人工审批
+                      （message 说明缺什么，interrupt_data 含恢复上下文；
+                        对端通过 POST /a2a/tasks/{task_id}/input 恢复）
 
     请求示例:
     ```
@@ -139,12 +229,17 @@ async def a2a_get_task(
         "data": {
             "task_id": "task_a1b2c3d4e5f6a7b8",
             "status": "completed",
-            "result": "您的订单 ORD-2024-001 当前物流状态为...",
+            "result": "您的订单 WB202405270001 当前物流状态为...",
             "created_at": "2026-06-25T03:00:00.000Z",
             "started_at": "2026-06-25T03:00:01.000Z",
             "completed_at": "2026-06-25T03:00:05.234Z",
             "conversation_id": "ext_conv_001",
-            "domain": "ecommerce"
+            "domain": "ecommerce",
+            "skill_id": "query-order",
+            "artifacts": [
+                {"name": "result", "mime_type": "text/plain", "parts": [{"kind": "text", "text": "..."}]},
+                {"name": "trace", "mime_type": "application/json", "parts": [{"kind": "data", "data": {}}]}
+            ]
         }
     }
     ```
@@ -185,6 +280,50 @@ async def a2a_cancel_task(
 
     task = service.get_task(task_id)
     return success_response(data=task.model_dump(), message=msg)
+
+
+@router.post("/tasks/{task_id}/input", summary="向暂停任务补充输入（A2A）")
+async def a2a_provide_task_input(
+    task_id: str,
+    request: A2ATaskInputRequest,
+    _: None = Depends(verify_api_key),
+):
+    """恢复处于 `input-required` 状态的任务。
+
+    两类暂停都走这里：
+      - 高后果动作（如退款）等待人工审批 —— confirm=true 批准 / false 拒绝；
+      - 信息不足以继续执行 —— 拒绝后由对端带齐信息重新提交新任务。
+
+    请求示例:
+    ```json
+    {"confirm": true, "remark": "已核对订单，同意退款"}
+    ```
+
+    响应示例:
+    ```json
+    {
+        "success": true,
+        "code": 200,
+        "data": {"task_id": "task_a1b2c3d4e5f6a7b8", "status": "completed", "result": "退款已受理..."}
+    }
+    ```
+    """
+    service = get_a2a_task_service()
+    ok, msg, task = await service.resume_task(
+        task_id=task_id,
+        confirm=request.confirm,
+        remark=request.remark,
+    )
+
+    if not ok:
+        status_code = 404 if "不存在" in msg else 409
+        if "恢复执行失败" in msg:
+            status_code = 500
+        return JSONResponse(
+            status_code=status_code, content=error_response(message=msg, code=status_code)
+        )
+
+    return success_response(data=task.model_dump() if task else None, message=msg)
 
 
 @router.get("/tasks", summary="列出所有任务（A2A）")

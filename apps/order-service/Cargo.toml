@@ -9,3 +9,10 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# MCP（Model Context Protocol）—— 向 shop-agent 暴露业务工具。
+# 选型依据：Phase 0 Spike 实测通过（9/9），见
+# docs/architecture/order-service-mcp-implementation-plan.md §附录 A
+rmcp = { version = "3.1.4", features = ["server", "transport-streamable-http-server"] }
+rmcp-macros = "3.1.4"
+schemars = "0.8"

@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
@@ -826,8 +828,13 @@ async def main():
 # 独立测试：使用纯文本构建 prompt（不依赖 tokenizer chat template）
 # =============================================================================
 
+@pytest.mark.asyncio
 async def test_with_manual_prompt():
-    """备用测试：手动拼接 prompt，不依赖 tokenizer.apply_chat_template"""
+    """备用测试：手动拼接 prompt，不依赖 tokenizer.apply_chat_template
+
+    注意：本用例依赖本地模型（LocalModelService）。模型未加载时内部直接 return
+    （等价于跳过），因此无需额外的 skip 标记；有模型时才会真正执行压缩评估。
+    """
     print(f"{'═' * 70}")
     print(f" 手动 Prompt 压缩测试（备选方案）")
     print(f"{'═' * 70}")

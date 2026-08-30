@@ -12,6 +12,10 @@ tags:
   - 跟踪
 allowed-tools: check-shipping query-order
 priority: 10
+examples:
+  - 我的快递到哪了
+  - 物流显示派送中但一直没收到
+  - 单号 SF1234567890 什么时候能送到
 ---
 
 # 物流查询 Skill

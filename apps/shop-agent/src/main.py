@@ -315,12 +315,42 @@ app.mount("/demo", StaticFiles(directory="static/demo", html=True), name="demo")
 @app.get("/health", include_in_schema=False)
 async def health_check():
     """健康检查接口"""
+    # MCP Client 状态（无依赖注入，避免循环引用；未启用或异常时安静降级）
+    mcp_health = {"enabled": bool(config.MCP_CLIENT_ENABLED), "connected": False, "sessions": 0, "tools_count": 0}
+    if config.MCP_CLIENT_ENABLED:
+        try:
+            from src.modules.chat.core.mcp_client import mcp_manager
+
+            if mcp_manager is not None:
+                sessions = [
+                    c for c in mcp_manager._servers.values() if getattr(c, "connected", False)
+                ]
+                mcp_health = {
+                    "enabled": True,
+                    "connected": bool(sessions),
+                    "sessions": len(sessions),
+                    "tools_count": sum(len(c.tools) for c in mcp_manager._servers.values()),
+                }
+                # 档 B：暴露 schema 失配总数，便于运维巡检
+                try:
+                    from src.modules.monitoring.metrics import mcp_schema_mismatch_total
+
+                    total = 0
+                    for sample in mcp_schema_mismatch_total.collect()[0].samples:
+                        total += sample.value
+                    mcp_health["schema_mismatch_total"] = int(total)
+                except Exception:
+                    mcp_health["schema_mismatch_total"] = 0
+        except Exception:
+            pass
+
     return success_response(
         data={
             "server_status": "running",
             "fastapi_version": fastapi_version,
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "debug_mode": config.DEBUG_MODE,
+            "mcp": mcp_health,
         },
         message="服务运行正常",
     )

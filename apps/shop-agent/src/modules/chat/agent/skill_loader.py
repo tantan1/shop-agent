@@ -75,6 +75,8 @@ class SkillDef:
     params: Dict[str, Dict] = field(default_factory=dict)  # 工具参数定义，单一来源
     risk: str = "low"  # 风险等级：high（资金/隐私）| low（轻量组合）
     hitl: bool = False  # 是否需人在回路审批（高后果动作）
+    # 触发示例（A2A Agent Card 对端路由判断依据）
+    examples: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -274,6 +276,9 @@ class SkillLoader:
             params=params_raw,  # 参数定义（来源：Pydantic 模型）
             risk=str(meta.get("risk", "low")).strip().lower() or "low",
             hitl=bool(meta.get("hitl", False)),
+            # A2A 对端靠 examples 判断「该不该把任务路由给你」——
+            # 光有 description，对端只能靠语义猜，路由漂移风险高。
+            examples=[str(e).strip() for e in (meta.get("examples") or []) if str(e).strip()],
         )
 
 

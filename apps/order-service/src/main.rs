@@ -10,7 +10,7 @@
 //!   - serde        : 序列化 / 反序列化
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -24,19 +24,57 @@ use sqlx::PgPool;
 use std::error::Error;
 use std::net::SocketAddr;
 
+pub mod mcp;
+
 #[derive(Clone)]
-struct AppState {
-    db: PgPool,
+pub struct AppState {
+    pub db: PgPool,
+}
+
+/// 统一的业务错误类型。
+///
+/// 存在意义：让 REST 与 MCP 两条路径**共用同一套业务逻辑**却各自表达错误——
+/// REST 转成 HTTP 状态码，MCP 转成可读文本（见设计文档 §3.3「handler 复用」）。
+#[derive(Debug)]
+pub enum ApiError {
+    NotFound,
+    Forbidden,
+    Internal(String),
+}
+
+impl From<ApiError> for StatusCode {
+    fn from(e: ApiError) -> Self {
+        match e {
+            ApiError::NotFound => StatusCode::NOT_FOUND,
+            ApiError::Forbidden => StatusCode::FORBIDDEN,
+            ApiError::Internal(msg) => {
+                eprintln!("internal error: {msg}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::NotFound => write!(f, "订单不存在"),
+            ApiError::Forbidden => write!(f, "无权访问该订单"),
+            ApiError::Internal(_) => write!(f, "服务内部错误"),
+        }
+    }
 }
 
 /// 订单行（与 `orders` 表一一对应，jsonb 列用 `SqlJson<Value>` 读写）。
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-struct Order {
+pub struct Order {
     order_id: String,
     order_amount_yuan: i64,
     buyer_evidence: SqlJson<Value>,
     seller_evidence: SqlJson<Value>,
     logistics: SqlJson<Value>,
+    #[sqlx(default)]
+    user_id: String,
 }
 
 // ── 售后举证摘要（与 Python 消费侧期望的字段完全一致）──────────────
@@ -69,7 +107,7 @@ struct LogisticsSummary {
 }
 
 #[derive(Debug, Serialize)]
-struct EvidenceSummary {
+pub struct EvidenceSummary {
     order_id: String,
     order_amount_yuan: i64,
     buyer_evidence: BuyerEvidenceSummary,
@@ -161,8 +199,21 @@ fn build_evidence(order: &Order) -> EvidenceSummary {
 
 // ── Handlers ───────────────────────────────────────────────────────
 
-async fn health() -> &'static str {
-    "ok"
+/// 健康检查。
+///
+/// 原先返回纯文本 `"ok"`；现扩展为 JSON 并附带 MCP 状态。
+/// 调用方（docker-compose healthcheck、smoke_e2e）只判断 HTTP 200，
+/// 因此改为 JSON 不影响既有消费方。
+async fn health() -> Json<Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "order-service",
+        "mcp": {
+            "enabled": true,
+            "endpoint": "/mcp",
+            "tools": ["query-order", "get-evidence", "coupon-inquiry"],
+        }
+    }))
 }
 
 async fn list_orders(State(state): State<AppState>) -> Result<Json<Vec<Order>>, StatusCode> {
@@ -178,43 +229,126 @@ async fn list_orders(State(state): State<AppState>) -> Result<Json<Vec<Order>>, 
     Ok(Json(rows))
 }
 
+/// 读接口的身份查询参数（用于数据级归属校验）
+#[derive(Debug, Deserialize)]
+struct UserIdQuery {
+    #[serde(default)]
+    user_id: Option<String>,
+}
+
+// ════════════════════════════════════════════════════════════════
+// 核心业务逻辑（core）—— REST 与 MCP 共用
+//
+// 设计文档 §3.3：MCP tool 只做协议适配（参数转换），**不另写业务逻辑**，
+// 与 REST handler 共用这些 core 函数，保证两条路径逻辑天然一致。
+// ════════════════════════════════════════════════════════════════
+
+/// 查询单个订单。
+///
+/// `user_id` 为 `Some` 时做归属校验（不存在→NotFound，不符→Forbidden）；
+/// 为 `None` 时（兼容旧调用）仅按存在性返回。
+pub async fn query_order_core(
+    db: &PgPool,
+    order_id: &str,
+    user_id: Option<&str>,
+) -> Result<Order, ApiError> {
+    let row = sqlx::query_as::<_, Order>(
+        "SELECT order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics, user_id \
+         FROM orders WHERE order_id = $1",
+    )
+    .bind(order_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| ApiError::Internal(format!("query_order error: {e}")))?;
+
+    let order = row.ok_or(ApiError::NotFound)?;
+
+    if let Some(uid) = user_id {
+        // 无 user_id 标注的订单（历史/公开数据）视为可读，避免误杀
+        if order.user_id != uid && !order.user_id.is_empty() {
+            return Err(ApiError::Forbidden);
+        }
+    }
+    Ok(order)
+}
+
+/// 生成售后举证摘要（买家/卖家举证 + 物流 + 金额）。
+pub async fn get_evidence_core(
+    db: &PgPool,
+    order_id: &str,
+    user_id: Option<&str>,
+) -> Result<EvidenceSummary, ApiError> {
+    let order = query_order_core(db, order_id, user_id).await?;
+    Ok(build_evidence(&order))
+}
+
+/// 查询优惠券列表，`coupon_type` 为 `None` 时返回全部。
+pub async fn list_coupons_core(
+    db: &PgPool,
+    coupon_type: Option<&str>,
+) -> Result<Value, ApiError> {
+    let rows: Vec<(String, String, Option<f64>, Option<f64>, Option<f64>, Option<String>)> =
+        match coupon_type {
+            Some(ct) => sqlx::query_as(
+                "SELECT name, type, threshold, discount, discount_rate, expire \
+                 FROM coupons WHERE type LIKE '%' || $1 || '%'",
+            )
+            .bind(ct)
+            .fetch_all(db)
+            .await,
+            None => sqlx::query_as(
+                "SELECT name, type, threshold, discount, discount_rate, expire FROM coupons",
+            )
+            .fetch_all(db)
+            .await,
+        }
+        .map_err(|e| ApiError::Internal(format!("list_coupons error: {e}")))?;
+
+    let coupons: Vec<Value> = rows
+        .into_iter()
+        .map(|(name, ctype, threshold, discount, rate, expire)| {
+            serde_json::json!({
+                "name": name,
+                "type": ctype,
+                "threshold": threshold,
+                "discount": discount,
+                "discount_rate": rate,
+                "expire": expire,
+            })
+        })
+        .collect();
+    let total = coupons.len();
+
+    Ok(serde_json::json!({
+        "message": "全部优惠券",
+        "data": { "coupons": coupons, "total": total }
+    }))
+}
+
+// ════════════════════════════════════════════════════════════════
+// REST handler —— 薄包装，仅做 extractor 解析 + 错误码转换
+// ════════════════════════════════════════════════════════════════
+
 async fn get_order(
     State(state): State<AppState>,
     Path(order_id): Path<String>,
+    Query(q): Query<UserIdQuery>,
 ) -> Result<Json<Order>, StatusCode> {
-    let row = sqlx::query_as::<_, Order>(
-        "SELECT order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics \
-         FROM orders WHERE order_id = $1",
-    )
-    .bind(&order_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        eprintln!("get_order error: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    row.map(Json).ok_or(StatusCode::NOT_FOUND)
+    query_order_core(&state.db, &order_id, q.user_id.as_deref())
+        .await
+        .map(Json)
+        .map_err(Into::into)
 }
 
 async fn get_evidence(
     State(state): State<AppState>,
     Path(order_id): Path<String>,
+    Query(q): Query<UserIdQuery>,
 ) -> Result<Json<EvidenceSummary>, StatusCode> {
-    let row = sqlx::query_as::<_, Order>(
-        "SELECT order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics \
-         FROM orders WHERE order_id = $1",
-    )
-    .bind(&order_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        eprintln!("get_evidence error: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    match row {
-        Some(o) => Ok(Json(build_evidence(&o))),
-        None => Err(StatusCode::NOT_FOUND),
-    }
+    get_evidence_core(&state.db, &order_id, q.user_id.as_deref())
+        .await
+        .map(Json)
+        .map_err(Into::into)
 }
 
 async fn create_order(
@@ -298,6 +432,8 @@ struct ApiPayload {
     coupon_type: Option<String>,
     #[serde(default)]
     refund_amount: Option<f64>,
+    #[serde(default)]
+    user_id: Option<String>, // 新增：调用方身份（由 shop-agent 从会话上下文注入），用于数据级归属校验
 }
 
 /// 查询账户余额 / 积分（默认客户端 'default'）
@@ -324,49 +460,47 @@ async fn account_balance(State(state): State<AppState>) -> Result<Json<Value>, S
     })))
 }
 
-/// 查询优惠券（可选按类型过滤）
+/// 查询优惠券（可选按类型过滤）—— 薄包装，业务逻辑在 `list_coupons_core`
 async fn list_coupons(
     State(state): State<AppState>,
     Json(payload): Json<ApiPayload>,
 ) -> Result<Json<Value>, StatusCode> {
-    let rows: Vec<(String, String, Option<f64>, Option<f64>, Option<f64>, Option<String>)> = match &payload.coupon_type {
-        Some(ct) => sqlx::query_as(
-            "SELECT name, type, threshold, discount, discount_rate, expire \
-             FROM coupons WHERE type LIKE '%' || $1 || '%'",
-        )
-        .bind(ct)
-        .fetch_all(&state.db)
-        .await,
-        None => sqlx::query_as(
-            "SELECT name, type, threshold, discount, discount_rate, expire FROM coupons",
-        )
-        .fetch_all(&state.db)
-        .await,
-    }
+    list_coupons_core(&state.db, payload.coupon_type.as_deref())
+        .await
+        .map(Json)
+        .map_err(Into::into)
+}
+
+/// 校验订单存在且归属当前用户；不存在→404，归属不符→403。
+///
+/// 无 `user_id` 标注的订单（历史/公开数据）视为可读，避免误杀；
+/// 但写操作 handler 应在调用前强校验 `user_id` 必填（见 `create_return`/`refund_confirm`）。
+async fn verify_ownership(
+    state: &AppState,
+    order_id: &str,
+    user_id: &str,
+) -> Result<Order, StatusCode> {
+    let row = sqlx::query_as::<_, Order>(
+        "SELECT order_id, order_amount_yuan, buyer_evidence, seller_evidence, logistics, user_id \
+         FROM orders WHERE order_id = $1",
+    )
+    .bind(order_id)
+    .fetch_optional(&state.db)
+    .await
     .map_err(|e| {
-        eprintln!("list_coupons error: {e}");
+        eprintln!("verify_ownership error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-
-    let coupons: Vec<Value> = rows
-        .into_iter()
-        .map(|(name, ctype, threshold, discount, rate, expire)| {
-            serde_json::json!({
-                "name": name,
-                "type": ctype,
-                "threshold": threshold,
-                "discount": discount,
-                "discount_rate": rate,
-                "expire": expire,
-            })
-        })
-        .collect();
-    let total = coupons.len();
-
-    Ok(Json(serde_json::json!({
-        "message": "全部优惠券",
-        "data": { "coupons": coupons, "total": total }
-    })))
+    match row {
+        None => Err(StatusCode::NOT_FOUND),
+        Some(o) => {
+            if o.user_id == user_id || o.user_id.is_empty() {
+                Ok(o)
+            } else {
+                Err(StatusCode::FORBIDDEN) // 403：订单不属于当前用户
+            }
+        }
+    }
 }
 
 /// 提交退货申请（真实写库，返回退货单号）
@@ -374,7 +508,16 @@ async fn create_return(
     State(state): State<AppState>,
     Json(payload): Json<ApiPayload>,
 ) -> Result<Json<Value>, StatusCode> {
-    let order_id = payload.order_id.clone().unwrap_or_else(|| "未指定".to_string());
+    let order_id = match &payload.order_id {
+        Some(id) => id.clone(),
+        None => return Err(StatusCode::BAD_REQUEST), // 缺 order_id，拒绝落库
+    };
+    // 方案 A：写操作前强校验归属，缺失 user_id 或归属不符直接拒（非法请求不落库）
+    let user_id = payload.user_id.clone().ok_or(StatusCode::BAD_REQUEST)?;
+    if verify_ownership(&state, &order_id, &user_id).await.is_err() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let reason = payload.reason.clone().unwrap_or_else(|| "未说明".to_string());
     let suffix = if order_id.len() > 6 {
         &order_id[order_id.len() - 6..]
@@ -385,11 +528,12 @@ async fn create_return(
     let refund_amount = 299.00_f64; // 示例退款金额（真实场景应由订单金额计算）
 
     sqlx::query(
-        "INSERT INTO returns (return_id, order_id, reason, status, refund_amount, expected_refund_time) \
-         VALUES ($1, $2, $3, '待审核', $4, '1-3个工作日')",
+        "INSERT INTO returns (return_id, order_id, user_id, reason, status, refund_amount, expected_refund_time) \
+         VALUES ($1, $2, $3, $4, '待审核', $5, '1-3个工作日')",
     )
     .bind(&return_id)
     .bind(&order_id)
+    .bind(&user_id)
     .bind(&reason)
     .bind(refund_amount)
     .execute(&state.db)
@@ -417,15 +561,25 @@ async fn refund_confirm(
     State(state): State<AppState>,
     Json(payload): Json<ApiPayload>,
 ) -> Result<Json<Value>, StatusCode> {
-    let order_id = payload.order_id.clone().unwrap_or_default();
+    let order_id = match &payload.order_id {
+        Some(id) => id.clone(),
+        None => return Err(StatusCode::BAD_REQUEST),
+    };
+    // 方案 A：写操作前强校验归属
+    let user_id = payload.user_id.clone().ok_or(StatusCode::BAD_REQUEST)?;
+    if verify_ownership(&state, &order_id, &user_id).await.is_err() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let reason = payload.reason.clone().unwrap_or_default();
     let refund_amount = payload.refund_amount.unwrap_or(0.0);
 
     sqlx::query(
-        "INSERT INTO refunds (order_id, reason, refund_amount, status) \
-         VALUES ($1, $2, $3, 'PENDING_HUMAN_APPROVAL')",
+        "INSERT INTO refunds (order_id, user_id, reason, refund_amount, status) \
+         VALUES ($1, $2, $3, $4, 'PENDING_HUMAN_APPROVAL')",
     )
     .bind(&order_id)
+    .bind(&user_id)
     .bind(&reason)
     .bind(refund_amount)
     .execute(&state.db)
@@ -459,6 +613,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let state = AppState { db: pool };
 
+    // MCP：与 REST 共存于同一 axum 进程，共享同一个 sqlx 连接池
+    // （Phase 0 Spike V2 已验证可行；设计文档 §3.2）
+    //
+    // 类型标注不可省略：SessionManager 泛型参数（M）无法从 Default::default() 推断，
+    // 需显式指定为 LocalSessionManager。
+    let mcp_service: rmcp::transport::streamable_http_server::StreamableHttpService<
+        mcp::OrderMcpServer,
+        rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
+    > = rmcp::transport::streamable_http_server::StreamableHttpService::new(
+        {
+            let db = state.db.clone();
+            move || Ok(mcp::OrderMcpServer::new(db.clone()))
+        },
+        Default::default(),
+        Default::default(),
+    );
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/orders", get(list_orders).post(create_order))
@@ -471,6 +642,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/api/coupons/list", post(list_coupons))
         .route("/api/returns/create", post(create_return))
         .route("/api/refunds/confirm", post(refund_confirm))
+        .nest_service("/mcp", mcp_service)
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));

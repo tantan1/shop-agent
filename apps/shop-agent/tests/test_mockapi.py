@@ -233,8 +233,11 @@ class TestToolService:
             "order_id": "WB202405270001",
             "reason": "质量问题"
         })
-        assert "退货" in result
-        assert "WB202405270001" in result
+        # 返回为结构化 JSON（退货单号 + 待审核状态），而非含"退货"字样的文本
+        data = json.loads(result)
+        assert data.get("return_id"), "应返回退货单号"
+        assert data.get("order_id") == "WB202405270001"
+        assert data.get("status") == "待审核"
 
     @pytest.mark.asyncio
     async def test_dispatch_check_balance(self):

@@ -5,6 +5,10 @@ import re as _re
 import time as _time
 
 from src.modules.chat.core.param_extractor import LocalParamExtractor
+from src.modules.chat.core.layered_param_extractor import (
+    run_pipeline,
+    McpSchemaProvider,
+)
 from src.modules.chat.schemas import ChatResponse
 from src.shared.logger import APILogger
 
@@ -158,9 +162,29 @@ async def _prepare_intent_params(orchestrator, request, intent_result, langfuse_
     ]
 
     t0 = _time.perf_counter()
-    extracted_params = LocalParamExtractor.extract(
-        request.message, intent_result.action
-    )
+    extracted_params: dict = {}
+    try:
+        # 新管道：L0→L1/L3→L4，schema 由 MCP 动态提供，含格式闸/冲突消解
+        provider = McpSchemaProvider()
+        pipe = await run_pipeline(
+            request.message,
+            intent_result.action,
+            provider,
+            extra_required=(
+                ["order_id"] if intent_result.action in _ORDER_REQUIRED_ACTIONS else None
+            ),
+        )
+        extracted_params = dict(pipe.params)
+        if pipe.missing_required:
+            logger.info(f"管道缺必填字段: {pipe.missing_required}")
+        if pipe.not_finalized:
+            logger.info(f"管道未定稿字段(交L5): {pipe.not_finalized}")
+    except Exception as e:
+        # 管道异常 → 降级到旧 action-based 正则抽取（向后兼容）
+        logger.warning(f"分层管道异常，降级旧抽取: {e}")
+        extracted_params = LocalParamExtractor.extract(
+            request.message, intent_result.action
+        )
     t_params = (_time.perf_counter() - t0) * 1000
     if extracted_params:
         existing = intent_result.params or {}

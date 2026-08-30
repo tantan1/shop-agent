@@ -12,6 +12,10 @@ tags:
   - 折扣
 allowed-tools: coupon-inquiry
 priority: 10
+examples:
+  - 我有哪些优惠券可以用
+  - 满减券过期了吗
+  - 这个优惠码还能用吗
 ---
 
 # 优惠券查询 Skill

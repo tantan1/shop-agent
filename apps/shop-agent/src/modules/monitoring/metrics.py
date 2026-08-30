@@ -309,9 +309,50 @@ def track_milvus_search(collection: str = "default"):
     return decorator
 
 
-# ============ 记忆系统指标 ============
+# ============ MCP Client 指标 ============
+# 工具调用计数（按 tool + status）
+mcp_call_total = Counter(
+    "shop_agent_mcp_calls_total",
+    "MCP 工具调用次数",
+    ["tool", "status"],  # status: success / error
+)
 
-# 记忆召回统计（L2/L3/Profile）
+# 工具调用耗时（按 tool）
+mcp_call_duration = Histogram(
+    "shop_agent_mcp_call_duration_seconds",
+    "MCP 工具调用耗时分布",
+    ["tool"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")),
+)
+
+# 连接状态（按 server）：1=已连接，0=断开/降级
+mcp_connection_status = Gauge(
+    "shop_agent_mcp_connection_status",
+    "MCP 远程服务连接状态 (1=已连接, 0=断开/降级)",
+    ["server"],
+)
+
+# 当前活跃 session（连接）数
+mcp_sessions_active = Gauge(
+    "shop_agent_mcp_sessions_active",
+    "当前活跃的 MCP 连接(session)数",
+)
+
+# 已发现的 MCP 工具总数
+mcp_tools_total = Gauge(
+    "shop_agent_mcp_tools_total",
+    "已从远程 MCP Server 发现的工具总数",
+)
+
+# Schema 失配告警（档 B）：远程 inputSchema 与项目期望契约不一致时累加。
+# mismatch_type: field_missing（字段名漂移）/ type_drift（类型漂移）/ required_mismatch（必填缺漏）
+mcp_schema_mismatch_total = Counter(
+    "shop_agent_mcp_schema_mismatch_total",
+    "MCP 工具 schema 与项目期望契约失配次数（告警，不阻断调用）",
+    ["tool", "mismatch_type"],
+)
+
+# ============ 记忆系统指标 ============
 memory_recall_counter = Counter(
     "shop_agent_memory_recall_total",
     "记忆召回总次数",

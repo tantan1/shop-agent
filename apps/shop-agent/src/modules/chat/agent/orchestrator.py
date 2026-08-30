@@ -217,15 +217,41 @@ class AgentOrchestrator:
                 "path": "escalation",
             }
 
-        intent_result = await self._intent_recognizer.recognize(
-            normalized_message, langfuse_handler=getattr(self, "_langfuse_handler", None)
-        )
-        intent_steps = [{
-            "step_name": "意图识别",
-            "step_order": 0,
-            "status": "success",
-            "output_data": intent_result.model_dump(),
-        }]
+        # ── 硬路由：调用方（A2A / MCP）已指定 skill 时跳过意图识别 ──
+        # 意图识别是概率性的，而对端 Agent 既然已在 Agent Card 里确认过能力，
+        # 就不该再让模型猜一次。这里把 action 直接钉死为 skill_id，并置
+        # complexity=simple 走确定性执行路径。skill_id 的合法性由入口层校验
+        # （a2a_routers._validate_skill_routing），此处不再重复查注册表。
+        forced_skill = getattr(request, "skill_id", None)
+        if forced_skill:
+            intent_result = IntentResult(
+                intent="call_remote_api",
+                action=forced_skill,
+                params=getattr(request, "context", None) or None,
+                complexity="simple",
+                complexity_reason=f"调用方硬路由指定 skill={forced_skill}，跳过意图识别",
+            )
+            intent_steps = [{
+                "step_name": "意图识别（skill_id 硬路由）",
+                "step_order": 0,
+                "status": "success",
+                "output_data": intent_result.model_dump(),
+            }]
+            logger.info(
+                "A2A/MCP 硬路由生效，跳过意图识别",
+                skill_id=forced_skill,
+                conversation_id=request.conversation_id,
+            )
+        else:
+            intent_result = await self._intent_recognizer.recognize(
+                normalized_message, langfuse_handler=getattr(self, "_langfuse_handler", None)
+            )
+            intent_steps = [{
+                "step_name": "意图识别",
+                "step_order": 0,
+                "status": "success",
+                "output_data": intent_result.model_dump(),
+            }]
 
         return {
             "escalated": False,

@@ -12,6 +12,10 @@ tags:
   - 账户
 allowed-tools: check-balance
 priority: 10
+examples:
+  - 我的账户余额还有多少
+  - 查一下我的积分
+  - 钱包里还剩多少钱
 ---
 
 # 余额积分查询 Skill

@@ -107,11 +107,41 @@ class ApprovalGate:
             undo_data=result.undo_data,
         )
 
+    async def create_pending_approval(
+        self, command: ToolCommand, ctx: ToolContext, message: str = ""
+    ) -> str:
+        """仅创建待审批记录（不执行命令副作用，用于「先拦截后执行」模型）。
+
+        MCP 远程写操作采用此模型：dispatch 时只生成审批单 + approval_id，
+        人工 approve 时（ApprovalGate.approve → command.execute）才真实调用远程服务，
+        避免未授权副作用被提前触发。
+        """
+        if self._store is not None:
+            approval_id = await self._store.create_approval(
+                command, ctx, ToolResult(status="pending_approval", message=message)
+            )
+        else:
+            approval_id = await self._store_approval(
+                command, ctx, ToolResult(status="pending_approval", message=message)
+            )
+        logger.info(
+            "MCP Tool 待审批（未执行）",
+            command=command.command_name,
+            approval_id=approval_id,
+            conversation_id=ctx.conversation_id,
+        )
+        return approval_id
+
     async def approve(self, approval_id: str) -> ToolResult:
-        """审批通过：确认执行。"""
-        if self._store is None:
-            return ToolResult(status="failed", error="审批存储未配置")
-        approval = await self._store.get_approval(approval_id)
+        """审批通过：确认执行。
+
+        存储后端与 execute_with_approval 保持对称：显式传入 store 则用 store，
+        否则走内置降级路径（Redis → 内存），与 _store_approval 对应。
+        """
+        if self._store is not None:
+            approval = await self._store.get_approval(approval_id)
+        else:
+            approval = await self._get_approval(approval_id)
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
@@ -128,10 +158,14 @@ class ApprovalGate:
         return result
 
     async def reject(self, approval_id: str) -> ToolResult:
-        """审批拒绝：撤销执行。"""
-        if self._store is None:
-            return ToolResult(status="failed", error="审批存储未配置")
-        approval = await self._store.get_approval(approval_id)
+        """审批拒绝：撤销执行。
+
+        与 approve 一致：store 未显式配置时走内置降级路径（Redis → 内存）。
+        """
+        if self._store is not None:
+            approval = await self._store.get_approval(approval_id)
+        else:
+            approval = await self._get_approval(approval_id)
         if not approval:
             return ToolResult(status="failed", error=f"审批记录不存在: {approval_id}")
 
