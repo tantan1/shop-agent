@@ -126,7 +126,7 @@ def load_model(model_path: str):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
         ),
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=False,
     )
@@ -148,7 +148,7 @@ def merge_and_save(base_path: str, adapter_path: str, merge_out: str):
     print(f"[MERGE] base={base_path} adapter={adapter_path} -> {merge_out}")
     tok = AutoTokenizer.from_pretrained(base_path, trust_remote_code=False)
     base = AutoModelForCausalLM.from_pretrained(
-        base_path, dtype=torch.bfloat16, device_map="auto", trust_remote_code=False)
+        base_path, torch_dtype=torch.bfloat16, device_map="auto", trust_remote_code=False)
     model = PeftModel.from_pretrained(base, adapter_path)
     model = model.merge_and_unload()
     model.save_pretrained(merge_out)

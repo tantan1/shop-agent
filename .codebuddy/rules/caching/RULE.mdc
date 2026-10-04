@@ -15,6 +15,7 @@ alwaysApply: false
 - 读多写少：Cache-Aside
 - 写多读少：Write-Through
 - 实时性要求高：不使用缓存
+- **LLM 语义缓存（本项目专属杠杆）**：相似 prompt 可命中缓存，省 token、降延迟；由 LLM 网关层统一做（见 `docs/platform-engineering/08`），业务侧不重做相似度匹配
 
 ## Key 命名
 - 格式：项目:模块:业务:唯一标识

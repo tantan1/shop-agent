@@ -1,16 +1,16 @@
 """
 嵌入服务模块
 基于本地模型（sentence-transformers），兼容 LangChain 标准回调机制
+
+注意：仅加载本地模型（/models/bge-small-zh-v1.5 或配置的 embedding_model_local_path），
+不存在则报错退出，不再自动从 HuggingFace 下载。
 """
 
 import asyncio  # noqa: E402
 import os  # noqa: E402
 import threading  # noqa: E402
+from pathlib import Path  # noqa: E402
 from typing import List, Optional  # noqa: E402
-
-# 国内访问 HuggingFace 自动走镜像（必须在 sentence-transformers 导入前设置）
-_HF_MIRROR = os.environ.get("HF_ENDPOINT", "") or "https://hf-mirror.com"
-os.environ.setdefault("HF_ENDPOINT", _HF_MIRROR)
 
 from langchain_core.callbacks import CallbackManager  # noqa: E402
 from langchain_core.embeddings.embeddings import Embeddings  # noqa: E402
@@ -72,11 +72,27 @@ class LocalEmbeddings(Embeddings):
         with self._lock:
             if self._model is not None:
                 return
-            logger.info(f"加载本地 embedding 模型: {self.model_name}")
-            self._model = __import__("sentence_transformers").SentenceTransformer(self.model_name)
-            logger.info(
-                f"本地 embedding 模型加载完成, 维度={self._model.get_embedding_dimension()}"
-            )
+
+        # 本地模型路径：优先使用配置的本地路径，不存在则报错（不走 HF 下载）
+        local_path = getattr(chat_config, "embedding_model_local_path", None)
+        if local_path and Path(local_path).exists():
+            model_source = str(local_path)
+            logger.info(f"加载本地 embedding 模型: {model_source}")
+        else:
+            # 兜底：使用 model_name（但不走 HF 镜像下载，直接报错）
+            if not local_path or not Path(local_path).exists():
+                raise RuntimeError(
+                    f"本地 embedding 模型不存在: {local_path or '未配置 embedding_model_local_path'}。"
+                    f"请确保模型文件存在，或设置 embedding_model_local_path 指向本地模型目录。"
+                    f"不再自动从 HuggingFace 下载。"
+                )
+            model_source = self.model_name
+
+        logger.info(f"加载本地 embedding 模型: {model_source}")
+        self._model = __import__("sentence_transformers").SentenceTransformer(model_source)
+        logger.info(
+            f"本地 embedding 模型加载完成, 维度={self._model.get_embedding_dimension()}"
+        )
 
     @property
     def model(self):
@@ -130,8 +146,8 @@ class LocalEmbeddings(Embeddings):
 
         Args:
             text: 查询文本
-            instruction: BGE-M3 指令前缀。BGE-M3 是 instruction-tuned 模型，
-                         加入任务前缀可激活模型在检索任务上的最佳编码路径（5-10% 精度提升）。
+            instruction: BGE 检索指令前缀。bge-small-zh-v1.5 官方建议检索任务
+                         加入任务前缀以激活最佳编码路径。
                          示例: "为这个句子生成表示以用于检索相关文章："
         """
         import time  # noqa: E402
@@ -190,7 +206,7 @@ class OllamaEmbeddings(Embeddings):
 
     def __init__(
         self,
-        model_name: str = "bge-m3",
+        model_name: str = "bge-small-zh-v1.5",
         base_url: str = None,
         timeout: int = None,
         normalize: bool = True,
@@ -281,12 +297,20 @@ class OllamaEmbeddings(Embeddings):
 
 
 # =============================================================================
-# vLLM bge-m3 嵌入（进程外，OpenAI 兼容 /v1/embeddings；本地 GPU 直连）
+# vLLM bge-small-zh-v1.5 嵌入（进程外，OpenAI 兼容 /v1/embeddings；本地 GPU 直连）
 # =============================================================================
 
 
+import httpx
+
+# bge-small-zh-v1.5 的 BERT 位置编码上限为 512（含 <[BOS_never_used_51bce0c785ca2f68081bfa7d91973934]>/[SEP]）。
+# 中文单字切 1 字 ≈ 1 token，英文按字符计 token 更少，故按字符保守截断到 480，
+# 在底层兜底，保证任何调用方（L2 摘要 / 语义切块 / 意图识别等）都不会触发 vLLM 400。
+MAX_EMBED_CHARS = 480
+
+
 class VLLMEmbeddings(Embeddings):
-    """vLLM bge-m3 embedding（直连容器名，OpenAI 兼容 /v1/embeddings）
+    """vLLM bge-small-zh-v1.5 embedding（直连容器名，OpenAI 兼容 /v1/embeddings）
 
     用于本地 GPU 部署形态：模型权重由 vLLM 管理，应用侧零 ML 依赖。
     """
@@ -306,28 +330,59 @@ class VLLMEmbeddings(Embeddings):
         self.normalize = normalize
         self.batch_size = batch_size
         self.callback_manager = callback_manager
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout, limits=httpx.Limits(max_connections=10, max_keepalive_connections=5))
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    @staticmethod
+    def _truncate(text: str) -> str:
+        """把超长文本安全截断到 MAX_EMBED_CHARS，优先在句子边界断开。"""
+        if not isinstance(text, str) or len(text) <= MAX_EMBED_CHARS:
+            return text
+        head = text[:MAX_EMBED_CHARS]
+        # 在前 380~480 字符内找最后一个句子边界，避免硬切破坏语义
+        for sep in ("\n", "。", "！", "？", "；", ". "):
+            idx = head.rfind(sep)
+            if idx >= MAX_EMBED_CHARS - 100:
+                return head[:idx].rstrip()
+        return head
 
     async def _embed_async(self, texts: List[str]) -> List[List[float]]:
-        import httpx  # noqa: E402
+        safe_texts = [self._truncate(t) for t in texts]
+        truncated_count = sum(1 for o, n in zip(texts, safe_texts) if o != n)
+        if truncated_count:
+            _span = _get_current_span()
+            if _span is not None:
+                try:
+                    _span.set_attribute("embedding.truncated", True)
+                    _span.set_attribute("embedding.truncated_count", truncated_count)
+                except Exception:  # noqa: BLE001
+                    pass
+            logger.warning(
+                "Embedding 输入超长已自动截断",
+                truncated_count=truncated_count,
+                max_embed_chars=MAX_EMBED_CHARS,
+            )
 
+        client = await self._get_client()
         url = f"{self.base_url}/v1/embeddings"
-        payload = {"model": self.model_name, "input": texts}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        payload = {"model": self.model_name, "input": safe_texts}
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
         items = sorted(
             data.get("data", []),
             key=lambda it: it.get("index", 0),
         )
         return [it["embedding"] for it in items]
-
-    def _embed_sync(self, texts: List[str]) -> List[List[float]]:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(self._embed_async(texts))
-        finally:
-            loop.close()
 
     @observe(name="embedding.vllm.documents")
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -337,7 +392,25 @@ class VLLMEmbeddings(Embeddings):
 
         start = time.time()
         try:
-            result = self._embed_sync(texts)
+            # 在同步上下文中运行异步方法（复用共享 client）
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 已在事件循环中，无法直接 run_until_complete
+                # 创建新任务并在后台运行（这种情况不应在正常流程出现）
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    # contextvars 不跨线程传播，否则线程内 asyncio.run 产生的 HTTP span
+                    # 会失去父上下文、变成独立的根 trace。
+                    import contextvars
+
+                    _ctx = contextvars.copy_context()
+                    future = pool.submit(
+                        lambda: _ctx.run(asyncio.run, self.aembed_documents(texts))
+                    )
+                    result = future.result()
+            else:
+                result = loop.run_until_complete(self.aembed_documents(texts))
             if self.normalize:
                 result = OllamaEmbeddings._normalize(result)
             return result
@@ -354,7 +427,20 @@ class VLLMEmbeddings(Embeddings):
         try:
             if instruction:
                 text = f"{instruction}{text}"
-            result = self._embed_sync([text])[0]
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    import contextvars
+
+                    _ctx = contextvars.copy_context()
+                    future = pool.submit(
+                        lambda: _ctx.run(asyncio.run, self.aembed_query(text))
+                    )
+                    result = future.result()
+            else:
+                result = loop.run_until_complete(self.aembed_query(text))
             if self.normalize:
                 result = OllamaEmbeddings._normalize([result])[0]
             return result

@@ -10,7 +10,13 @@ tags:
   - 退款
   - 售后
   - 退款金额
-allowed-tools: request-return
+allowed-tools:
+  - request-return
+  - query-order
+  - check-shipping
+  - check-balance
+  - coupon-inquiry
+  - knowledge_search
 priority: 10
 risk: high
 hitl: true

@@ -1,0 +1,17 @@
+[
+  {
+    "query": "我上周收到的商品有破损，想申请退货退款，另外有没有优惠可以领？",
+    "conversations": [
+      {"role": "system", "content": "你是工具选择助手。"},
+      {"role": "user", "content": "我上周收到的商品有破损，想申请退货退款，另外有没有优惠可以领？"},
+      {"role": "assistant", "content": "{\"name\": \"request-return\"}"}
+    ],
+    "correct_tool": "request-return",
+    "correct_tools": ["request-return", "coupon-inquiry"],
+    "multi_intent": true,
+    "selection_source": "p2_linear",
+    "candidate_tools": ["query-order", "check-shipping", "request-return", "refund-confirm", "check-balance", "coupon-inquiry"],
+    "available_tools": ["query-order", "check-shipping", "request-return", "refund-confirm", "check-balance", "coupon-inquiry"],
+    "note": "多意图用例：退货退款 + 领优惠；流水线（p2_linear）只选出 coupon-inquiry，漏选 request-return。选项 A/B 修复多工具支持前作为盲区登记，不进训练集。"
+  }
+]

@@ -1,0 +1,380 @@
+diff --git a/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py b/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py
+new file mode 100644
+index 0000000..0dbdd37
+--- /dev/null
++++ b/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py
+@@ -0,0 +1,171 @@
++"""工具选择可配置迭代式 Pipeline 调用器。
++
++见 docs/architecture/tool-select-pipeline-design.md §5。
++维护 scope（下一层候选范围）与观测缓冲；统一做早停判断、候选软过滤传递与降级。
++各层 scored_candidates 仅用于观测日志，绝不参与跨层融合决策。
++"""
++from __future__ import annotations
++
++import asyncio
++import logging
++import time
++from dataclasses import dataclass, field
++from typing import Any, Dict, List, Optional, Tuple
++
++from src.modules.chat.core.tool_select_stage import CandidateScore, StageResult, ToolSelectStage
++from src.modules.chat.schemas import PlannedAction, ToolPlan
++
++logger = logging.getLogger(__name__)
++
++# 未配置 timeout_ms 时的兜底超时（毫秒），避免单层无界等待。
++DEFAULT_STAGE_TIMEOUT_MS = 5000
++
++
++@dataclass(frozen=True)
++class PipelinePolicy:
++    """Pipeline 的策略参数集合（阈值 / 降级 / 超时）。
++
++    仅为「参数对象」，用于收缩构造参数个数并满足 ruff `max-args` 约束；
++    不读 YAML——外部配置化（Phase 3）由 `ToolSelectConfig` 组装后传入。
++    """
++
++    thresholds: Dict[str, float] = field(default_factory=dict)
++    fallback: Dict[str, str] = field(default_factory=dict)
++    timeouts: Dict[str, int] = field(default_factory=dict)
++
++
++class ToolSelectPipeline:
++    def __init__(
++        self,
++        stages: List[ToolSelectStage],
++        all_tools: List[str],
++        deps: Dict[str, Any],
++        policy: Optional[PipelinePolicy] = None,
++    ) -> None:
++        self.stages = stages
++        self._all_tools = list(all_tools)
++        self._deps = deps
++        self._policy = policy or PipelinePolicy()
++
++    async def select(self, query: str) -> ToolPlan:
++        scope: List[str] = list(self._all_tools)  # 当前候选 scope，传给各层
++        observations: List[CandidateScore] = []  # 各层打分，仅用于末尾观测日志
++        context = {"thresholds": self._policy.thresholds, **self._deps}
++
++        for stage in self.stages:
++            result, latency_ms = await self._run_stage(stage, query, scope, context)
++            self._log_stage_result(stage, result, latency_ms)
++
++            # 错误处理：按 fallback.on_stage_failure 策略（skip 时本层不计入观测）
++            if result.error:
++                aborted = self._handle_error(stage, result)
++                if aborted is not None:
++                    return self._complete(aborted)
++            else:
++                observations.extend(result.scored_candidates)
++                if result.scored_candidates:
++                    scope = [s.tool for s in result.scored_candidates]
++
++            # 早停：本层足够置信 → 直接返回，不触发更贵层级（成本漏斗）
++            threshold = self._policy.thresholds.get(stage.name, 0.9)
++            if result.tool and result.confidence >= threshold:
++                return self._complete(
++                    ToolPlan(
++                        actions=[
++                            PlannedAction(
++                                name=result.tool,
++                                source=result.source,
++                                confidence=result.confidence,
++                            )
++                        ],
++                        source=result.source,
++                        stop_condition="plan_complete",
++                    )
++                )
++
++        # 无层早停：不自行融合打分，按 fallback 策略降级（观测日志见下）
++        logger.info(
++            "tool_select_no_early_exit",
++            extra={
++                "observations": [
++                    (s.tool, round(s.score, 3), s.source) for s in observations
++                ]
++            },
++        )
++        return self._complete(self._fallback_plan())
++
++    async def _run_stage(
++        self,
++        stage: ToolSelectStage,
++        query: str,
++        scope: List[str],
++        context: Dict[str, Any],
++    ) -> Tuple[StageResult, float]:
++        """执行单层并强制超时；返回 (本层结果, 耗时毫秒)。
++
++        超时与任何未捕获异常统一转为 `error`，交由调用方按 on_stage_failure 处置。
++        """
++        started = time.monotonic()
++        timeout = self._policy.timeouts.get(stage.name) or DEFAULT_STAGE_TIMEOUT_MS
++        try:
++            result = await asyncio.wait_for(
++                stage.run(query, scope, context), timeout=timeout / 1000
++            )
++        except asyncio.TimeoutError:
++            result = StageResult(tool=None, source=stage.name, error="stage timeout")
++        except Exception as exc:
++            result = StageResult(tool=None, source=stage.name, error=str(exc))
++        return result, (time.monotonic() - started) * 1000
++
++    @staticmethod
++    def _log_stage_result(stage: ToolSelectStage, result: StageResult, latency_ms: float) -> None:
++        """每层结构化日志（design §7.2）。"""
++        logger.info(
++            "tool_select_stage_result",
++            extra={
++                "stage": stage.name,
++                "tool": result.tool,
++                "confidence": result.confidence,
++                "candidates_count": len(result.scored_candidates),
++                "latency_ms": round(latency_ms, 3),
++                "error": result.error,
++            },
++        )
++
++    def _handle_error(self, stage: ToolSelectStage, result: StageResult) -> Optional[ToolPlan]:
++        """按 on_stage_failure 策略处理失败层；返回非 None 表示立即终止。"""
++        policy = self._policy.fallback.get("on_stage_failure", "skip")
++        logger.warning(
++            "tool_select_stage_error", extra={"stage": stage.name, "error": result.error}
++        )
++        if policy in ("abort", "hitl"):
++            # hitl 在代码层等价于 need_llm：返回空结果交上游按部署策略处置
++            return ToolPlan(actions=[], source="fallback", stop_condition="need_llm")
++        return None
++
++    @staticmethod
++    def _complete(plan: ToolPlan) -> ToolPlan:
++        """Pipeline 收尾日志（design §7.2）。"""
++        logger.info(
++            "tool_select_pipeline_complete",
++            extra={
++                "source": plan.source,
++                "tool": plan.actions[0].name if plan.actions else None,
++                "confidence": plan.actions[0].confidence if plan.actions else None,
++                "stop_condition": plan.stop_condition,
++            },
++        )
++        return plan
++
++    def _fallback_plan(self) -> ToolPlan:
++        """无层跨阈值时的降级结果；融合决策交由上游/策略，本方法不计算分数。"""
++        if self._policy.fallback.get("on_all_stages_failed") == "default_tool" and self._all_tools:
++            return ToolPlan(
++                actions=[
++                    PlannedAction(name=self._all_tools[0], source="default", confidence=0.0)
++                ],
++                source="default",
++                stop_condition="plan_complete",
++            )
++        # 默认 need_llm：交上游按部署策略处置（云端 ReAct / HITL / 本地小模型）
++        return ToolPlan(actions=[], source="fallback", stop_condition="need_llm")
+
+diff --git a/apps/shop-agent/tests/core/test_tool_select_pipeline.py b/apps/shop-agent/tests/core/test_tool_select_pipeline.py
+new file mode 100644
+index 0000000..b0bd500
+--- /dev/null
++++ b/apps/shop-agent/tests/core/test_tool_select_pipeline.py
+@@ -0,0 +1,196 @@
++"""ToolSelectPipeline 单元测试（TDD：mock 各层，验证 Pipeline 编排逻辑）。
++
++覆盖：早停、候选 scope 传递、各降级策略、错误处理、超时强制。
++每层独立 mock，不依赖其他 stage（对应验收项"单测覆盖每层独立 mock"）。
++"""
++import asyncio
++
++from src.modules.chat.core.tool_select_stage import (
++    STAGE_REGISTRY,
++    CandidateScore,
++    StageResult,
++    ToolSelectStage,
++    register_stage,
++)
++from src.modules.chat.core.tool_select_pipeline import PipelinePolicy, ToolSelectPipeline
++
++
++class FakeStage(ToolSelectStage):
++    """测试用假 Stage：按预设返回结果，可选延迟触发超时或主动抛异常。"""
++
++    def __init__(self, name, result=None, delay=None, raise_error=None):
++        super().__init__(name)
++        self._result = result or StageResult(tool=None, source=name)
++        self._delay = delay
++        self._raise = raise_error
++        self.calls = []  # 记录每层收到的 scope，用于验证候选传递
++
++    async def run(self, query, scope, context):
++        self.calls.append(list(scope))
++        if self._delay:
++            await asyncio.sleep(self._delay)
++        if self._raise:
++            raise self._raise
++        return self._result
++
++
++def _hit(tool, score, source):
++    return StageResult(
++        tool=tool,
++        confidence=score,
++        source=source,
++        scored_candidates=[CandidateScore(tool, score, source)],
++    )
++
++
++ALL_TOOLS = ["query-order", "check-shipping", "request-return"]
++
++
++def _build(stages, thresholds, fallback=None, timeouts=None):
++    return ToolSelectPipeline(
++        stages=stages,
++        all_tools=ALL_TOOLS,
++        deps={},
++        policy=PipelinePolicy(
++            thresholds=thresholds,
++            fallback=fallback or {},
++            timeouts=timeouts or {},
++        ),
++    )
++
++
++def test_early_stop_on_confident_stage():
++    s1 = FakeStage("p1_faiss", _hit("query-order", 0.9, "p1_faiss"))
++    s2 = FakeStage("p2_linear", _hit("check-shipping", 0.95, "p2_linear"))
++    plan = asyncio.run(
++        _build([s1, s2], {"p1_faiss": 0.85, "p2_linear": 0.90}).select("查订单")
++    )
++    assert plan.stop_condition == "plan_complete"
++    assert plan.actions[0].name == "query-order"
++    assert plan.source == "p1_faiss"
++    assert s2.calls == []  # 早停后不应调用更贵层级（成本漏斗）
++
++
++def test_no_early_stop_falls_back_to_need_llm():
++    s1 = FakeStage("p1_faiss", StageResult(tool=None, source="p1_faiss"))
++    s2 = FakeStage("p2_linear", StageResult(tool=None, source="p2_linear"))
++    plan = asyncio.run(
++        _build([s1, s2], {"p1_faiss": 0.85, "p2_linear": 0.90}).select("你好")
++    )
++    assert plan.stop_condition == "need_llm"
++    assert plan.actions == []
++
++
++def test_default_tool_fallback():
++    s1 = FakeStage("p1_faiss", StageResult(tool=None, source="p1_faiss"))
++    plan = asyncio.run(
++        _build(
++            [s1], {"p1_faiss": 0.85}, fallback={"on_all_stages_failed": "default_tool"}
++        ).select("你好")
++    )
++    assert plan.stop_condition == "plan_complete"
++    assert plan.actions[0].name == ALL_TOOLS[0]
++
++
++def test_scope_passed_to_next_stage():
++    scoped = ["query-order", "check-shipping"]
++    s1 = FakeStage(
++        "p1_faiss",
++        StageResult(
++            tool=None,
++            source="p1_faiss",
++            scored_candidates=[CandidateScore(t, 0.8, "p1_faiss") for t in scoped],
++        ),
++    )
++    s2 = FakeStage("p2_linear", StageResult(tool=None, source="p2_linear"))
++    asyncio.run(
++        _build([s1, s2], {"p1_faiss": 0.85, "p2_linear": 0.90}).select("查订单")
++    )
++    assert s2.calls[0] == scoped  # 下一层收到缩窄后的 scope
++
++
++def test_stage_error_skip_continues():
++    s1 = FakeStage("p1_faiss", raise_error=RuntimeError("boom"))
++    s2 = FakeStage("p2_linear", _hit("check-shipping", 0.95, "p2_linear"))
++    plan = asyncio.run(
++        _build(
++            [s1, s2],
++            {"p1_faiss": 0.85, "p2_linear": 0.90},
++            fallback={"on_stage_failure": "skip"},
++        ).select("查物流")
++    )
++    assert plan.source == "p2_linear"
++    assert plan.actions[0].name == "check-shipping"
++
++
++def test_stage_error_abort_returns_need_llm():
++    s1 = FakeStage("p1_faiss", raise_error=RuntimeError("boom"))
++    s2 = FakeStage("p2_linear", _hit("check-shipping", 0.95, "p2_linear"))
++    plan = asyncio.run(
++        _build(
++            [s1, s2],
++            {"p1_faiss": 0.85, "p2_linear": 0.90},
++            fallback={"on_stage_failure": "abort"},
++        ).select("查物流")
++    )
++    assert plan.stop_condition == "need_llm"
++    assert s2.calls == []  # abort 后不继续
++
++
++def test_stage_timeout_treated_as_error():
++    s1 = FakeStage(
++        "p1_faiss",
++        delay=0.5,
++        result=_hit("query-order", 0.9, "p1_faiss"),
++    )
++    s2 = FakeStage("p2_linear", _hit("check-shipping", 0.95, "p2_linear"))
++    plan = asyncio.run(
++        _build(
++            [s1, s2],
++            {"p1_faiss": 0.85, "p2_linear": 0.90},
++            timeouts={"p1_faiss": 50},
++        ).select("查订单")
++    )
++    # p1 超时 -> error -> skip -> p2 命中
++    assert plan.source == "p2_linear"
++
++
++def test_register_stage_populates_registry():
++    """A3：显式注册表可登记并按 name 解析 Stage 类。"""
++    name = "_probe_stage"
++    register_stage(name, FakeStage)
++    try:
++        assert STAGE_REGISTRY[name] is FakeStage
++        assert STAGE_REGISTRY[name](name).name == name
++    finally:
++        STAGE_REGISTRY.pop(name, None)
++
++
++def test_stage_error_hitl_returns_need_llm():
++    """hitl 在代码层等价于 need_llm：返回空结果交上游按部署策略处置。"""
++    s1 = FakeStage("p1_faiss", raise_error=RuntimeError("boom"))
++    s2 = FakeStage("p2_linear", _hit("check-shipping", 0.95, "p2_linear"))
++    plan = asyncio.run(
++        _build(
++            [s1, s2],
++            {"p1_faiss": 0.85, "p2_linear": 0.90},
++            fallback={"on_stage_failure": "hitl"},
++        ).select("查物流")
++    )
++    assert plan.stop_condition == "need_llm"
++    assert s2.calls == []
++
++
++def test_stage_result_logged_per_layer(caplog):
++    """可观测约束：每层都要打 tool_select_stage_result 结构化日志。"""
++    import logging
++
++    caplog.set_level(logging.INFO, logger="src.modules.chat.core.tool_select_pipeline")
++    s1 = FakeStage("p1_faiss", _hit("query-order", 0.9, "p1_faiss"))
++    asyncio.run(_build([s1], {"p1_faiss": 0.85}).select("查订单"))
++
++    records = [r for r in caplog.records if r.message == "tool_select_stage_result"]
++    assert len(records) == 1
++    assert records[0].stage == "p1_faiss"
++    assert records[0].candidates_count == 1
++    assert records[0].latency_ms >= 0

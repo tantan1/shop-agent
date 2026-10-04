@@ -1,19 +1,32 @@
 """
-意图识别器 —— 本地 FAISS 向量匹配
+意图识别器 —— 编排层（关注点分离重构 · 第 1 步）
 
-负责：
-1. FAISS 意图向量索引构建（复用已有 BGE 模型）
-2. 否定词过滤 → 直接回退 RAG
-3. 意图命中后的复杂性检测（simple vs multi_step）
+职责划分：
+- 分类：委托 ``core/intent/classifiers.py``（NegationRuleClassifier / FaissIntentClassifier）
+- 索引：委托 ``core/intent/index_builder.py``，数据源 = SkillRegistry（SKILL.md 的 examples）
+- 路由：委托 ``core/intent/router.py`` 的 ExecutionRouter，产出 ExecutionPlan
+
+注意：意图示例的唯一数据源是各 SKILL.md frontmatter 的 ``examples`` 字段，
+本文件不再硬编码 INTENT_EXAMPLES（消灭双份事实源）。
 """
 
 import time as _perf_time
-from typing import Dict, List, Optional, Tuple
-
-import faiss
-import numpy as np
+from typing import List, Optional, Tuple
 
 from src.core.config import config
+from src.modules.chat.agent.skill_loader import get_skill_registry
+from src.modules.chat.core.intent.candidate import ExecutionPlan, IntentCandidate
+from src.modules.chat.core.intent.classifiers import (
+    FaissIntentClassifier,
+    NegationRuleClassifier,
+)
+from src.modules.chat.core.intent.index_builder import (
+    ExamplesProvider,
+    ensure_intent_index_async,
+    ensure_intent_index_sync,
+    examples_from_registry,
+)
+from src.modules.chat.core.intent.router import ExecutionRouter, RoutingPolicy
 from src.modules.chat.schemas import IntentResult
 from src.shared.logger import APILogger
 
@@ -29,12 +42,12 @@ NEGATION_PATTERNS: List[str] = [
     "退款流程",
     "退货流程",
     "怎么退",
-    "如何退",
     "退货条件",
     "退款规则",
     "退换政策",
     "什么是",
-    "说明",
+    "请说明政策",
+    "服务说明",
 ]
 
 # 信号1：问题里包含推理/多步关键词 → 不是一次 tool 调用能搞定的
@@ -60,66 +73,180 @@ REACT_TRIGGER_PATTERNS: List[str] = [
     "怎么回事",  # 需要诊断
 ]
 
-# 信号2：某些意图本质上是多步骤流程，永远不该 direct tool dispatch
-ALWAYS_AGENT_ACTIONS: set = {"request-return"}
-# 原因：退货需要 (1)查退货政策(RAG) → (2)查订单是否符合条件(tool) → (3)创建退货单(tool)
+# 多意图连接词：用于把一条消息拆分为多个意图子句，分别分类后取并集。
+# 例：「我上周的商品破损想退货退款，另外有没有优惠可以领？」→ 退货 + 领券。
+MULTI_INTENT_CONNECTORS: List[str] = [
+    "另外",
+    "还有",
+    "顺便",
+    "以及",
+    "同时",
+    "也",
+    "和",
+    "与",
+    "再",
+    "一起",
+    "此外",
+    "并且",
+    "然后再",
+    "还要",
+    "还想",
+]
 
-# 信号3：FAISS 分在阈值边缘（疑似歧义查询），交给 Agent 处理更稳妥
-COMPLEXITY_SCORE_THRESHOLD: float = 0.85
+# 信号2（多步骤意图）与「写类意图」判定已移入路由层：由 SKILL.md 的
+# risk / hitl 推导（见 core/intent/router.py::is_sensitive_skill）。
+# 本模块不再维护 ALWAYS_AGENT_ACTIONS / WRITE_ACTIONS 这类硬编码集合。
 
-# 意图示例（用于构建 FAISS 索引）
-INTENT_EXAMPLES: Dict[str, List[str]] = {
-    "query-order": [
-        "帮我查一下我的订单到哪了",
-        "我的订单什么时候发货",
-        "看看我最近买了什么东西",
-        "查询订单状态",
-    ],
-    "check-shipping": [
-        "快递现在在什么地方，物流信息",
-        "我的包裹到哪了，查物流",
-        "什么时候能送到",
-        "配送进度怎么查",
-    ],
-    "request-return": [
-        "我要退货退款，这个商品不满意",
-        "申请七天无理由退货",
-        "想把这个东西退掉，怎么操作",
-        "退款什么时候到账",
-    ],
-    "check-balance": [
-        "我账户里还有多少余额",
-        "查一下我的积分有多少",
-        "我的钱包余额",
-        "账户资产查询",
-    ],
-    "coupon-inquiry": [
-        "我有什么优惠券可以用",
-        "领取优惠券在哪里领",
-        "看看有没有满减券",
-        "红包怎么用",
-    ],
-}
+# 信号3：FAISS 相似分在歧义带（疑似歧义查询），交给 Agent 处理更稳妥。
+# 仅作为 RoutingPolicy.ambiguity_zone 的兜底默认值，实际取值来自 config。
+AMBIGUITY_SIMILARITY_THRESHOLD: float = 0.72
+
+# 意图示例的唯一数据源：各 SKILL.md frontmatter 的 examples 字段，
+# 经 SkillRegistry 抽取（见 core/intent/index_builder.py::examples_from_registry）。
+# 本模块不再维护硬编码示例，避免「改了 SKILL.md 但意图识别不跟随」。
 
 
 class IntentRecognizer:
-    """意图识别器 —— 本地 FAISS 向量匹配 + LLM 兜底"""
+    """意图识别器 —— 编排「分类 → 路由」，产出 IntentResult。
 
-    # FAISS 意图向量索引（类级别共享，所有实例复用同一份索引）
-    _faiss_index: Optional[faiss.IndexFlatIP] = None
-    _intent_actions: List[str] = []  # 意图标签列表，与 FAISS 索引行对齐
-    _intent_dim: int = 0  # BGE 向量维度，首次构建时推断
+    分类委托 ``core/intent/classifiers``，索引委托 ``core/intent/index_builder``，
+    路由委托 ``core/intent/router`` 的 ``ExecutionRouter``；
+    本类只负责编排，以及把 ExecutionPlan 映射为兼容期 IntentResult。
+    """
 
-    def __init__(self, embedding_service, llm_service=None):
+    def __init__(self, embedding_service, llm_service=None, skill_registry=None):
         """
         Args:
             embedding_service: EmbeddingService 实例（必需，用于向量化）
             llm_service: LLMService 实例（可选，用于 LLM 模式意图识别/参数抽取）
+            skill_registry: SkillRegistry 实例（可选，意图示例数据源；
+                缺省使用全局单例 get_skill_registry()）
         """
         self._embedding_service = embedding_service
         self._llm_service = llm_service
+        self._skill_registry = skill_registry
 
-        self._intent_examples: Dict[str, List[str]] = INTENT_EXAMPLES
+        def _examples_provider():
+            return examples_from_registry(
+                self._skill_registry or get_skill_registry()
+            )
+
+        self._examples_provider: ExamplesProvider = _examples_provider
+        self._negation: NegationRuleClassifier = NegationRuleClassifier(
+            NEGATION_PATTERNS
+        )
+        self._faiss: FaissIntentClassifier = FaissIntentClassifier(
+            embedding_service, _examples_provider
+        )
+
+        self._policy: RoutingPolicy = RoutingPolicy(
+            min_confidence=float(
+                getattr(config, "INTENT_VECTOR_SIMILARITY_THRESHOLD", 0.65)
+            ),
+            write_min_confidence=float(
+                getattr(config, "INTENT_WRITE_THRESHOLD", 0.78)
+            ),
+            ambiguity_zone=float(
+                getattr(
+                    config,
+                    "AMBIGUITY_SIMILARITY_THRESHOLD",
+                    AMBIGUITY_SIMILARITY_THRESHOLD,
+                )
+            ),
+            react_triggers=list(REACT_TRIGGER_PATTERNS),
+        )
+        self._router: ExecutionRouter = ExecutionRouter(
+            self._policy, skill_lookup=self._skill_of
+        )
+
+    def _skill_of(self, action: str):
+        """按意图名取 SkillDef，供路由层判定 risk / hitl。"""
+        registry = self._skill_registry or get_skill_registry()
+        for s in getattr(registry, "skills", None) or []:
+            if getattr(s, "name", None) == action:
+                return s
+        return None
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 多意图识别（治本：让意图识别产出意图列表，下游 P0 取并集 → 多工具）
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _split_multi_intent(self, message: str) -> List[str]:
+        """按多意图连接词把一条消息切成多个子句。
+
+        逐连接词切分（连接词本身丢弃），返回去空白后的非空子句列表。
+        无连接词时返回 [整句]（单意图退化）。
+        """
+        parts: List[str] = [message]
+        for conn in MULTI_INTENT_CONNECTORS:
+            new_parts: List[str] = []
+            for p in parts:
+                if conn in p:
+                    new_parts.extend(
+                        seg.strip() for seg in p.split(conn) if seg.strip()
+                    )
+                else:
+                    new_parts.append(p)
+            parts = new_parts
+        return [p for p in parts if p]
+
+    async def _classify_action(self, text: str) -> Optional[Tuple[str, float]]:
+        """对单条文本用 FAISS 取最优意图动作（action, score）。失败时返回 None。
+
+        注意 ``FaissIntentClassifier.classify`` 是 async 方法（见 classifiers.py），
+        ``recognize`` 本身是 async 上下文，故此处用 await 取真实 Candidate，避免拿到协程。
+        """
+        try:
+            cand = await self._faiss.classify(text)
+        except Exception:
+            return None
+        if cand and cand.action and cand.score is not None:
+            return (cand.action, cand.score)
+        return None
+
+    async def _extract_intent_actions(
+        self, message: str, primary: Optional[IntentCandidate] = None
+    ) -> List[str]:
+        """从一条消息中识别多个意图动作，返回有序、去重的动作列表。
+
+        做法：
+        1. 整句动作优先 —— 复用 ``recognize`` 已算出的 ``primary``（避免重复 FAISS 调用）；
+           否则对整句做一次 FAISS 分类。
+        2. 子句补充 —— 按连接词切分后，对每条子句分类，把额外意图并入。
+        3. 过滤低于最小置信阈值的弱信号、去重（保留首次出现顺序）。
+
+        单意图消息（无连接词）退化为 [整句动作]。
+        """
+        if not message or not message.strip():
+            return []
+
+        collected: List[Tuple[str, float]] = []
+        # 整句动作：优先复用 primary，避免重复 classify
+        if primary is not None and primary.action and primary.score is not None:
+            collected.append((primary.action, primary.score))
+        else:
+            whole = await self._classify_action(message)
+            if whole:
+                collected.append(whole)
+
+        # 子句动作（复用整句结果已计入，这里跳过等于整句的子句）
+        for seg in self._split_multi_intent(message):
+            if seg == message.strip():
+                continue
+            sub = await self._classify_action(seg)
+            if sub:
+                collected.append(sub)
+
+        seen: set = set()
+        actions: List[str] = []
+        for action, score in collected:
+            if action in seen:
+                continue
+            if score < self._policy.min_confidence:
+                continue
+            seen.add(action)
+            actions.append(action)
+        return actions
 
     # ════════════════════════════════════════════════════════════════════════
     # FAISS 意图索引
@@ -127,127 +254,58 @@ class IntentRecognizer:
 
     async def warmup(self):
         """预热 FAISS 意图索引（在启动时调用，避免首次请求等待）"""
-        await self._init_faiss_intent_index()
+        _ = await ensure_intent_index_async(
+            self._embedding_service, self._examples_provider
+        )
 
     @classmethod
     def warmup_sync(cls, embedding_service):
         """同步预热 FAISS 意图索引（用于 lifespan 中，不依赖事件循环）"""
-        if cls._faiss_index is not None:
-            return
-        try:
-            emb = embedding_service.get_embeddings()
-            actions_flat: List[str] = []
-            examples_flat: List[str] = []
-            for action, phrases in INTENT_EXAMPLES.items():
-                for phrase in phrases:
-                    actions_flat.append(action)
-                    examples_flat.append(phrase)
+        _ = ensure_intent_index_sync(
+            embedding_service,
+            lambda: examples_from_registry(get_skill_registry()),
+        )
 
-            vecs = emb.embed_documents(examples_flat)  # 同步版本
-            vecs_np = np.array(vecs, dtype=np.float32)
-            dim = vecs_np.shape[1]
-            cls._intent_dim = dim
-            index = faiss.IndexFlatIP(dim)
-            index.add(vecs_np)
-            cls._faiss_index = index
-            cls._intent_actions = actions_flat
-            logger.info(
-                f"FAISS意图索引构建完成, dim={dim}, "
-                f"intents={len(INTENT_EXAMPLES)}, total_vectors={len(actions_flat)}"
-            )
-        except Exception as e:
-            logger.warning(f"FAISS意图索引构建失败: {e}")
+    # 注：复杂性检测已移入路由层 ``ExecutionRouter._assess``。
+    # 其「多步骤意图」信号来自 SKILL.md 的 risk / hitl，
+    # 关键词与阈值来自 ``RoutingPolicy``，不再硬编码在本模块。
 
-    async def _init_faiss_intent_index(self):
-        """初始化 FAISS 意图向量索引（懒加载，复用已有BGE模型）"""
-        if IntentRecognizer._faiss_index is not None:
-            return
-        if not self._embedding_service:
-            logger.warning("Embedding服务未初始化，跳过FAISS意图索引构建")
-            return
-        try:
-            emb = self._embedding_service.get_embeddings()
+    async def _llm_fallback_classify(
+        self, message: str, fallback_action: str, fallback_score: float
+    ) -> Optional[Tuple[str, str, str]]:
+        """LLM 二次分类：在歧义带内用 LLM 精判意图和复杂性。
 
-            # 展开：每个意图有 N 种提问方式 → 每个方式一条 FAISS 行
-            actions_flat: List[str] = []
-            examples_flat: List[str] = []
-            for action, phrases in self._intent_examples.items():
-                for phrase in phrases:
-                    actions_flat.append(action)
-                    examples_flat.append(phrase)
-
-            # 批量编码所有意图示例 → numpy 矩阵
-            vecs = await emb.aembed_documents(examples_flat)
-            vecs_np = np.array(vecs, dtype=np.float32)
-
-            # BGE 输出已 L2 归一化，用 IndexFlatIP（内积 = 余弦相似度）
-            dim = vecs_np.shape[1]
-            IntentRecognizer._intent_dim = dim
-            index = faiss.IndexFlatIP(dim)  # Inner Product on normalized vectors = Cosine
-            index.add(vecs_np)  # FAISS 要求 contiguous float32
-
-            IntentRecognizer._faiss_index = index
-            IntentRecognizer._intent_actions = actions_flat
-            logger.info(
-                f"FAISS意图索引构建完成, dim={dim}, "
-                f"intents={len(self._intent_examples)}, total_vectors={len(actions_flat)}"
-            )
-        except Exception as e:
-            logger.warning(f"FAISS意图索引构建失败: {e}")
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 复杂性检测
-    # ════════════════════════════════════════════════════════════════════════
-
-    def assess_complexity(
-        self, message: str, action: str, similarity_score: float
-    ) -> Tuple[str, str]:
-        """
-        意图命中后，判断是否需要走 ReAct Agent 而非直接 tool 调用。
-
-        三个信号综合判断：
-        1. 意图类型：某些 action 本质多步 (如 request_return)
-        2. 关键词模式：含"为什么/怎么办/帮我"等推理/多步信号
-        3. FAISS 相似分：低分(0.75~0.85)意味着表达模糊 → 可能需要 RAG 补全
+        Args:
+            message: 用户消息
+            fallback_action: FAISS 返回的候选意图
+            fallback_score: FAISS 相似分
 
         Returns:
-            (complexity_label, reason_str)
-            - "simple": 直接 tool dispatch
-            - "multi_step": 需要 tool+RAG，交给 Agent
+            (action, complexity, reason) 或 None（LLM 调用失败时）
         """
-        reasons = []
-        complexity_score = 0  # 每命中一个信号 +1
+        if not self._llm_service:
+            return None
 
-        # 信号1：该意图永远需要 Agent
-        if action in ALWAYS_AGENT_ACTIONS:
-            reasons.append(f"{action} 是多步骤意图（查政策→验条件→执行）")
-            complexity_score += 3  # 强信号
-
-        # 信号2：含推理/多步关键词
-        matched_triggers = [p for p in REACT_TRIGGER_PATTERNS if p in message]
-        if matched_triggers:
-            reasons.append(f"含推理/多步关键词: {matched_triggers}")
-            complexity_score += 1
-
-        # 信号3：FAISS 相似分在阈值边缘（不太确定用户到底要什么）
-        if similarity_score < COMPLEXITY_SCORE_THRESHOLD:
-            reasons.append(
-                f"相似分 {similarity_score:.3f} < {COMPLEXITY_SCORE_THRESHOLD}，可能存在歧义"
-            )
-            complexity_score += 1
-
-        complexity = "multi_step" if complexity_score >= 1 else "simple"
-        reason = "; ".join(reasons) if reasons else "表达清晰，直接调用工具即可"
-
-        logger.info(
-            "复杂性检测",
-            action=action,
-            score=round(similarity_score, 3),
-            complexity=complexity,
-            triggers=complexity_score,
-            reason=reason,
+        prompt = (
+            "你是一个意图识别助手。请判断用户消息的意图和复杂性。\n\n"
+            f"用户消息: {message}\n\n"
+            f"候选意图: {fallback_action} (相似度: {fallback_score:.3f})\n\n"
+            "可选意图: query-order, check-shipping, request-return, check-balance, coupon-inquiry, rag_answer\n\n"
+            "请返回 JSON 格式:\n"
+            '{"action": "意图名称", "complexity": "simple 或 multi_step", "reason": "判断理由"}'
         )
-        return complexity, reason
+
+        try:
+            response = await self._llm_service.chat(prompt)
+            import json
+            data = json.loads(response.strip())
+            action = data.get("action", fallback_action)
+            complexity = data.get("complexity", "simple")
+            reason = data.get("reason", "LLM 二次分类")
+            return action, complexity, reason
+        except Exception as e:
+            logger.warning(f"LLM 二次分类解析失败: {e}")
+            return None
 
     # ════════════════════════════════════════════════════════════════════════
     # 统一入口
@@ -259,78 +317,114 @@ class IntentRecognizer:
         """本地意图识别（否定过滤 + FAISS 向量匹配）。无 LLM 调用，延迟 < 5ms"""
         t_total_start = _perf_time.perf_counter()
 
-        # ---- 第一层：否定模式过滤（咨询类问题走 RAG） ----
-        for neg in NEGATION_PATTERNS:
-            if neg in message:
-                dt = (_perf_time.perf_counter() - t_total_start) * 1000
-                print(f"[⏱] 意图识别 [否定命中] {dt:.0f}ms → rag_answer")
-                return IntentResult(intent="rag_answer")
+        # ---- 第一层：否定模式过滤（咨询类问题走 RAG，委托 NegationRuleClassifier）----
+        neg = await self._negation.classify(message)
 
-        # ---- 第二层：FAISS 向量语义匹配 ----
-        t0 = _perf_time.perf_counter()
-        await self._init_faiss_intent_index()
-        t_init_faiss = (_perf_time.perf_counter() - t0) * 1000
+        # ---- 第二层：FAISS 向量语义匹配（委托 FaissIntentClassifier）----
+        # 否定词命中时直接采用其候选（action=None 表示无工具意图），不再提前 return，
+        # 使「分类 → 路由」成为单一路径，路由结果统一由 ExecutionRouter 产出。
+        candidate = neg if neg is not None else await self._faiss.classify(message)
 
-        t_get_emb = 0.0
-        t_embed = 0.0
-
-        if IntentRecognizer._faiss_index is not None and self._embedding_service:
+        # ---- 第三层（可选）：歧义带内用 LLM 精分类 ----
+        complexity_override: Optional[str] = None
+        reason_override: Optional[str] = None
+        if (
+            neg is None
+            and candidate is not None
+            and candidate.action
+            and self._llm_service
+            and getattr(config, "INTENT_RECOGNITION_MODE", "local") != "local"
+            and self._policy.min_confidence
+            < candidate.score
+            < self._policy.ambiguity_zone
+        ):
             try:
-                t0 = _perf_time.perf_counter()
-                emb = self._embedding_service.get_embeddings()
-                t_get_emb = (_perf_time.perf_counter() - t0) * 1000
-
-                t0 = _perf_time.perf_counter()
-                query_vec = await emb.aembed_query(message)
-                t_embed = (_perf_time.perf_counter() - t0) * 1000
-
-                query_vec_np = np.array([query_vec], dtype=np.float32)
-
-                k = min(2, IntentRecognizer._faiss_index.ntotal)
-                scores, indices = IntentRecognizer._faiss_index.search(query_vec_np, k)
-
-                best_score = float(scores[0][0])
-                best_idx = int(indices[0][0])
-                best_action = IntentRecognizer._intent_actions[best_idx]
-
-                if k >= 2:
-                    second_score = float(scores[0][1])
-                    second_action = IntentRecognizer._intent_actions[int(indices[0][1])]
-                    logger.debug(
-                        f"FAISS向量匹配 top-2: ({best_action},{best_score:.3f}) "
-                        f"({second_action},{second_score:.3f})"
-                    )
-
-                threshold = getattr(config, "INTENT_VECTOR_SIMILARITY_THRESHOLD", 0.65)
-                if best_score > threshold:
-                    complexity, reason = self.assess_complexity(message, best_action, best_score)
-                    t_total = (_perf_time.perf_counter() - t_total_start) * 1000
-                    print(
-                        f"[⏱] 意图识别 [FAISS命中] total={t_total:.0f}ms "
-                        f"init_faiss={t_init_faiss:.0f}ms get_emb={t_get_emb:.0f}ms "
-                        f"embed={t_embed:.0f}ms action={best_action}"
-                    )
-                    logger.info(
-                        "本地意图识别(FAISS向量命中)",
-                        action=best_action,
-                        score=round(best_score, 3),
-                        complexity=complexity,
-                    )
-                    return IntentResult(
-                        intent="call_remote_api",
-                        action=best_action,
-                        similarity_score=round(best_score, 4),
-                        complexity=complexity,
-                        complexity_reason=reason,
-                    )
+                llm = await self._llm_fallback_classify(
+                    message, candidate.action, candidate.score
+                )
+                if llm:
+                    llm_action, complexity_override, reason_override = llm
+                    # 修复：原实现接住了 LLM 返回的 action 却未使用，导致其无法覆盖意图
+                    if llm_action:
+                        candidate = IntentCandidate(
+                            action=llm_action,
+                            score=candidate.score,
+                            source="llm",
+                            matched=candidate.matched,
+                        )
             except Exception as e:
-                logger.warning(f"FAISS向量意图识别失败: {e}")
+                logger.warning(f"LLM 二次分类失败: {e}")
 
-        # ---- 默认：走RAG回答 ----
+        # ---- 路由：由 ExecutionRouter 决定「怎么执行」 ----
+        plan = self._router.route(
+            candidate, message, complexity_override, reason_override
+        )
+
+        # ── 多意图识别（治本）── 让意图识别产出意图列表 ──
+        # 对整句及各连接词子句分别分类后取并集，得到 actions；单意图退化为 [整句动作]。
+        # 多意图（>1 条意图动作）→ 强制走 react 多工具路径，由 _select_tools_for_intent
+        # 对每条意图各取工具集、取并集，保证「多意图 → 多工具」。
+        actions = await self._extract_intent_actions(message, primary=candidate)
+        if len(actions) > 1:
+            plan = ExecutionPlan(
+                mode="react",
+                skill=actions[0],
+                confidence=plan.confidence,
+                reason=f"multi_intent({'+'.join(actions)})",
+            )
+            logger.info("多意图命中，转 react 多工具路径", actions=actions)
+        elif not actions and candidate and candidate.action:
+            actions = [candidate.action]
+        elif not actions:
+            actions = [plan.skill] if plan.skill else []
+
         t_total = (_perf_time.perf_counter() - t_total_start) * 1000
         logger.info(
-            f"意图识别 [默认rag] total={t_total:.0f}ms "
-            f"init_faiss={t_init_faiss:.0f}ms get_emb={t_get_emb:.0f}ms "
-            f"embed={t_embed:.0f}ms"
+            "意图识别完成",
+            mode=plan.mode,
+            action=plan.skill,
+            confidence=round(plan.confidence, 3),
+            total_ms=round(t_total, 1),
         )
-        return IntentResult(intent="rag_answer")
+        if langfuse_handler:
+            try:
+                src = neg or candidate
+                matched = src.matched if src is not None else None
+                langfuse_handler.trace(
+                    name="intent_recognizer",
+                    metadata={
+                        "path": "negation" if neg is not None else plan.mode,
+                        "mode": plan.mode,
+                        "action": plan.skill,
+                        "actions": actions,
+                        "score": round(candidate.score, 3) if candidate else None,
+                        "matched": matched,
+                        "reason": plan.reason,
+                        "message": message[:100],
+                    },
+                )
+            except Exception:
+                pass
+
+        return self._to_result(plan, candidate.score if candidate else None, actions=actions)
+
+    @staticmethod
+    def _to_result(
+        plan: ExecutionPlan,
+        score: Optional[float],
+        actions: Optional[List[str]] = None,
+    ) -> IntentResult:
+        """``ExecutionPlan`` → ``IntentResult``。
+
+        唯一事实源是 ``plan``；``mode`` / ``skill`` / ``reason`` 直接来自它，
+        不再维护 deprecated 的 ``intent`` / ``complexity`` 双写字段。
+        ``actions`` 承载多意图列表（治本：多意图→多工具），单意图退化为 [action]。
+        """
+        if not actions:
+            actions = [plan.skill] if plan.skill else []
+        return IntentResult(
+            plan=plan,
+            action=plan.skill,
+            actions=actions,
+            similarity_score=round(score, 4) if score is not None else None,
+        )

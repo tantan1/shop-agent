@@ -122,7 +122,7 @@ class NebulaGraphService:
         self._init_attempted = True
         self._addrs = os.getenv("NEBULA_GRAPH_ADDRS", "127.0.0.1:9669")
         self._user = os.getenv("NEBULA_USER", "root")
-        self._pwd = os.getenv("NEBULA_PASSWORD", "nebula")
+        self._pwd = os.getenv("NEBULA_PASSWORD", "")  # 禁止源码硬编码口令；缺失即 fail-closed（图查询自然降级）
         self._space = os.getenv("NEBULA_SPACE", "shop_graph")
         self._timeout = int(os.getenv("NEBULA_TIMEOUT", "3000"))
         self._pool_size = int(os.getenv("NEBULA_POOL_SIZE", "4"))

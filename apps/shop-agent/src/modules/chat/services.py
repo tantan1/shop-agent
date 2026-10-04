@@ -14,8 +14,6 @@ from src.modules.chat.core.pgvector_service import PgVectorService
 from src.modules.chat.core.redis_cache_service import get_redis_cache_service
 from src.modules.chat.core.tool_registry import ToolService
 from src.modules.chat.schemas import (
-    ChatQueryRequest,
-    ChatQueryResponse,
     ChatRequest,
     ChatResponse,
     InsertDocumentRequest,
@@ -173,11 +171,6 @@ class ChatAgentService:
     # 对话入口（委托给 AgentOrchestrator）
     # =========================================================================
 
-    async def chat(self, request: ChatQueryRequest) -> ChatQueryResponse:
-        """旧版 RAG 聊天接口"""
-        await self._initialize()
-        return await self._orchestrator.chat_rag(request)
-
     async def chat_with_agent(
         self, request: ChatRequest, experiment_assignment=None
     ) -> ChatResponse:
@@ -264,6 +257,7 @@ class ChatAgentService:
                 confirm=request.confirm,
                 tool_service=self._tool_service,
                 approval_store=approval_store,
+                trace_id=request.trace_id,
             )
 
         if response is None:

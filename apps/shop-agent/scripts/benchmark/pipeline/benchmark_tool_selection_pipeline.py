@@ -542,7 +542,7 @@ def run_p0(samples: List[Dict[str, str]], exclude: bool = True) -> Dict[str, Any
 
 @dataclass
 class P1EmbeddingMatcher:
-    model_path: str = "./models/BAAI/bge-m3"
+    model_path: str = "./models/BAAI/bge-small-zh-v1.5"
     _model: Any = None
     _tool_embeddings: Optional[Dict[str, Any]] = None
     _ready: bool = False
@@ -609,7 +609,7 @@ def rerank_tools(query: str, tool_names: List[str], model_path: str) -> List[Tup
 
 def run_p0p1(samples: List[Dict[str, str]], p0_results: Dict[str, Any],
               variant: VariantConfig,
-              p1_model_path: str = "./models/BAAI/bge-m3") -> Dict[str, Any]:
+              p1_model_path: str = "./models/BAAI/bge-small-zh-v1.5") -> Dict[str, Any]:
     total = len(samples)
     matcher = P1EmbeddingMatcher(model_path=p1_model_path)
     hits_top1, hits_top2, p1_salvages = 0, 0, 0
@@ -1050,7 +1050,7 @@ def run_fc(samples: List[Dict[str, str]], variant: VariantConfig,
 def run_soft_filter(
     samples: List[Dict[str, str]], p0_results: Dict[str, Any],
     variant: VariantConfig,
-    p1_model_path: str = "./models/BAAI/bge-m3",
+    p1_model_path: str = "./models/BAAI/bge-small-zh-v1.5",
     top_k: int = 3, fc_model: Optional[str] = None,
     fc_device: str = "cpu", runs: int = 3,
     margin_gate: Optional[float] = None,
@@ -1318,8 +1318,8 @@ def main():
                         help="function calling 模型路径")
     parser.add_argument("--fc-device", choices=["cpu", "cuda"], default="cpu",
                         help="function calling 推理设备")
-    parser.add_argument("--p1-model", type=str, default="./models/BAAI/bge-m3",
-                        help="P1 Embedding 模型路径 (默认 ./models/BAAI/bge-m3)")
+    parser.add_argument("--p1-model", type=str, default="./models/BAAI/bge-small-zh-v1.5",
+                        help="P1 Embedding 模型路径 (默认 ./models/BAAI/bge-small-zh-v1.5)")
     parser.add_argument("--model", type=str, default=None,
                         help="P2 本地模型路径")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu",

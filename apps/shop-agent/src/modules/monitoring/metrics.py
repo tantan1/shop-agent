@@ -394,3 +394,65 @@ memory_context_size = Histogram(
     ["layer"],  # short_term / long_term / profile
     buckets=(50, 100, 200, 500, 1000, 2000, 5000),
 )
+
+# ============ 工具选择四层 Pipeline 监控（仅保留 4 个核心指标） ============
+# 1. exit_total{stage, stop_condition}    - 成本漏斗分布（最关键）
+# 2. stage_duration_ms{stage}              - 瓶颈定位 p50/p95
+# 3. candidates_in/out{stage}              - 漏斗收窄验证
+# 4. stage_total{outcome="error/timeout"}  - 异常率零容忍
+
+# 各层执行计数（按 outcome 区分命中/未命中/错误/超时）
+tool_select_stage_total = Counter(
+    "shop_agent_tool_select_stage_total",
+    "工具选择各层(stage)执行计数",
+    ["stage", "outcome"],  # outcome: hit / miss / error / timeout
+)
+
+# 各层执行耗时（毫秒）
+# bucket 设计覆盖 P0<1ms 到 P3>5s，p50/p95 从 buckets 插值可得
+tool_select_stage_duration_ms = Histogram(
+    "shop_agent_tool_select_stage_duration_ms",
+    "工具选择各层执行耗时(ms)",
+    ["stage"],
+    buckets=(0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
+)
+
+# 进入各层的候选工具数量（漏斗上游）
+tool_select_candidates_in = Histogram(
+    "shop_agent_tool_select_candidates_in",
+    "进入各层的候选工具数量",
+    ["stage"],
+    buckets=(1, 2, 3, 5, 10, 15, 20, 30, 50),
+)
+
+# 各层输出(收窄后)的候选工具数量（漏斗下游）
+tool_select_candidates_out = Histogram(
+    "shop_agent_tool_select_candidates_out",
+    "各层收窄后输出的候选工具数量",
+    ["stage"],
+    buckets=(0, 1, 2, 3, 5, 10, 15, 20, 30),
+)
+
+# 终止工具选择的层级分布（成本漏斗：期望在 P0/P1/P2 提前结束，而非总到 P3）
+tool_select_exit_total = Counter(
+    "shop_agent_tool_select_exit_total",
+    "终止工具选择的层级分布(成本漏斗)",
+    ["stage", "stop_condition"],  # stage: p0/p1/p2/p3/fallback
+)
+
+# 各层产出的置信度分布（调早停阈值的依据：看阈值是否可达、是否过于宽松）
+tool_select_confidence = Histogram(
+    "shop_agent_tool_select_confidence",
+    "各层产出的候选置信度",
+    ["stage"],
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.78, 0.85, 0.9, 0.95, 0.99, 1.0),
+)
+
+# 最终结果分布（来源 / 终止条件 / 候选集规模）
+# 与 exit_total 的区别：exit 记「在哪层终止」，final 记「最终产出的形态」，
+# 用于判断候选集是否收敛、是否退化成 need_llm。
+tool_select_final_total = Counter(
+    "shop_agent_tool_select_final_total",
+    "工具选择最终结果分布",
+    ["source", "stop_condition", "candidates"],  # candidates: 1 / 2 / 3+
+)

@@ -35,17 +35,17 @@ class TestIntentRecognizer:
         """查订单意图识别"""
         recognizer = await self._build_recognizer_for_action("query-order", score=0.92)
         result = await recognizer.recognize("帮我查一下我的订单到哪了")
-        assert result.intent == "call_remote_api"
+        assert result.mode == "direct_tool"
         assert result.action == "query-order"
         assert result.similarity_score == 0.92
-        assert result.complexity == "simple"  # 明确查询，分数高，无否定词
+        # 明确查询，分数高，无否定词 → direct_tool（原 complexity=simple 已并入 mode）
 
     @pytest.mark.asyncio
     async def test_recognize_check_shipping(self):
         """查物流意图识别"""
         recognizer = await self._build_recognizer_for_action("check-shipping", score=0.88)
         result = await recognizer.recognize("快递现在在什么地方")
-        assert result.intent == "call_remote_api"
+        assert result.mode == "direct_tool"
         assert result.action == "check-shipping"
 
     @pytest.mark.asyncio
@@ -53,16 +53,16 @@ class TestIntentRecognizer:
         """退货退款意图识别 —— 强信号：ALWAYS_AGENT_ACTIONS，必为 multi_step"""
         recognizer = await self._build_recognizer_for_action("request-return", score=0.90)
         result = await recognizer.recognize("我要退货退款，这个商品不满意")
-        assert result.intent == "call_remote_api"
+        assert result.mode == "react"
         assert result.action == "request-return"
-        assert result.complexity == "multi_step"  # request-return 永远 multi_step
+        # request-return 由 risk=high 推导为多步（react），原 complexity=multi_step 已并入 mode
 
     @pytest.mark.asyncio
     async def test_recognize_check_balance(self):
         """查余额意图识别"""
         recognizer = await self._build_recognizer_for_action("check-balance", score=0.87)
         result = await recognizer.recognize("我账户里还有多少余额")
-        assert result.intent == "call_remote_api"
+        assert result.mode == "direct_tool"
         assert result.action == "check-balance"
 
     @pytest.mark.asyncio
@@ -70,7 +70,7 @@ class TestIntentRecognizer:
         """优惠券查询意图识别"""
         recognizer = await self._build_recognizer_for_action("coupon-inquiry", score=0.85)
         result = await recognizer.recognize("我有什么优惠券可以用")
-        assert result.intent == "call_remote_api"
+        assert result.mode == "direct_tool"
         assert result.action == "coupon-inquiry"
 
     @pytest.mark.asyncio
@@ -79,7 +79,7 @@ class TestIntentRecognizer:
         recognizer = await self._build_recognizer_for_action("check-shipping", score=0.80)
         # 含"为什么"(触发词) + 低分(0.80 < 0.85)
         result = await recognizer.recognize("为什么我的快递还没到，怎么办")
-        assert result.complexity == "multi_step"
+        assert result.mode == "react"
 
     @pytest.mark.asyncio
     async def test_recognize_negation_patterns(self):
@@ -93,58 +93,51 @@ class TestIntentRecognizer:
         ]
         for msg in test_cases:
             result = await recognizer.recognize(msg)
-            assert result.intent == "rag_answer", f"msg='{msg}' should be rag_answer"
+            assert result.mode == "rag_pipeline", f"msg='{msg}' should be rag_pipeline"
 
     @pytest.mark.asyncio
     async def test_recognize_below_threshold(self):
         """FAISS 匹配分低于阈值 → 回退 RAG"""
         recognizer = await self._build_recognizer_for_action("query-order", score=0.60)
         result = await recognizer.recognize("今天天气怎么样")
-        assert result.intent == "rag_answer"
+        assert result.mode == "rag_pipeline"
 
     @staticmethod
     async def _build_recognizer_for_action(
         action: str, score: float
     ) -> IntentRecognizer:
+        """构造意图识别器，并直接 mock 底层 FAISS 分类器输出（action + 分数），
+        跳过真实向量索引构建；否定词分类器保持真实以验证「否定 → RAG」。
+
+        敏感度（request-return → react）由注入的 fake SkillRegistry 的 risk 推导，
+        对齐「多步骤意图来自 SKILL.md 的 risk/hitl」的新语义。
         """
-        构造带 FAISS mock 的意图识别器，精确控制匹配到的 action 和分数。
+        from src.modules.chat.core.intent.candidate import IntentCandidate
 
-        通过 mock _faiss_index.search 返回值，模拟真实 BGE embedding 的语义匹配结果。
-        """
-        from src.modules.chat.core.intent_recognizer import INTENT_EXAMPLES
+        class _FakeSkill:
+            def __init__(self, name, risk="low", hitl=False):
+                self.name = name
+                self.risk = risk
+                self.hitl = hitl
 
-        # 构建 actions_flat（与 _init_faiss_intent_index 一致）
-        actions_flat = []
-        for a, phrases in INTENT_EXAMPLES.items():
-            for _ in phrases:
-                actions_flat.append(a)
+        class _FakeRegistry:
+            def __init__(self, skills):
+                self.skills = skills
 
-        # action_idx 是 action 在 keys 中的位置；FAISS 索引是扁平化的，每个 action 有 N 条示例
-        action_keys = list(INTENT_EXAMPLES.keys())
-        action_idx = action_keys.index(action)
-        examples_per_action = len(next(iter(INTENT_EXAMPLES.values())))
-        flat_idx = action_idx * examples_per_action   # e.g. check_shipping=1*4=4
-
-        # mock FAISS 索引
-        mock_index = MagicMock()
-        scores_arr = np.array([[score, score * 0.8]], dtype=np.float32)
-        indices_arr = np.array([[flat_idx, 0]], dtype=np.int64)
-        mock_index.search.return_value = (scores_arr, indices_arr)
-        mock_index.ntotal = len(actions_flat)
-
-        # mock embedding service
-        mock_emb = MagicMock()
-        mock_emb.get_embeddings.return_value = mock_emb
-        mock_emb.aembed_query = AsyncMock(return_value=_random_norm_vector(768))
-        mock_emb.aembed_documents = AsyncMock(return_value=[_random_norm_vector(768)] * len(actions_flat))
+        skills = [
+            _FakeSkill("query-order"),
+            _FakeSkill("check-shipping"),
+            _FakeSkill("request-return", risk="high"),
+            _FakeSkill("check-balance"),
+            _FakeSkill("coupon-inquiry"),
+        ]
+        registry = _FakeRegistry(skills)
 
         mock_es = MagicMock()
-        mock_es.get_embeddings.return_value = mock_emb
-
-        recognizer = IntentRecognizer(embedding_service=mock_es)
-        IntentRecognizer._faiss_index = mock_index
-        IntentRecognizer._intent_actions = actions_flat
-        IntentRecognizer._intent_dim = 768
+        recognizer = IntentRecognizer(embedding_service=mock_es, skill_registry=registry)
+        recognizer._faiss.classify = AsyncMock(
+            return_value=IntentCandidate(action=action, score=score, source="faiss")
+        )
         return recognizer
 
 

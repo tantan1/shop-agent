@@ -224,9 +224,8 @@ class SchemaProvider(ABC):
 class McpSchemaProvider(SchemaProvider):
     """现状实现：从 mcp_client 的 tools/list 缓存获取 schema。
 
-    返回 model_visible_schema（已剥离 order_id 等高后果字段），保证模型/参数抽取层
-    不会把高后果字段当作「由模型生成」的参数（Phase 2 断言 A）。真实值由
-    ToolService._try_mcp_dispatch 以 hardcode 形式注入 tools/call。
+    返回完整 input_schema（含高后果字段），供参数抽取管道使用。
+    模型可见 schema（剥离高后果字段）仅用于 LLM 侧，不应用于参数抽取。
     """
 
     async def get_schema(self, tool_name: str) -> Optional[Dict[str, Any]]:
@@ -235,10 +234,7 @@ class McpSchemaProvider(SchemaProvider):
 
             info = mcp_manager.get_tool_info(tool_name)
             if info is not None:
-                # 优先返回已剥离高后果字段的「模型可见 schema」
-                mv = getattr(info, "model_visible_schema", None)
-                if mv:
-                    return mv
+                # 参数抽取管道需要完整 schema（含高后果字段），以便从用户消息中抽取
                 return getattr(info, "input_schema", None) or {}
         except Exception as e:
             logger.warning(f"McpSchemaProvider 获取 schema 失败: {e}")

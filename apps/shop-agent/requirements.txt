@@ -3,6 +3,7 @@
 fastapi[all]
 sqlalchemy[asyncio]
 aiomysql
+asyncpg
 pydantic-settings
 python-multipart
 python-jose[cryptography]
@@ -35,3 +36,11 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-httpx
 # Remote debugging (VSCode attach to k8s/Docker container)
 debugpy>=0.13.0
+
+# P2 线性头推理：ONNX Runtime（替代 PyTorch/sentence-transformers 进程内推理）。
+# 权重为 PyTorch 训练产物的 ONNX 导出，随镜像打包进 src/modules/chat/agent/assets/；
+# embedding 统一走 vLLM 端点，容器内不加载任何本地 embedding 模型。
+onnxruntime>=1.17.0
+
+# 测试依赖（可选）：pytest 集成测试用 sqlite 异步引擎，生产镜像走 postgres 无需此包。
+aiosqlite>=0.19.0

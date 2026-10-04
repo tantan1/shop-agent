@@ -35,6 +35,12 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 - 敏感信息泄露
 - 不安全的反序列化
 - 权限控制缺失
+- **LLM/Agent 安全（本项目核心）**：
+  - Prompt 注入：用户/外部内容是否未经网关三道检测直接进 LLM（输入/输出/工具参数）；业务是否重做了本应由网关做的检测
+  - 敏感信息不进 prompt：PII 是否依赖网关脱敏，业务侧回传/日志前是否二次确认（纵深防御）
+  - 工具调用越权：Agent 可调工具是否白名单化；涉及资金/不可逆操作（退款、退货）是否卡人工审批（人在回路）
+  - 密钥管理：LLM 供应商 Key 是否只在网关配置，业务代码不持有、不硬编码
+  - 输出泄露：供应商回传内容是否可能在网关出向校验前被不当使用
 
 ### 5. 性能问题
 - 数据库N+1查询
@@ -57,15 +63,19 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 - 确定审查重点
 
 ### 2. 静态分析
-- 运行Linter检查（Checkstyle、ESLint等）
+- 运行Linter / 类型检查（Python: **pyright**；ruff、Checkstyle、ESLint、cargo clippy 等）
 - 检查代码复杂度
 - 识别潜在Bug模式
 
-### 3. 人工审查
-- 逐行阅读代码逻辑
+### 3. 人工审查（先读实现，后下结论）
+> **硬约束**：在给出任何审查意见前，必须先用 `read_file` 读取被审查函数的**真实实现**（含其调用的上游函数/配置），不得仅凭函数签名、接口名或想象下结论。涉及 LLM/Agent 代码时，必须读到实际调用网关的位置与 prompt 构造逻辑。
+
+- 先 read 目标文件真实代码，再审查
+- 逐行阅读代码逻辑（基于已读取的实现，而非假设）
 - 检查设计合理性
 - 验证异常处理
 - 评估可维护性
+- LLM/Agent 代码额外按下方「LLM/Agent 专项审查」逐条核对
 
 ### 4. 反馈整理
 - 分类问题（阻塞/警告/建议）
@@ -83,7 +93,9 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 
 ## 审查清单
 
-### Java代码审查清单
+> **语言清单使用边界**：本项目实际代码为 **Python（shop-agent）/ Rust（order-service）**，无 Java 服务、无前端目录。下面 Java / 前端清单仅作**通用参考**，日常审查以 Python / Rust 清单为准；触发对应规则（python-code / rust-code / frontend-code）由 rule 系统自动加载。
+
+### Java代码审查清单（通用参考，本项目无 Java 服务）
 
 #### 基础规范
 - [ ] 类名使用PascalCase
@@ -125,6 +137,7 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 - [ ] 函数名使用snake_case
 - [ ] 常量使用UPPER_SNAKE_CASE
 - [ ] 类型注解完整
+- [ ] 通过 pyright 类型检查（无类型错误，类型错误视为阻塞）
 
 #### 设计质量
 - [ ] 函数行数≤50行
@@ -142,7 +155,7 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 - [ ] 无SQL注入风险
 - [ ] 敏感信息环境变量管理
 
-### 前端代码审查清单
+### 前端代码审查清单（通用参考，本项目当前无前端代码）
 
 #### 基础规范
 - [ ] 组件名使用PascalCase
@@ -175,7 +188,9 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 
 ## 与编码器对齐审查
 
-### 对照java-coder审查
+> 本项目主用 python-coder / Rust（order-service）；java-coder / frontend-coder 仅作通用能力参考，对应段标注「通用参考」。
+
+### 对照java-coder审查（通用参考，本项目无 Java 服务）
 - [ ] 分层架构遵循（Controller→Service→Mapper）
 - [ ] 使用构造器注入（@RequiredArgsConstructor）
 - [ ] 统一响应格式（Result<T>）
@@ -191,13 +206,37 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 - [ ] 异步数据库操作使用AsyncSession
 - [ ] 单元测试覆盖率≥70%
 
-### 对照frontend-coder审查
+### 对照frontend-coder审查（通用参考，本项目当前无前端代码）
 - [ ] Vue 3使用Composition API
 - [ ] React使用Hooks规范
 - [ ] 组件Props/Emits类型定义
 - [ ] 提取复用逻辑到composables/hooks
 - [ ] 性能优化建议落实（v-memo/React.memo）
 - [ ] 代码组织按功能模块
+
+### Rust代码审查清单（order-service 等）
+
+#### 基础规范
+- [ ] 命名：模块/变量/函数 snake_case，类型 PascalCase，常量 SCREAMING_SNAKE_CASE
+- [ ] 无 `unwrap()`/`expect()` 出现在请求路径（仅 `main` 启动必选项可用）
+- [ ] 编译无 `cargo clippy` 警告
+
+#### 错误处理
+- [ ] 业务错误映射为 `StatusCode`，内部错误记日志不泄露堆栈
+- [ ] 异步 `?` 传播错误，不吞没
+
+#### 数据库（sqlx + PostgreSQL）
+- [ ] 使用 `.bind()` 参数化，`$N` 占位符，禁止字符串拼接 SQL
+- [ ] `jsonb` 用 `SqlJson<T>` 读写
+- [ ] 连接池有上限（`max_connections`）
+
+#### 并发/异步
+- [ ] handler 不阻塞（`spawn_blocking` 处理 CPU 密集）
+- [ ] 共享状态用 `Arc` + 内部可变性，无数据竞争
+
+#### 安全
+- [ ] 不在日志写密钥/PII
+- [ ] 路由按职责收敛，无未授权端点暴露
 
 ## 反馈格式
 
@@ -253,7 +292,9 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 
 ## 参考标准
 
-- 阿里巴巴Java开发手册
+- 阿里巴巴Java开发手册（仅 Java 代码，本项目无 Java 服务，作通用参考）
 - Google代码审查指南
 - PEP 8（Python）
-- 项目内部编码规范
+- pyright 类型检查（Python 类型红线，零错误为准）
+- Rust API Guidelines / `cargo clippy` 默认集
+- 项目内部编码规范：`.codebuddy/rules/` 下对应规则（python-code / rust-code / llm-agent / security / database-design 等，编辑对应文件时由 rule 系统自动加载）

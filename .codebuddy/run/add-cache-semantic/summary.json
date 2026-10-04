@@ -1,0 +1,21 @@
+{
+  "task": "add-cache-semantic",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-cache-semantic\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-cache-semantic\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-cache-semantic\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-cache-semantic\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-cache-semantic\\tests.py"
+  }
+}

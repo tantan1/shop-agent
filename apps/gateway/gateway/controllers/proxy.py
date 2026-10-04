@@ -144,10 +144,9 @@ def _extract_stream_answer(chunks: list[dict]) -> str | None:
 
 
 def _tenant_of(request: Request) -> str:
-    # 批次1：优先 X-Tenant 头，否则按 Authorization API Key 映射，都没有则 default
-    tenant = request.headers.get("X-Tenant")
-    if tenant:
-        return tenant
+    # B-多租户隔离：tenant 仅由 Authorization API Key 映射得出。
+    # X-Tenant 头为客户端可控字段，不用于派生 tenant，防止伪造 X-Tenant 绕过
+    # per-tenant 配额/预算（B 维度修复）。
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
         mapped = settings.tenant_of_key(auth[7:].strip())

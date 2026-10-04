@@ -6,32 +6,21 @@ Agent 编排器
 from __future__ import annotations
 
 import time as _time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generator
 
 from src.core.config import config
 from src.core.token_estimator import get_token_estimator
-from src.modules.chat.agent.dispute_coordinator import (
-    DisputeCoordinator,
-    should_use_dispute_coordinator,
-)
-from src.modules.chat.agent.orchestrator_history import persist_turn
-from src.modules.chat.agent.orchestrator_params import (
-    _prepare_intent_params,
-)
-from src.modules.chat.agent.orchestrator_rag import chat_rag, generate_response, search_similar_documents
-from src.modules.chat.agent.orchestrator_remote import (
-    execute_direct_tool_flow,
-    execute_react_flow,
-    handle_remote_intent,
-    try_dispute_flow,
-)
+from src.modules.chat.agent.dispute_coordinator import DisputeCoordinator
+from src.modules.chat.agent.orchestrator_remote import handle_remote_intent
 from src.modules.chat.agent.react_agent import ReActRunContext
 from src.modules.chat.config import chat_config
 from src.modules.chat.core.sentiment_service import (
     EmotionResult,
     SentimentService,
 )
+from src.modules.chat.core.intent.candidate import ExecutionPlan
 from src.modules.chat.core.synonym_normalizer import InputNormalizer
 from src.modules.chat.schemas import (
     ChatRequest,
@@ -89,27 +78,11 @@ class AgentOrchestrator:
         self._redis_cache_service: RedisCacheService | None = redis_cache_service
 
         self._input_normalizer = InputNormalizer(llm_service=llm_service)
-        self._sentiment_service: SentimentService | None = None
-
-    def _ensure_sentiment_service(self) -> SentimentService:
-        """懒初始化情绪检测服务"""
-        if self._sentiment_service is None:
-            from src.modules.chat.core.local_model_service import LocalModelService
-
-            self._sentiment_service = SentimentService(
-                local_model=LocalModelService.get_instance(),
-                llm=self._llm_service,
-            )
-        return self._sentiment_service
-
-    def _ensure_dispute_coordinator(self) -> DisputeCoordinator:
-        """懒初始化纠纷协调器"""
-        if not hasattr(self, "_dispute_coordinator") or self._dispute_coordinator is None:
-            self._dispute_coordinator = DisputeCoordinator(
-                llm=self._llm_service,
-                tool_service=self._tool_service,
-            )
-        return self._dispute_coordinator
+        self._sentiment_service = SentimentService()
+        self._dispute_coordinator = DisputeCoordinator(
+            llm=self._llm_service,
+            tool_service=self._tool_service,
+        )
 
     @property
     def embedding(self):
@@ -139,7 +112,7 @@ class AgentOrchestrator:
             logger.warning(f"同义词归一化异常，回退原文本: {str(e)[:100]}")
             return message
 
-    async def _preprocess_request(self, request: ChatRequest, domain: str) -> dict:
+    async def _normalize_and_truncate(self, request: ChatRequest, domain: str) -> dict:
         normalized_message = await self._normalize_input(request.message, domain)
 
         t_norm_start = _time.perf_counter()
@@ -164,12 +137,18 @@ class AgentOrchestrator:
                 max_tokens=max_input_tokens,
                 preview=truncated_text[:60],
             )
-        normalized_message = request.message
+        return {
+            "request": request,
+            "orig_tokens": orig_tokens,
+            "trunc_tokens": trunc_tokens,
+            "was_truncated": _was_truncated,
+            "t_norm": t_norm,
+        }
 
+    async def _detect_emotion(self, request: ChatRequest) -> tuple[EmotionResult | None, ChatResponse | None]:
         emotion_result: EmotionResult | None = None
         try:
-            sentiment_svc = self._ensure_sentiment_service()
-            emotion_result = await sentiment_svc.detect(
+            emotion_result = await self._sentiment_service.detect(
                 request.message,
                 session_id=request.conversation_id or "",
                 skip_cloud=True,
@@ -177,8 +156,8 @@ class AgentOrchestrator:
         except Exception:
             logger.debug("情绪检测异常，跳过", exc_info=True)
 
-        conversation_id = request.conversation_id or f"conv_{int(_time.time())}"
         if emotion_result and emotion_result.is_emergency:
+            conversation_id = request.conversation_id or f"conv_{int(_time.time())}"
             response = ChatResponse(
                 message=(
                     "非常抱歉给您带来了不好的体验，我们已经将您的问题升级给高级专员处理，"
@@ -198,38 +177,24 @@ class AgentOrchestrator:
                 documents_used=[],
                 safety_passed=True,
                 stream_available=True,
-                domain=domain,
+                domain=getattr(request, "domain", "ecommerce"),
                 status="escalated",
-                input_truncated=_was_truncated,
-                input_original_tokens=orig_tokens if _was_truncated else None,
-                input_truncated_tokens=trunc_tokens if _was_truncated else None,
             )
-            return {
-                "escalated": True,
-                "response": response,
-                "intent_result": None,
-                "truncated": _was_truncated,
-                "orig_tokens": orig_tokens,
-                "trunc_tokens": trunc_tokens,
-                "emotion_result": emotion_result,
-                "intent_steps": [],
-                "t_norm": t_norm,
-                "path": "escalation",
-            }
+            return emotion_result, response
+        return emotion_result, None
 
-        # ── 硬路由：调用方（A2A / MCP）已指定 skill 时跳过意图识别 ──
-        # 意图识别是概率性的，而对端 Agent 既然已在 Agent Card 里确认过能力，
-        # 就不该再让模型猜一次。这里把 action 直接钉死为 skill_id，并置
-        # complexity=simple 走确定性执行路径。skill_id 的合法性由入口层校验
-        # （a2a_routers._validate_skill_routing），此处不再重复查注册表。
+    async def _resolve_intent(self, request: ChatRequest) -> tuple[IntentResult, list]:
         forced_skill = getattr(request, "skill_id", None)
         if forced_skill:
             intent_result = IntentResult(
-                intent="call_remote_api",
+                plan=ExecutionPlan(
+                    mode="direct_tool",
+                    skill=forced_skill,
+                    confidence=1.0,
+                    reason=f"调用方硬路由指定 skill={forced_skill}，跳过意图识别",
+                ),
                 action=forced_skill,
                 params=getattr(request, "context", None) or None,
-                complexity="simple",
-                complexity_reason=f"调用方硬路由指定 skill={forced_skill}，跳过意图识别",
             )
             intent_steps = [{
                 "step_name": "意图识别（skill_id 硬路由）",
@@ -242,32 +207,57 @@ class AgentOrchestrator:
                 skill_id=forced_skill,
                 conversation_id=request.conversation_id,
             )
-        else:
-            intent_result = await self._intent_recognizer.recognize(
-                normalized_message, langfuse_handler=getattr(self, "_langfuse_handler", None)
-            )
-            intent_steps = [{
-                "step_name": "意图识别",
-                "step_order": 0,
-                "status": "success",
-                "output_data": intent_result.model_dump(),
-            }]
+            return intent_result, intent_steps
 
+        intent_result = await self._intent_recognizer.recognize(
+            request.message,
+            langfuse_handler=getattr(self, "_langfuse_handler", None),
+        )
+        intent_steps = [{
+            "step_name": "意图识别",
+            "step_order": 0,
+            "status": "success",
+            "output_data": intent_result.model_dump(),
+        }]
+        return intent_result, intent_steps
+
+    async def _preprocess_request(self, request: ChatRequest, domain: str) -> dict:
+        ctx = await self._normalize_and_truncate(request, domain)
+        emotion_result, emergency_response = await self._detect_emotion(ctx["request"])
+        if emergency_response:
+            return {
+                "escalated": True,
+                "response": emergency_response,
+                "intent_result": None,
+                "truncated": ctx["was_truncated"],
+                "orig_tokens": ctx["orig_tokens"],
+                "trunc_tokens": ctx["trunc_tokens"],
+                "emotion_result": emotion_result,
+                "intent_steps": [],
+                "t_norm": ctx["t_norm"],
+                "path": "escalation",
+            }
+
+        intent_result, intent_steps = await self._resolve_intent(ctx["request"])
         return {
             "escalated": False,
             "response": None,
             "intent_result": intent_result,
-            "truncated": _was_truncated,
-            "orig_tokens": orig_tokens,
-            "trunc_tokens": trunc_tokens,
+            "truncated": ctx["was_truncated"],
+            "orig_tokens": ctx["orig_tokens"],
+            "trunc_tokens": ctx["trunc_tokens"],
             "emotion_result": emotion_result,
             "intent_steps": intent_steps,
-            "t_norm": t_norm,
+            "t_norm": ctx["t_norm"],
             "path": "normal",
         }
 
+
     async def _route_intent(self, ctx: AgentRoutingContext) -> ChatResponse:
-        if ctx.intent_result.intent == "call_remote_api" and ctx.intent_result.action:
+        # 路由只读 plan.mode（对齐 yaml_flow node.type），不再读 deprecated 的
+        # intent / complexity。rag_pipeline → RAG；direct_tool / react → 远程 API
+        # 链路（其内部再按 mode 分流到 Tool 调用或 ReAct）。
+        if ctx.intent_result.mode in ("direct_tool", "react") and ctx.intent_result.action:
             return await handle_remote_intent(self, ctx)
         return await self._chat_with_rag_agent(
             ctx.request, ctx.domain, ctx.user_id,
@@ -315,6 +305,17 @@ class AgentOrchestrator:
                 langfuse_handler=ctx.langfuse_handler,
             ))
 
+    @staticmethod
+    @contextmanager
+    def _langfuse_span(handler: Any, ctx: Any) -> Generator[Any, None, None]:
+        if ctx is not None:
+            ctx.__enter__()
+        try:
+            yield handler
+        finally:
+            if ctx is not None:
+                ctx.__exit__(None, None, None)
+
     async def chat_with_agent(self, request: ChatRequest, experiment_assignment=None) -> ChatResponse:
         from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
@@ -339,11 +340,25 @@ class AgentOrchestrator:
         langfuse_ctx = None
         if result:
             langfuse_handler, langfuse_ctx = result
-            langfuse_ctx.__enter__()
 
-        try:
+        with self._langfuse_span(langfuse_handler, langfuse_ctx):
+            # Langfuse OTEL 语义约定：根 span 上的 input.value / output.value 会被
+            # 映射为 trace 顶层 input/output。FastAPI 自动根 span 只带 http.* 属性，
+            # 不补这两个属性时 Langfuse 显示 "didn't receive an input or output"。
+            # 内容会在导出前经 PiiRedactionSpanProcessor 自动脱敏。
+            from opentelemetry import trace as _otel_trace
+
+            _root_span = _otel_trace.get_current_span()
+            _root_span.set_attribute("input.value", request.message or "")
+            _root_span.set_attribute("input.mime_type", "text/plain")
+
             preprocess_result = await self._preprocess_request(request, domain)
             if preprocess_result.get("escalated"):
+                _root_span.set_attribute(
+                    "output.value",
+                    getattr(preprocess_result["response"], "message", "") or "",
+                )
+                _root_span.set_attribute("output.mime_type", "text/plain")
                 return preprocess_result["response"]
 
             intent_result = preprocess_result["intent_result"]
@@ -375,19 +390,26 @@ class AgentOrchestrator:
                 from src.modules.chat.core.memory_extraction_trigger import ExtractionContext, MemoryExtractionTrigger
                 trigger = MemoryExtractionTrigger(self._llm_service)
                 import asyncio
-                asyncio.create_task(
-                    trigger.try_extract(
-                        ExtractionContext(
-                            user_id=user_id,
-                            conversation_id=conversation_id,
-                            chat_history=[],
-                            user_message=request.message,
-                            last_intent=intent_result.action,
-                            is_ended=True,
-                            turn_number=getattr(request, "turn_number", 0),
-                        )
+                task = trigger.try_extract(
+                    ExtractionContext(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        chat_history=[],
+                        user_message=request.message,
+                        last_intent=intent_result.action,
+                        is_ended=True,
+                        turn_number=getattr(request, "turn_number", 0),
                     )
                 )
+
+                async def _safe_memory_extract(coro):
+                    try:
+                        # 后台 L3 记忆提取：超时与异常均隔离，不阻塞/拖垮主请求
+                        await asyncio.wait_for(coro, timeout=config.AGENT_TIMEOUT)
+                    except Exception as ex:  # noqa: BLE001
+                        logger.warning("L3 记忆提取失败（已忽略）", error=str(ex))
+
+                asyncio.create_task(_safe_memory_extract(task))
             except Exception:
                 pass
 
@@ -399,10 +421,11 @@ class AgentOrchestrator:
                 duration_intent_ms=round(t_intent, 1),
                 path=preprocess_result.get("path", "unknown"),
             )
+            _root_span.set_attribute(
+                "output.value", getattr(response, "message", "") or ""
+            )
+            _root_span.set_attribute("output.mime_type", "text/plain")
             return response
-        finally:
-            if langfuse_ctx:
-                langfuse_ctx.__exit__(None, None, None)
 
     async def _chat_with_rag_agent(
         self, request: ChatRequest, domain: str, user_id: str = "",

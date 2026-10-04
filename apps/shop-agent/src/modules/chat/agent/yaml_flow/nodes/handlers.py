@@ -184,6 +184,7 @@ class ReactHandler(NodeHandler):
         if self._llm is None or self._tool_service is None:
             raise ValueError("react 节点需要 llm_service 与 tool_service（运行期缺失）")
         from src.modules.chat.agent.react_agent import ReActAgent, ReActRunContext
+        from src.modules.chat.core.intent.candidate import ExecutionPlan
         from src.modules.chat.schemas import ChatRequest, IntentResult
 
         action = self._skill or state.get("intent", {}).get("action")
@@ -201,11 +202,18 @@ class ReactHandler(NodeHandler):
             conversation_id=state.get("thread_id", ""),
             domain=domain,
         )
+        # 与识别器保持一致：plan 为唯一路由结果，下游统一读 intent_result.mode。
+        # 这里把 yaml_flow 旧的 state.intent / state.complexity 适配为 plan.mode。
+        raw_intent = intent_state.get("intent", "rag_answer")
+        raw_complexity = intent_state.get("complexity")
+        if raw_intent != "call_remote_api":
+            flow_mode = "rag_pipeline"
+        else:
+            flow_mode = "react" if raw_complexity == "multi_step" else "direct_tool"
         intent_result = IntentResult(
-            intent=intent_state.get("intent", "rag_answer"),
+            plan=ExecutionPlan(mode=flow_mode, skill=action, reason="yaml_flow 节点构造"),
             action=action,
             params=preset or None,
-            complexity=intent_state.get("complexity"),
         )
         context = ReActRunContext(
             request=request,
@@ -417,7 +425,6 @@ class DisputeHandler(NodeHandler):
             llm=self._llm,
             tool_service=self._tool_service,
             domain=domain,
-            use_langgraph=False,
         )
         response = await coordinator.resolve(
             request,

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "state": {
+    "schema": 1,
+    "task": "gate_smoke",
+    "user_request": "新增租户限流",
+    "phase": "scope",
+    "scope_ref": null,
+    "artifacts": {},
+    "blocking_issues": [],
+    "retries": 0,
+    "needs_human": false,
+    "dispatched": [],
+    "log": []
+  },
+  "hook": {
+    "stop_forced": 0
+  }
+}

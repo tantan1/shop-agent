@@ -41,7 +41,7 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ---------------- embedding 模型（复用 harness 同款） ----------------
-EMB_MODEL = "./models/BAAI/bge-m3"
+EMB_MODEL = "./models/BAAI/bge-small-zh-v1.5"
 FC_MODEL = "./models/Qwen2.5-1.5B-Instruct"
 
 FUNCTIONAL_REPR = {

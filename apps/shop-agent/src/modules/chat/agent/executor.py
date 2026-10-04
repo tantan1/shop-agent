@@ -23,10 +23,12 @@ from src.modules.chat.core.redis_cache_service import RedisCacheService
 from src.modules.monitoring.langchain_callback import get_prometheus_callback
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
 
+from src.modules.chat.schemas import ChatResponse
+
 if TYPE_CHECKING:
     from src.modules.chat.core.milvus_service import MilvusService
     from src.modules.chat.core.pgvector_service import PgVectorService
-    from src.modules.chat.schemas import ChatRequest, ChatResponse
+    from src.modules.chat.schemas import ChatRequest
 
     VectorStoreService = Union[MilvusService, PgVectorService]
 

@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Literal, Optional, Set, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.modules.chat.core.intent.candidate import ExecutionPlan
+
 
 class ChatQueryRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000, description="聊天信息（1-4000字符）")
@@ -85,6 +87,10 @@ class ChatRequest(BaseModel):
             "重新抽取（与「参数硬强制注入」同思路）。留空则照常由抽取流水线产出参数。"
         ),
     )
+    # ── 设计 4 d4-4：trace_id 透传（demo 纠正按钮 / 跨轮纠正可关联 Langfuse trace）──
+    trace_id: Optional[str] = Field(
+        default=None, description="可选：关联本次请求到已有 Langfuse trace（用于纠正回灌溯源）"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -122,6 +128,8 @@ class RefundConfirmRequest(BaseModel):
     conversation_id: str = Field(..., description="对话ID（与原始聊天请求相同）")
     confirm: bool = Field(default=True, description="是否确认退款: true=批准, false=拒绝")
     remark: Optional[str] = Field(default=None, description="审批备注")
+    # 设计 4 d4-4：透传 trace_id，使审批拒绝（C3）可关联已记录的 Langfuse trace
+    trace_id: Optional[str] = Field(default=None, description="可选：关联本次审批到已有 Langfuse trace")
 
 
 class AgentConfig(BaseModel):
@@ -200,22 +208,47 @@ class ItemSearchResponse(BaseModel):
 
 
 class IntentResult(BaseModel):
-    """意图识别结果"""
+    """意图识别结果。
 
-    intent: str = Field(default="rag_answer", description="意图: rag_answer | call_remote_api")
+    唯一定义执行方式的是 ``plan``：``plan.mode`` 取值对齐 yaml_flow 的
+    ``node.type``（``rag_pipeline`` / ``direct_tool`` / ``react``），新代码请读它。
+    历史字段 ``intent`` / ``complexity`` / ``complexity_reason`` 已彻底移除，
+    所有读取一律走 ``mode`` / ``plan.reason``，不再双写。
+    """
+
+    plan: Optional[ExecutionPlan] = Field(
+        default=None,
+        description="执行计划（路由结果）；mode: rag_pipeline | direct_tool | react",
+    )
     action: Optional[str] = Field(
         default=None, description="远程API操作类型: query-order | check-shipping | request-return"
     )
+    actions: List[str] = Field(
+        default_factory=list,
+        description=(
+            "意图识别产出的全部意图动作列表（治本：多意图→多工具）。"
+            "单意图时退化为 [action]；多意图时为各意图动作的并集（去重、保序，"
+            "主意图在前）。下游 _select_tools_for_intent 据此对每条意图各取工具集取并集。"
+        ),
+    )
     params: Optional[Dict[str, Any]] = Field(default=None, description="远程API调用参数")
-    # ---- 复杂性门控字段 ----
     similarity_score: Optional[float] = Field(
         default=None, description="FAISS 匹配的余弦相似度分(0~1)"
     )
-    complexity: Optional[str] = Field(
-        default=None, description="查询复杂性: simple | multi_step | needs_agent"
-    )
-    # simple: 单次 tool 调用即可；multi_step: 需要 tool+RAG 组合；needs_agent: 需要 LLM 自主规划
-    complexity_reason: Optional[str] = Field(default=None, description="复杂性判定的依据说明")
+
+    @property
+    def mode(self) -> str:
+        """有效执行模式（取值对齐 yaml_flow 的 node.type）。
+
+        统一读取口：由 ``plan.mode`` 派生。``plan`` 缺失时默认 ``rag_pipeline``
+        （所有生产路径都会设置 ``plan``，此兜底仅为防御性）。
+
+        Returns:
+            ``rag_pipeline`` / ``direct_tool`` / ``react``
+        """
+        if self.plan is not None:
+            return self.plan.mode
+        return "rag_pipeline"
 
 
 # =============================================================================
@@ -321,14 +354,22 @@ class PlannedAction(BaseModel):
     """单个被规划（选定）的工具调用意图。"""
 
     name: str = Field(..., description="工具名，必与 ToolService 注册表一致")
-    # 规划来源阶段：P0=意图规则 / P1=Embedding 语义重排 / P2=本地小模型确认
-    source: str = Field(default="unknown", description="规划来源: p0 | p1 | p2")
+    # 规划来源阶段：p0_rule=意图规则 / p1_faiss=Embedding 语义重排 / p2_linear=线性头(本地小模型确认)
+    source: str = Field(default="unknown", description="规划来源: p0_rule | p1_faiss | p2_linear | p3_llm")
     # 该层对此工具的相关度置信度（0~1），P0 规则默认 1.0，P1 用相似度，P2 用二选置信
-    confidence: float = Field(default=1.0, description="该层对此工具的相关度置信(0~1)")
+    confidence: Optional[float] = Field(default=1.0, description="该层对此工具的相关度置信(0~1)；设计1后透传真实分数，无真实分数时为 None(捕获侧按不确定处理)")
     # 已在前置确定性抽取中得到的参数（硬强制注入，执行时直接带上，LLM 不再自行抽取）
     preset_params: Optional[Dict[str, Any]] = Field(
         default=None, description="前置确定性抽取得到的参数，执行时直接注入"
     )
+
+
+# 工具选择各阶段标识（与 tool_select_pipeline 配置的 stage.name 对齐）
+# P0=意图规则 / P1=Embedding 语义重排 / P2=线性头(本地小模型确认) / P3=LLM 兜底
+STAGE_P0_RULE = "p0_rule"
+STAGE_P1_FAISS = "p1_faiss"
+STAGE_P2_LINEAR = "p2_linear"
+STAGE_P3_LLM = "p3_llm"
 
 
 class ToolPlan(BaseModel):
@@ -344,7 +385,7 @@ class ToolPlan(BaseModel):
     actions: List[PlannedAction] = Field(
         default_factory=list, description="规划选中的工具（去重、保序）"
     )
-    source: str = Field(default="unknown", description="最终生效规划阶段: p0 | p1 | p2")
+    source: str = Field(default="unknown", description="最终生效规划阶段: p0_rule | p1_faiss | p2_linear | p3_llm")
     stop_condition: str = Field(
         default="need_llm", description="确定性终止信号: plan_complete | need_llm"
     )
@@ -360,9 +401,9 @@ class ToolPlan(BaseModel):
         if not self.actions:
             return False
         # 仅 1 个工具且来源为 P0/P1 高置信，或来源 P2 且候选已收敛到 <=2 个
-        if len(self.actions) == 1 and self.source in ("p0", "p1"):
+        if len(self.actions) == 1 and self.source in (STAGE_P0_RULE, STAGE_P1_FAISS):
             return True
-        if self.source == "p2" and len(self.actions) <= 2:
+        if self.source == STAGE_P2_LINEAR and len(self.actions) <= 2:
             return True
         return False
 
@@ -619,6 +660,23 @@ class A2ATaskInputRequest(BaseModel):
 
     confirm: bool = Field(default=True, description="是否确认继续: true=批准, false=拒绝")
     remark: Optional[str] = Field(default=None, max_length=1000, description="备注（审批意见/补充信息）")
+    # 设计 4 d4-4：透传 trace_id，使澄清（C2）/ 审批拒绝可关联已记录的 Langfuse trace
+    trace_id: Optional[str] = Field(default=None, description="可选：关联本次补充输入到已有 Langfuse trace")
+
+
+class CorrectionRequest(BaseModel):
+    """通用纠正回灌请求（设计 4 d4-5：demo 纠正按钮 / 任意来源的人工纠正）。
+
+    触发时带 conversation_id +（可选）trace_id + 正确/错误工具，统一走
+    ``record_correction`` 归一化入口落到 Langfuse，供后续训练回流。
+    """
+
+    conversation_id: Optional[str] = Field(default=None, description="对话ID（与原始聊天请求相同）")
+    trace_id: Optional[str] = Field(default=None, description="可选：关联本次纠正到已有 Langfuse trace")
+    original_tool: Optional[str] = Field(default=None, description="被纠正（原选错）的工具名")
+    correct_tool: Optional[str] = Field(default=None, description="正确工具名（负样本可留空）")
+    rejected_tools: Optional[List[str]] = Field(default=None, description="被否定的工具名列表（负样本）")
+    content: Optional[str] = Field(default=None, description="用户原始纠正语料（可选，用于复盘）")
 
 
 class A2AArtifact(BaseModel):

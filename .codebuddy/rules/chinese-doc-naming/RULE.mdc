@@ -27,7 +27,7 @@ alwaysApply: false
 
 ### 3. 目录结构规范
 ```
-.comate/specs/
+.codebuddy/specs/
 ├── 项目名称一/
 │   ├── 需求规格说明书.md
 │   ├── 开发任务计划.md
@@ -60,7 +60,7 @@ alwaysApply: false
 
 ### 标准示例
 ```
-.comate/specs/双角色智能客服系统/
+.codebuddy/specs/双角色智能客服系统/
 ├── 需求规格说明书.md
 ├── 开发任务计划.md
 └── 项目总结报告.md
@@ -68,7 +68,7 @@ alwaysApply: false
 
 ### 具体功能示例
 ```
-.comate/specs/用户登录认证模块/
+.codebuddy/specs/用户登录认证模块/
 ├── 需求规格说明书.md
 ├── 开发任务计划.md
 └── 项目总结报告.md

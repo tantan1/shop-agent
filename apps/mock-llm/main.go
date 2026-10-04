@@ -147,6 +147,22 @@ func lastUserText(messages []any) string {
 	return ""
 }
 
+// firstSystemText 取第一条 role=system 且 content 为字符串的消息原文。
+func firstSystemText(messages []any) string {
+	for _, m := range messages {
+		msg, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		if msg["role"] == "system" {
+			if s, ok := msg["content"].(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // estTokens 粗略估算 token 数（中英文混排 ≈ 每 2 字符 1 token）。
 func estTokens(s string) int {
 	n := utf8.RuneCountInString(s)
@@ -167,6 +183,155 @@ func echoReply(text string) string {
 		runes = runes[:max]
 	}
 	return "mock[" + modelName + "]: " + string(runes)
+}
+
+// intentReply 根据用户查询内容生成对应业务场景的 mock 回复
+func intentReply(text string, systemPrompt string) string {
+	lower := strings.ToLower(text)
+	
+	// 订单查询相关
+	if strings.Contains(lower, "订单") || strings.Contains(lower, "order") {
+		return `mock[mock-llm]: 根据您的查询，为您查询到以下订单信息：
+订单号: WB202409010077
+状态: 已发货
+下单时间: 2024-09-01 14:30
+商品: 无线蓝牙耳机 Pro × 1
+金额: ¥299.00
+物流单号: SF5555666677
+预计送达: 2024-09-14`
+	}
+	
+	// 物流查询相关
+	if strings.Contains(lower, "物流") || strings.Contains(lower, "快递") || strings.Contains(lower, "到哪了") || strings.Contains(lower, "运单") {
+		return `mock[mock-llm]: 物流跟踪信息 (SF5555666677)：
+[2024-09-12 08:00] 已揽收 - 上海转运中心
+[2024-09-12 14:30] 运输中 - 离开上海华东中转场
+[2024-09-13 06:15] 到达 - 目的地城市分拨中心
+[2024-09-13 09:30] 派送中 - 快递员正在派送
+预计今日 18:00 前送达`
+	}
+	
+	// 余额查询相关
+	if strings.Contains(lower, "余额") || strings.Contains(lower, "钱包") || strings.Contains(lower, "积分") || strings.Contains(lower, "多少钱") {
+		return `mock[mock-llm]: 账户余额查询结果：
+可用余额: ¥1,258.50
+冻结金额: ¥0.00
+可用积分: 3,420 分
+会员等级: 黄金会员`
+	}
+	
+	// 优惠券查询相关
+	if strings.Contains(lower, "优惠券") || strings.Contains(lower, "代金券") || strings.Contains(lower, "满减") || strings.Contains(lower, "优惠码") {
+		return `mock[mock-llm]: 您可用的优惠券列表：
+1. 满减券 ¥50 - 满 300 可用，有效期至 2024-10-31
+2. 新用户专享 ¥20 - 无门槛，有效期至 2024-09-30
+3. 品类券 85折 - 耳机品类专用，有效期至 2024-12-31
+4. 生日专属 ¥100 - 满 500 可用，有效期至 2024-09-15`
+	}
+	
+	// 退货退款相关
+	if strings.Contains(lower, "退货") || strings.Contains(lower, "退款") || strings.Contains(lower, "不想要") {
+		return `mock[mock-llm]: 已为您提交退货退款申请：
+退货单号: TH202409120045
+订单号: WB202409010077
+退货商品: 无线蓝牙耳机 Pro
+退款金额: ¥299.00
+退款方式: 原路返回（预计 1-3 个工作日到账）
+请在 7 天内寄出商品，快递单号请在退货详情页填写`
+	}
+	
+	// 电商商品推荐场景：检测 system prompt 中的商品信息
+	if strings.Contains(systemPrompt, "shop-agent电商平台") || strings.Contains(systemPrompt, "商品关系") || strings.Contains(systemPrompt, "product_relations") {
+		return generateProductRecommendation(text, systemPrompt)
+	}
+	
+	// 默认回显
+	return echoReply(text)
+}
+
+// generateProductRecommendation 根据商品上下文生成推荐回复
+func generateProductRecommendation(userQuery, systemPrompt string) string {
+	// 提取商品信息
+	productName := extractBetween(systemPrompt, "商品名称: ", "\n")
+	brand := extractBetween(systemPrompt, "品牌: ", "\n")
+	price := extractBetween(systemPrompt, "价格: ", "\n")
+	description := extractBetween(systemPrompt, "描述: ", "\n")
+	
+	// 提取商品关系
+	graphContext := extractBetween(systemPrompt, "<product_relations>", "</product_relations>")
+	
+	var recommendation strings.Builder
+	recommendation.WriteString("mock[mock-llm]: ")
+	
+	if productName != "" {
+		recommendation.WriteString("为您推荐: ")
+		recommendation.WriteString(productName)
+		if brand != "" {
+			recommendation.WriteString(" (")
+			recommendation.WriteString(brand)
+			recommendation.WriteString(")")
+		}
+		recommendation.WriteString("\n")
+		if price != "" {
+			recommendation.WriteString("价格: ")
+			recommendation.WriteString(price)
+			recommendation.WriteString("\n")
+		}
+		if description != "" {
+			recommendation.WriteString("特点: ")
+			recommendation.WriteString(description)
+			recommendation.WriteString("\n")
+		}
+	}
+	
+	// 基于商品关系生成搭配推荐
+	if strings.Contains(graphContext, "兼容配件") {
+		recommendation.WriteString("\n推荐搭配配件: ")
+		accessories := extractBetween(graphContext, "兼容配件：", "\n")
+		if accessories != "" {
+			recommendation.WriteString(accessories)
+		} else {
+			recommendation.WriteString("蓝牙耳机充电仓、耳机收纳包")
+		}
+		recommendation.WriteString("\n")
+	}
+	
+	if strings.Contains(graphContext, "同品牌") {
+		recommendation.WriteString("同品牌推荐: ")
+		sameBrand := extractBetween(graphContext, "同品牌的其他商品：", "\n")
+		if sameBrand != "" {
+			recommendation.WriteString(sameBrand)
+		} else {
+			recommendation.WriteString("有线耳机基础款、运动蓝牙耳机")
+		}
+		recommendation.WriteString("\n")
+	}
+	
+	if strings.Contains(graphContext, "替代品") || strings.Contains(graphContext, "竞品") {
+		recommendation.WriteString("替代方案: ")
+		alternatives := extractBetween(graphContext, "替代品/竞品：", "\n")
+		if alternatives != "" {
+			recommendation.WriteString(alternatives)
+		} else {
+			recommendation.WriteString("某品牌降噪耳机、另一品牌运动耳机")
+		}
+	}
+	
+	return recommendation.String()
+}
+
+// extractBetween 提取两个标记之间的内容
+func extractBetween(text, start, end string) string {
+	startIdx := strings.Index(text, start)
+	if startIdx == -1 {
+		return ""
+	}
+	startIdx += len(start)
+	endIdx := strings.Index(text[startIdx:], end)
+	if endIdx == -1 {
+		return strings.TrimSpace(text[startIdx:])
+	}
+	return strings.TrimSpace(text[startIdx : startIdx+endIdx])
 }
 
 // fakeVector 生成确定性伪随机嵌入向量（同一 seed 不同维度值稳定可复现）。
@@ -215,7 +380,8 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userText := lastUserText(req.Messages)
-	reply := echoReply(userText)
+	systemPrompt := firstSystemText(req.Messages)
+	reply := intentReply(userText, systemPrompt)
 	usage := map[string]any{
 		"prompt_tokens":     estTokens(lastUserText(req.Messages)),
 		"completion_tokens": estTokens(reply),

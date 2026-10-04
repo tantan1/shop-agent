@@ -297,7 +297,7 @@ flowchart TD
 
 ### 嵌入模型：vLLM 进程外部署
 
-通过 `EMBEDDING_PROVIDER=vllm` + `VLLM_EMBEDDING_BASE_URL` 调用部署在 vLLM 中的 `BAAI/bge-m3`（默认 `http://vllm-bge-m3:8000`）。shop-agent 进程内不加载任何模型权重；本地 `LocalEmbeddings`（sentence-transformers）仅作为 `EMBEDDING_PROVIDER=local` 时的调试兜底。全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存）统一不加指令前缀。
+通过 `EMBEDDING_PROVIDER=vllm` + `VLLM_EMBEDDING_BASE_URL` 调用部署在 vLLM 中的 `BAAI/bge-small-zh-v1.5`（512 维，默认 `http://vllm-bge-small-zh:8000`）。shop-agent 进程内不加载任何模型权重；本地 `LocalEmbeddings`（sentence-transformers）仅作为 `EMBEDDING_PROVIDER=local` 时的调试兜底。全链路多个消费方（意图匹配 + RAG 检索 + 语义缓存）统一不加指令前缀。
 
 ### 意图识别：本地向量优先
 

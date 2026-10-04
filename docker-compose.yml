@@ -29,7 +29,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    # etcd 对 CPU/内存敏感，原无资源限制易导致 Milvus 超时
+    # etcd ?CPU/ Milvus
     deploy:
       resources:
         limits:
@@ -38,7 +38,6 @@ services:
         reservations:
           cpus: "0.5"
           memory: "1G"
-
   minio:
     container_name: shop-agent-minio
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
@@ -50,7 +49,7 @@ services:
       - "19001:9001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
-    # 预创建 langfuse bucket（MinIO 文件模式下创建目录即创建 bucket）
+    # ?langfuse bucketinIO  bucket?
     entrypoint: sh
     command: >
       -c 'mkdir -p /minio_data/langfuse && minio server /minio_data --console-address ":9001"'
@@ -59,7 +58,6 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-
   standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.14
@@ -70,6 +68,8 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MQ_TYPE: woodpecker
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
@@ -87,19 +87,18 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-
   redis:
     container_name: shop-agent-redis
     image: redis/redis-stack-server:7.2.0-v14
     ports:
-      # 宿主 6379 常被 Docker Desktop 后端占用，故将容器 6379 映射到宿主 6390。
-      # 容器网络内仍用 redis:6379（shop-agent/gateway 等经服务名访问不受影响）；
-      # 宿主侧冒烟脚本（smoke_e2e.py / run_e2e.ps1）通过 REDIS_PORT=6390 连接。
+      #  6379  Docker Desktop ?6379 ?6390?
+      # ?redis:6379hop-agent/gateway ?
+      # smoke_e2e.py / run_e2e.ps1 REDIS_PORT=6390 ?
       - "6390:6379"
       - "18001:8001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/redis:/data
-    # 添加密码认证（Langfuse 需要），不设 REDIS_AUTH 则无密码
+    # angfuse ?REDIS_AUTH
     command: >
       redis-stack-server
       ${REDIS_AUTH:+--requirepass ${REDIS_AUTH}}
@@ -110,8 +109,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # ============ PostgreSQL + pgvector（VECTOR_STORE_PROVIDER=pgvector 时启用）============
+  # ============ PostgreSQL + pgvectorECTOR_STORE_PROVIDER=pgvector ============
   pgvector:
     container_name: shop-agent-pgvector
     image: pgvector/pgvector:0.8.2-pg18-trixie
@@ -121,7 +119,7 @@ services:
     environment:
       POSTGRES_DB: shop_agent
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}  # CHANGEME: 生产用强密码
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}  # CHANGEME:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/pgvector:/var/lib/postgresql
       - ./apps/order-service/init.sql:/docker-entrypoint-initdb.d/02-orders.sql:ro
@@ -130,17 +128,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ============ SkyWalking 分布式链路追踪（APM）============
-  # BanyanDB 存储（SkyWalking 10.x 默认存储引擎）
+  # ============ SkyWalking APM?===========
+  # BanyanDB kyWalking 10.x ?
   banyandb:
     container_name: shop-agent-banyandb
     image: apache/skywalking-banyandb:0.8.0
     command: standalone
     restart: unless-stopped
-    profiles: ["full"]   # 重资源 APM，本地默认不启；生产/Staging 用 --profile full
+    profiles: ["disabled"]   # ?APM/Staging ?--profile full (masked: focus on Langfuse)
     ports:
-      - "17912:17912"   # gRPC（OAP 连接用）
+      - "17912:17912"   # gRPCAP
       - "2121:2121"     # HTTP (metrics)
     environment:
       TZ: Asia/Shanghai
@@ -152,12 +149,11 @@ services:
       timeout: 3s
       retries: 15
       start_period: 15s
-
   skywalking-oap:
     container_name: shop-agent-skywalking-oap
     image: apache/skywalking-oap-server:10.2.0
     restart: unless-stopped
-    profiles: ["full"]   # 重资源 APM，本地默认不启
+    profiles: ["disabled"]   # ?APM? (masked: focus on Langfuse)
     depends_on:
       banyandb:
         condition: service_healthy
@@ -167,8 +163,8 @@ services:
       SW_HEALTH_CHECKER: default
       TZ: Asia/Shanghai
     ports:
-      - "11800:11800"   # gRPC（Agent 上报数据）
-      - "12800:12800"   # HTTP（REST API，供 UI 查询）
+      - "11800:11800"   # gRPCgent ?
+      - "12800:12800"   # HTTPEST API UI ?
     healthcheck:
       test: ["CMD-SHELL", "curl -f -s http://localhost:12800/healthcheck || exit 1"]
       interval: 10s
@@ -179,12 +175,11 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/skywalking/oap/bydb.yaml:/skywalking/config/bydb.yaml:ro
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/skywalking/oap/data:/skywalking/data
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/skywalking/oap/logs:/skywalking/logs
-
   skywalking-ui:
     container_name: shop-agent-skywalking-ui
     image: apache/skywalking-ui:10.2.0
     restart: unless-stopped
-    profiles: ["full"]   # 重资源 APM，本地默认不启
+    profiles: ["disabled"]   # ?APM? (masked: focus on Langfuse)
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
       TZ: Asia/Shanghai
@@ -193,8 +188,7 @@ services:
     depends_on:
       skywalking-oap:
         condition: service_healthy
-
-  # ============ Prometheus 监控服务 ============
+  # ============ Prometheus  ============
   prometheus:
     container_name: shop-agent-prometheus
     image: prom/prometheus:v2.54.1
@@ -204,24 +198,23 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/prometheus:/prometheus
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
-      # 如果需要告警规则，取消注释下面一行
+      # ?
       # - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'  # 数据保留 30 天
+      - '--storage.tsdb.retention.time=30d'  #  30 ?
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'              # 支持热加载配置
-      - '--web.enable-admin-api'             # 启用 Admin API
+      - '--web.enable-lifecycle'              # ?
+      - '--web.enable-admin-api'             #  Admin API
       - '--log.level=info'
     restart: unless-stopped
     depends_on:
       - standalone
-
-  # ============ Alertmanager 告警通知 ============
-  # RCA/业务告警经 Prometheus rules 触发后，由 Alertmanager 负责通知路由
-  # （钉钉/Slack/邮件等，见 monitoring/alertmanager/alertmanager.yml）。
+  # ============ Alertmanager  ============
+  # RCA/?Prometheus rules ?Alertmanager
+  # ?Slack/?monitoring/alertmanager/alertmanager.yml?
   alertmanager:
      container_name: shop-agent-alertmanager
      image: prom/alertmanager:v0.27.0
@@ -235,12 +228,11 @@ services:
        - '--log.level=info'
      restart: unless-stopped
      environment:
-       # 与 monitoring-agent 的 MONITORING_WEBHOOK_TOKEN 一致
+       # ?monitoring-agent ?MONITORING_WEBHOOK_TOKEN ?
        ALERTMANAGER_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN:-monitoring-agent-secret}
      depends_on:
        - prometheus
-
-  # ============ Grafana 可视化服务 ============
+  # ============ Grafana ?============
   grafana:
     container_name: shop-agent-grafana
     image: grafana/grafana:11.3.0
@@ -250,36 +242,31 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      # 安全配置 - 生产环境必须修改这些密码！
-      # 注意：如未设置环境变量，将使用默认值（仅开发环境）
+      #  - ?
+      #
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme_in_production}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_USERS_ALLOW_ORG_CREATE=false
-
-      # 服务器配置
+      # ?
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
       - GF_SERVER_HTTP_PORT=3000
-
-      # 数据库配置 (使用 SQLite，也支持 MySQL/PostgreSQL)
+      # ?( SQLite MySQL/PostgreSQL)
       - GF_DATABASE_TYPE=sqlite3
       - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
-
-      # 日志配置
+      #
       - GF_LOG_MODE=console file
       - GF_LOG_LEVEL=info
-
-      # 匿名访问配置 (可选)
+      #  (?
       - GF_AUTH_ANONYMOUS_ENABLED=false
       # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-
-      # 告警配置：启用 unified alerting（Grafana 原生告警引擎，异常检测规则的运行底座）
+      # ?unified alertingrafana ?
       - GF_UNIFIED_ALERTING_ENABLED=true
       - GF_ALERTING_ENABLED=false
-      # 将 Grafana 自建告警的「通知」统一转发到 Alertmanager（避免双告警出口 schema 不兼容，
-      # 全部经 alertmanager.yml 的 receiver 路由到 monitoring-agent / 外部通知）。
+      # ?Grafana ?Alertmanager schema
+      # ?alertmanager.yml ?receiver ?monitoring-agent / ?
       - GF_UNIFIED_ALERTING_ALERTMANAGER_CONFIG=default
-      # 允许 Grafana 经 Alertmanager 推送（启用外部 Alertmanager 数据源）
+      #  Grafana ?Alertmanager  Alertmanager
       - GF_ALERTING_ALERTMANAGER_WEAK_TLS_VERIFICATION=true
     restart: unless-stopped
     depends_on:
@@ -290,15 +277,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-
-  # ============ Loki 日志聚合服务 ============
-  # OTel Collector Gateway 的日志导出目标；Grafana 以 Loki 数据源做日志面板。
+  # ============ Loki  ============
+  # OTel Collector Gateway Grafana ?Loki ?
   loki:
     container_name: shop-agent-loki
     image: grafana/loki:2.9.8
-    # Loki 容器内以非 root 用户运行，对 bind mount 的 ./volumes/loki 无写权限会
-    # 报 "mkdir uploader: permission denied"。以 root 运行规避（开发环境单机）。
-    user: "0"
+    # Loki ?root  bind mount ?./volumes/loki ?
+    # ?"mkdir uploader: permission denied" root ?
+    user: "1000"
     ports:
       - "3100:3100"
     volumes:
@@ -311,10 +297,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-
-  # ============ Promtail 日志收集器 ============
-  # 读取 Docker 容器日志 → Loki，支持结构化解析 + PII 脱敏。
-  # 挂载 Docker socket 供 docker_sd 自动发现容器。
+  # ============ Promtail ?============
+  #  Docker  ?Loki + PII ?
+  #  Docker socket ?docker_sd ?
   promtail:
     container_name: shop-agent-promtail
     image: grafana/promtail:2.9.8
@@ -327,11 +312,10 @@ services:
     depends_on:
       loki:
         condition: service_healthy
-
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
     restart: always
-    profiles: ["full"]   # 追踪链路（可降级）；本地默认不启，应用对 Langfuse 不可达有降级
+    profiles: ["full"]   #  Langfuse
     depends_on: &langfuse-depends-on
       postgres:
         condition: service_healthy
@@ -392,31 +376,32 @@ services:
       REDIS_TLS_KEY: ${REDIS_TLS_KEY:-/certs/redis.key}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
       SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
-
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
     restart: always
-    profiles: ["full"]   # 追踪 UI（可降级）；本地默认不启
+    profiles: ["full"]   #  UI
     depends_on: *langfuse-depends-on
     ports:
-      - "3000:3000"
+      # ost 3000 ?Docker Desktop backend  3100?
+      - "3100:3000"
     environment:
       <<: *langfuse-worker-env
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-mysecret} # CHANGEME
-      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
-      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
-      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
-      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
-      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
-
+      LANGFUSE_INIT_ORG_ID: "shop-agent"
+      LANGFUSE_INIT_ORG_NAME: "shop-agent"
+      LANGFUSE_INIT_PROJECT_ID: "shop-agent"
+      LANGFUSE_INIT_PROJECT_NAME: "shop-agent"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "pk-lf-fd59f364-8eb5-4479-b0cb-034ececdd792"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "sk-lf-cc521630-c16d-4587-9e52-b518f23ff925"
+      LANGFUSE_INIT_USER_EMAIL: "admin@local.dev"
+      LANGFUSE_INIT_USER_NAME: "admin"
+      LANGFUSE_INIT_USER_PASSWORD: "admin123"
+      LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED: "false"  # build full schema on fresh DB
+      LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "false"
   clickhouse:
     image: ${CLICKHOUSE_IMAGE:-docker.io/clickhouse/clickhouse-server:24.8}
     restart: always
-    profiles: ["full"]   # Langfuse 追踪存储，重；本地默认不启（应用对追踪不可达可降级）
+    profiles: ["full"]   # Langfuse
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -434,7 +419,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 1s
-
   postgres:
     image: docker.io/postgres:${POSTGRES_VERSION:-17}
     restart: always
@@ -453,13 +437,12 @@ services:
       - 127.0.0.1:15432:5432
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
-
-  # ============ NebulaGraph 商品关系知识图谱 ============
+  # ============ NebulaGraph  ============
   nebula-metad:
     container_name: shop-agent-nebula-metad
     image: vesoft/nebula-metad:v3.8.0
     restart: unless-stopped
-    profiles: ["full"]   # 知识图谱，3 容器+init 重资源；本地默认不启
+    profiles: ["disabled"]   # ? +init (masked: focus on Langfuse)
     environment:
       USER: root
       TZ: Asia/Shanghai
@@ -477,12 +460,11 @@ services:
     ports:
       - "9559:9559"
       - "19559:19559"
-
   nebula-storaged:
     container_name: shop-agent-nebula-storaged
     image: vesoft/nebula-storaged:v3.8.0
     restart: unless-stopped
-    profiles: ["full"]   # 知识图谱存储，本地默认不启
+    profiles: ["disabled"]   # ? (masked: focus on Langfuse)
     depends_on:
       nebula-metad:
         condition: service_healthy
@@ -502,12 +484,11 @@ services:
       retries: 20
     ports:
       - "9779:9779"
-
   nebula-graphd:
     container_name: shop-agent-nebula-graphd
     image: vesoft/nebula-graphd:v3.8.0
     restart: unless-stopped
-    profiles: ["full"]   # 知识图谱查询，本地默认不启
+    profiles: ["disabled"]   # ? (masked: focus on Langfuse)
     depends_on:
       nebula-storaged:
         condition: service_healthy
@@ -525,12 +506,11 @@ services:
       retries: 10
     ports:
       - "9669:9669"
-
-  # NebulaGraph 初始化：注册 storage host + 等待集群就绪
+  # NebulaGraph  storage host +
   nebula-init:
     container_name: shop-agent-nebula-init
     image: vesoft/nebula-console:v3.8.0
-    profiles: ["full"]   # 知识图谱初始化，本地默认不启
+    profiles: ["disabled"]   # (masked: focus on Langfuse)
     depends_on:
       nebula-graphd:
         condition: service_healthy
@@ -543,66 +523,139 @@ services:
         nebula-console -addr nebula-graphd -port 9669 -u root -p nebula -e 'SHOW HOSTS' &&
         echo "NebulaGraph cluster is ready"
     restart: "no"
-
-  # ============ 应用服务（三服务，见 docs/oracle-cloud-deploy.md §5）============
+  # ============  docs/oracle-cloud-deploy.md 5?===========
   shop-agent:
-    build: ./apps/shop-agent
+    build:
+      context: ./apps/shop-agent
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        EMBED_MODEL_PATH: E:/workspace/shop-agent/models/BAAI/bge-small-zh-v1.5
+        P2_HEAD_PATH: E:/workspace/shop-agent/outputs/tool_head_prod.pt
     container_name: shop-agent
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]
     ports: ["8000:8000"]
-    # 从仓库 .env 注入配置（含必填的 FIXED_API_KEY）；下方 environment 显式项优先
+    # ?.env ?FIXED_API_KEY environment ?
     env_file:
       - .env
     environment:
       REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_AUTH:-}
+      # ?PostgreSQLonfig.database_url  .env ?DATABASE_URL?PG?
+      #  DB_HOSTnv_file ?DATABASE_URL ?
       POSTGRES_HOST: postgres
       PG_DATABASE: shop_agent
-      VECTOR_STORE_PROVIDER: ${VECTOR_STORE_PROVIDER:-milvus}
+      VECTOR_STORE_PROVIDER: pgvector
+      BNB_CUDA_VERSION: "128"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@pgvector:5432/shop_agent
+      GLOBAL_RATE_LIMIT: 1000
+      CHAT_RATE_LIMIT: 1000
       MILVUS_HOST: standalone
+      # ?LLM ?Gatewayail-closed LLM_GATEWAY_URL
       LLM_GATEWAY_URL: http://gateway:8001/v1
-      # 本地 LLM（param 抽取/工具选择）经 gateway → vLLM qwen3（gateway 按 qwen3-unified 路由）
-      OLLAMA_BASE_URL: http://gateway:8001
-      OLLAMA_PARAM_MODEL: qwen3-unified
-      OLLAMA_TOOL_SELECTOR_MODEL: qwen3-unified
-      # bge-m3 嵌入（EMBEDDING_PROVIDER=vllm）直连 vLLM，不经网关
+      #  Ollama/vLLM?Gateway
+      LOCAL_MODEL_BACKEND: gateway
+      # bge-small-zh-v1.5：vLLM 直连（EMBEDDING_PROVIDER=vllm）
       EMBEDDING_PROVIDER: vllm
-      VLLM_EMBEDDING_BASE_URL: http://vllm-bge-m3:8000
-      VLLM_EMBEDDING_MODEL: bge-m3
-      # bge-reranker 重排直连 vLLM（RERANKER_PROVIDER=vllm）
+      EMBEDDING_MODEL: BAAI/bge-small-zh-v1.5
+      VLLM_EMBEDDING_BASE_URL: http://vllm-bge-small-zh:8000
+      VLLM_EMBEDDING_MODEL: BAAI/bge-small-zh-v1.5
+      # P2  embedding entence-transformers
+      EMBEDDING_MODEL_LOCAL_PATH: /models/bge-small-zh-v1.5
+      P2_HEAD_EMBED_MODEL: BAAI/bge-small-zh-v1.5
+      P2_HEAD_MODEL_PATH: /code/src/modules/chat/agent/assets/p2_linear_head.onnx
+      P2_HEAD_CLASSES_SOURCE: /code/data/lscale_prod.json
+      # bge-reranker  vLLMERANKER_PROVIDER=vllm?
       RERANKER_PROVIDER: vllm
       VLLM_RERANK_BASE_URL: http://vllm-bge-reranker:8000
       VLLM_RERANK_MODEL: bge-reranker-base
+      RERANKER_LOCAL_MODEL_PATH: /models/bge-reranker-base
       AWS_ENDPOINT_URL: http://minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       LANGFUSE_HOST: http://langfuse-web:3000
       ORDER_SERVICE_URL: http://order-service:8080
+      # 训练端已解耦到独立 mlops-trainer 服务；空字符串则回退本地 subprocess（需本容器自带训练栈）
+      MLOPS_TRAINER_URL: http://mlops-trainer:8002
+      # 版本化标注数据集落点（持久化：绑定挂载宿主机 data/tool_select，容器重建不丢）
+      MLOPS_DATASET_DIR: /code/mlops_datasets
     depends_on:
       redis: { condition: service_healthy }
-      postgres: { condition: service_healthy }
-      standalone: { condition: service_healthy }
+      pgvector: { condition: service_healthy }
       gateway: { condition: service_started }
-      order-service: { condition: service_started }
+    volumes:
+      - E:/workspace/shop-agent/models/BAAI/bge-small-zh-v1.5:/models/bge-small-zh-v1.5:ro
+      - E:/workspace/shop-agent/models/BAAI/bge-reranker-base:/models/bge-reranker-base:ro
+      - E:/workspace/shop-agent/models/Qwen3-1.7B:/code/models/Qwen3-1.7B:ro
+      - E:/workspace/shop-agent/data/llamafactory:/code/data/llamafactory:ro
+      - E:/workspace/shop-agent/data/lscale_prod.json:/code/data/lscale_prod.json:ro
+      # 训练/评测产物共享卷（与 mlops-trainer 同名挂载，路径一致）
+      - mlops_artifacts:/code/mlops_artifacts:ro
+      # 版本化标注数据集（train/holdout/manifest）：必须持久化，容器重建后仍需可复现训练。
+      # 绑定挂载到宿主机 data/tool_select，便于审阅、提交与接入 DVC；路径与 MLOPS_DATASET_DIR 一致。
+      - ./data/tool_select:/code/mlops_datasets
+
+  mlops-trainer:
+    build:
+      context: .
+      dockerfile: apps/mlops-trainer/Dockerfile
+    image: shop-agent-mlops-trainer:latest
+    container_name: mlops-trainer
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]
+    ports: ["8002:8002"]
+    env_file:
+      - .env
+    environment:
+      BNB_CUDA_VERSION: "128"
+      MLOPS_ARTIFACTS_DIR: "/code/mlops_artifacts"
+      # 训练消费的版本化数据集（由 shop-agent 导出，trainer 只读）
+      MLOPS_DATASET_DIR: "/code/mlops_datasets"
+    volumes:
+      - E:/workspace/shop-agent/models/Qwen3-1.7B:/code/models/Qwen3-1.7B:ro
+      - E:/workspace/shop-agent/data/llamafactory:/code/data/llamafactory:ro
+      # 训练产物与评测 JSON：与 shop-agent 同名挂载，路径一致（trainer 可写，serving 只读）
+      - mlops_artifacts:/code/mlops_artifacts
+      # 数据集：shop-agent 可写导出、trainer 只读消费（与 shop-agent 同一宿主机目录）
+      - ./data/tool_select:/code/mlops_datasets:ro
+    depends_on:
+      shop-agent: { condition: service_started }
 
   gateway:
     build: ./apps/gateway
     container_name: llm-gateway
     ports: ["8001:8001"]
+    env_file:
+      - .env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      # 本地模型路由后端（router.py 将 param/tool_select/local*/qwen3-unified 路由至此）
+      # outer.py ?param/tool_select/local*/qwen3-unified ?
+      # GPU  vllm-qwen3ull profile?mock-llm
       VLLM_BASE_URL: http://vllm-qwen3:8000/v1
-      # mock 上游路由后端（router.py 将 mock* 路由至此，压测联调用）
+      # mock outer.py ?mock* ?
       MOCK_BASE_URL: http://mock-llm:8080/v1
-      # 压测开关：1=云端 API 全部改路由 mock 上游（免去真实云调用）
-      MOCK_CLOUD_OVERRIDE: ${MOCK_CLOUD_OVERRIDE:-0}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # 1= API ?mock ?
+      MOCK_CLOUD_OVERRIDE: 0
+      #  vLLM / mock ?OpenAI ?key ?LiteLLM openai provider
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-not-needed}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_REGION_NAME: ${AWS_REGION_NAME:-}
-
   monitoring-agent:
     build: ./apps/monitoring-agent
     container_name: monitoring-agent
@@ -615,45 +668,45 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pg_password}
-      # 告警摄入端点鉴权（与 Alertmanager webhook receiver 共用同一 token）。
-      # 不配置则 agent 仅放行本地回环，容器间调用会被 401 拒绝（default-deny）。
-      MONITORING_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN}  # 强制配置，无默认值（生产必须）
-      # 数据隔离：自愈/审计数据落到独立 monitoring 库 + 最小权限账号（remediation 落地后启用）
+      #  Alertmanager webhook receiver  token?
+      #  agent ?401 efault-deny?
+      MONITORING_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN}  # ?
+      # ? monitoring ?+ remediation
       MONITORING_DB_NAME: ${MONITORING_DB_NAME:-monitoring}
       MONITORING_DB_DSN: ${MONITORING_DB_DSN:-}
       MONITORING_DB_APP_USER: ${MONITORING_DB_APP_USER:-monitoring}
       MONITORING_DB_APP_PASS: ${MONITORING_DB_APP_PASS:-monitoring_pass}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      # 方案 A：动态服务发现（默认开）。DISCOVER_ENABLED=0 关闭。
-      # STATIC_TARGETS 静态补充 k8s 外 / 未接 Prometheus 的服务：name=url 逗号分隔
+      #  AISCOVER_ENABLED=0 ?
+      # STATIC_TARGETS ?k8s ?/  Prometheus name=url
       DISCOVER_ENABLED: ${DISCOVER_ENABLED:-1}
       DISCOVER_CACHE_TTL_S: ${DISCOVER_CACHE_TTL_S:-60}
       STATIC_TARGETS: ${STATIC_TARGETS:-}
-      # 方案 C：SkyWalking 真实调用依赖边（默认开，OAP 不可达自动降级静态）。
-      # STATIC_DEPENDENCIES 静态补充 k8s 外 / 未接 agent 的依赖：source=target 逗号分隔
+      #  CkyWalking AP ?
+      # STATIC_DEPENDENCIES ?k8s ?/  agent source=target
       SKYWALKING_URL: ${SKYWALKING_URL:-http://skywalking-oap:12800}
-      SKYWALKING_ENABLED: ${SKYWALKING_ENABLED:-1}
+      SKYWALKING_ENABLED: "0"   # masked: SkyWalking disabled (focus on Langfuse)
       STATIC_DEPENDENCIES: ${STATIC_DEPENDENCIES:-}
-      # Docker 沙箱（§10.6）：默认关闭，显式启用后 monitoring-agent 可通过 Docker socket 创建隔离容器
+      # Docker ?0.6 monitoring-agent  Docker socket
       SANDBOX_ENABLED: ${SANDBOX_ENABLED:-0}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.11-slim}
       SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
       SANDBOX_MEM_LIMIT: ${SANDBOX_MEM_LIMIT:-256m}
       SANDBOX_CPU_LIMIT: ${SANDBOX_CPU_LIMIT:-0.5}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker 沙箱必需（Docker-in-Docker）
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker ocker-in-Docker?
     depends_on:
       shop-agent: { condition: service_started }
       gateway: { condition: service_started }
-
-  # ============ Nightingale (n9e) 自动异常检测（复用本地 redis/postgres/prometheus/alertmanager）============
-  # 端到端闭环：n9e 引擎对 Prometheus 指标做自动异常检测 → 推送 Alertmanager
-  # → monitoring-agent /ingest/alert 做 RCA。验证「开源 Grafana ML 替代」路径。
-  # 注意：开发/单机验证复用业务 redis/postgres；生产应拆监控专用实例。
+  # ============ Nightingale (n9e)  redis/postgres/prometheus/alertmanager?===========
+  # n9e ?Prometheus ???Alertmanager
+  # ?monitoring-agent /ingest/alert ?RCA?Grafana ML ?
+  # ? redis/postgres?
   n9e-db-init:
     image: postgres:${POSTGRES_VERSION:-17}
     container_name: n9e-db-init
     restart: "no"
+    profiles: ["disabled"]   # masked: focus on Langfuse
     depends_on:
       postgres:
         condition: service_healthy
@@ -669,8 +722,7 @@ services:
         echo "n9e database ready"
     networks:
       - default
-
-  # 监控/自愈数据隔离：建独立 monitoring 库 + 最小权限账号（remediation 落地前置）
+  # / monitoring ?+ remediation ?
   monitoring-db-init:
     image: postgres:${POSTGRES_VERSION:-17}
     container_name: monitoring-db-init
@@ -689,16 +741,16 @@ services:
         echo "monitoring database ready (tables created by monitoring-agent on startup)"
     networks:
       - default
-
   n9e:
-    # v9 起默认读 /app/etc/config.toml（TOML 格式）；v7 的 n9e.yml(YAML) 已弃用。
-    # 镜像默认 latest=v9.x，若需固定版本用 NIGHTINGALE_IMAGE=flashcatcloud/nightingale:latest
+    # v9  /app/etc/config.tomlOML v7 ?n9e.yml(YAML) ?
+    #  latest=v9.x?NIGHTINGALE_IMAGE=flashcatcloud/nightingale:latest
     image: ${NIGHTINGALE_IMAGE:-flashcatcloud/nightingale:latest}
     container_name: shop-agent-n9e
     restart: unless-stopped
+    profiles: ["disabled"]   # masked: focus on Langfuse
     ports:
-      - "17000:17000"   # 夜莺 Web / API
-      - "8009:8009"     # 中心服务 RPC
+      - "17000:17000"   #  Web / API
+      - "8009:8009"     #  RPC
     volumes:
       - ./monitoring/nightingale/config.toml:/app/etc/config.toml:ro
     depends_on:
@@ -711,15 +763,114 @@ services:
       alertmanager:
         condition: service_started
     command: ["/app/n9e", "server"]
-
-  # ============ mock LLM 上游（压测/联调用：Go 零依赖极简实现，占用最小）============
+  # ============ vLLM services (image-based, reuse existing external model volumes; profiles: full, start on demand) ============
+  vllm-bge-reranker:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-bge-reranker
+    profiles: ["full"]
+    ports:
+      - "8102:8000"
+    volumes:
+      - vllm-bge-reranker:/models/bge-reranker:ro
+    command:
+      - /models/bge-reranker
+      - --dtype=bfloat16
+      - --enforce-eager
+      - --max-model-len=512
+      - --gpu-memory-utilization=0.12
+      - --served-model-name=bge-reranker-base
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+  vllm-bge-small-zh:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-bge-small-zh
+    profiles: ["full"]
+    ports:
+      - "8101:8000"
+    volumes:
+      - E:/workspace/shop-agent/models/BAAI/bge-small-zh-v1.5:/models/bge-small-zh-v1.5:ro
+    command:
+      - /models/bge-small-zh-v1.5
+      - --dtype=bfloat16
+      - --enforce-eager
+      - --max-model-len=512
+      - --gpu-memory-utilization=0.15
+      - --served-model-name=BAAI/bge-small-zh-v1.5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      vllm-bge-reranker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+  vllm-qwen3:
+    image: vllm/vllm-openai:v0.21.0-cu129-ubuntu2404
+    container_name: vllm-qwen3
+    profiles: ["full"]
+    ports:
+      - "8003:8000"
+    volumes:
+      - vllm-qwen3-unified:/models/qwen3-unified:ro
+    command:
+      - /models/qwen3-unified
+      - --quantization=fp8
+      - --kv-cache-dtype=fp8
+      - --max-model-len=16384
+      - --max-num-seqs=8
+      #  4096  33h
+      - --max-num-batched-tokens=8192
+      - --gpu-memory-utilization=0.55
+      - --served-model-name=qwen3-unified
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+    environment:
+      - VLLM_CPU_OFFLOAD_GB=4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      vllm-bge-small-zh:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
   mock-llm:
     build: ./apps/mock-llm
     container_name: mock-llm
     restart: unless-stopped
     ports:
-      - "8080:8080"
-    # 压测参数经 env 覆盖（见 apps/mock-llm/main.go 环境变量说明）
+      - "18080:8080"
+    # ?env  apps/mock-llm/main.go ?
     environment:
       MODEL_NAME: ${MOCK_MODEL_NAME:-mock-llm}
       LATENCY_MS: ${MOCK_LATENCY_MS:-0}
@@ -728,22 +879,28 @@ services:
       ERROR_RATE: ${MOCK_ERROR_RATE:-0}
       ERROR_STATUS: ${MOCK_ERROR_STATUS:-500}
       COMPLETION_TOKENS: ${MOCK_COMPLETION_TOKENS:-32}
-      EMBEDDING_DIM: ${MOCK_EMBEDDING_DIM:-1024}
-
-  # ============ 订单服务（Rust + 复用 pgvector 实例，shop-agent 售后举证数据源）============
+      EMBEDDING_DIM: ${MOCK_EMBEDDING_DIM:-512}
+  # ============ ust +  pgvector hop-agent ============
   order-service:
     build: ./apps/order-service
     container_name: order-service
     ports:
       - "8088:8080"
     environment:
-      DATABASE_URL: postgres://postgres:postgres@pgvector:5432/orders
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@pgvector:5432/orders
       RUST_LOG: info
     depends_on:
       pgvector:
         condition: service_healthy
-
 volumes:
+  mlops_artifacts:
+    driver: local
+  vllm-bge-reranker:
+    name: vllm-bge-reranker
+    external: true
+  vllm-qwen3-unified:
+    name: vllm-qwen3-unified
+    external: true
   loki_data:
     driver: local
   langfuse_postgres_data:

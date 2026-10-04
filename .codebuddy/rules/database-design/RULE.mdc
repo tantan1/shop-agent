@@ -1,10 +1,12 @@
 ---
-description: 数据库设计规范 - 命名规范、表设计、字段类型、索引规范
-globs: "**/*.sql,**/*.java,**/*.py"
+description: 数据库设计规范 - 命名规范、表设计、字段类型、索引规范（PostgreSQL 为主）
+globs: "**/*.sql,**/*.java,**/*.py,**/*.rs"
 alwaysApply: false
 ---
 
 # 数据库设计规范
+
+> 本项目关系库以 **PostgreSQL** 为主（`order-service` 用 sqlx + `jsonb`）。MySQL 仅存量兼容场景。
 
 ## 命名规范
 
@@ -18,33 +20,42 @@ alwaysApply: false
 
 ## 表设计规范
 
-### 公共字段
+### 公共字段（PostgreSQL 示例）
 ```sql
-`id` BIGINT PRIMARY KEY AUTO_INCREMENT
-`create_time` DATETIME DEFAULT CURRENT_TIMESTAMP
-`update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-`is_deleted` TINYINT DEFAULT 0
+id           BIGSERIAL PRIMARY KEY
+create_time  TIMESTAMPTZ DEFAULT NOW()
+update_time  TIMESTAMPTZ DEFAULT NOW()
+is_deleted   BOOLEAN DEFAULT FALSE
 ```
+- 自增主键用 `BIGSERIAL`（Postgres）或 `GENERATED ALWAYS AS IDENTITY`；MySQL 用 `BIGINT AUTO_INCREMENT`
+- 时间用 `TIMESTAMPTZ`（带时区）；金额用 `NUMERIC(10,2)`
+- 半结构化字段用 `jsonb`（如 `order-service` 的 `buyer_evidence`）
 
 ### 索引
 - 主键自动建索引
-- 常用查询字段建索引
-- 避免建过多索引
+- 常用查询字段建索引（Postgres 支持 `GIN` 索引查 jsonb）
+- 避免建过多索引（写入成本）
 
 ## 字段类型选择
 
-| 数据类型 | 选择 |
+| 数据类型 | PostgreSQL 选择 |
 |------|------|
-| 自增ID | BIGINT |
-| 状态 | TINYINT (0/1) |
-| 金额 | DECIMAL(10,2) |
-| 时间 | DATETIME |
+| 自增ID | BIGSERIAL / IDENTITY |
+| 状态 | SMALLINT / 枚举 |
+| 金额 | NUMERIC(10,2) |
+| 时间 | TIMESTAMPTZ |
 | 长文本 | TEXT |
+| 半结构 | JSONB |
+
+## 向量 / 检索（按需）
+- 向量检索用 pgvector（`vector` 类型 + `ivfflat`/`hnsw` 索引）或 Milvus
+- HNSW 参数（m、ef_construction）按召回/延迟权衡调优（见 `docs/shop-agent-blog-series/04-HNSW参数调优.md`）
+- 关系库与向量库职责分离，避免把向量塞进主业务表热路径
 
 ## 规范要点
 
 - 每个表必须有主键
-- 使用逻辑删除 (is_deleted)
+- 使用逻辑删除 (is_deleted / is_deleted)
 - 创建时间、更新时间自动管理
-- 避免存储敏感明文
-- 使用外键约束数据完整性
+- 避免存储敏感明文（脱敏见 `security` rule）
+- 外键约束数据完整性（或应用层保证 + 显式约束）

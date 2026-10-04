@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.modules.chat.agent.orchestrator import AgentOrchestrator
 from src.modules.chat.schemas import ChatRequest, ChatResponse, IntentResult
+from src.modules.chat.core.intent.candidate import ExecutionPlan
 from src.modules.chat.core.sentiment_service import EmotionResult, EmotionLevel, SentimentService
 
 
@@ -39,7 +40,11 @@ class TestEmotionEscalation:
         milvus.hybrid_search = AsyncMock(return_value=[])
 
         intent = MagicMock()
-        intent.recognize = AsyncMock(return_value=IntentResult(action="query-order", confidence=0.9))
+        intent.recognize = AsyncMock(
+            return_value=IntentResult(
+                plan=ExecutionPlan(mode="direct_tool", skill="query-order"), action="query-order"
+            )
+        )
 
         tool = MagicMock()
         tool.dispatch = AsyncMock(return_value="tool result")
@@ -67,7 +72,7 @@ class TestEmotionEscalation:
         mock_sentiment = MagicMock()
         mock_sentiment.detect = AsyncMock(return_value=emergency_emotion)
 
-        with patch.object(orchestrator, '_ensure_sentiment_service', return_value=mock_sentiment):
+        with patch.object(orchestrator, '_sentiment_service', mock_sentiment):
             request = ChatRequest(message="我要退货！", domain="ecommerce")
             response = await orchestrator.chat_with_agent(request)
             assert response.status == "escalated"
@@ -89,7 +94,7 @@ class TestEmotionEscalation:
         mock_sentiment = MagicMock()
         mock_sentiment.detect = AsyncMock(return_value=normal_emotion)
 
-        with patch.object(orchestrator, '_ensure_sentiment_service', return_value=mock_sentiment):
+        with patch.object(orchestrator, '_sentiment_service', mock_sentiment):
             request = ChatRequest(message="你好", domain="ecommerce")
             response = await orchestrator.chat_with_agent(request)
             assert response.status != "escalated"
@@ -118,7 +123,10 @@ class TestSkillIdHardRouting:
         # 若硬路由生效，recognize 不应被调用；被调用则说明回退到了意图识别
         intent = MagicMock()
         intent.recognize = AsyncMock(
-            return_value=IntentResult(action="check-shipping", intent="call_remote_api")
+            return_value=IntentResult(
+                plan=ExecutionPlan(mode="direct_tool", skill="check-shipping"),
+                action="check-shipping",
+            )
         )
 
         orch = AgentOrchestrator(
@@ -147,7 +155,7 @@ class TestSkillIdHardRouting:
         captured: dict = {}
 
         with patch.object(
-            orchestrator, "_ensure_sentiment_service", return_value=mock_sentiment
+            orchestrator, "_sentiment_service", mock_sentiment
         ), patch.object(
             AgentOrchestrator, "_route_intent", new=self._capture_route(captured)
         ):
@@ -168,10 +176,10 @@ class TestSkillIdHardRouting:
 
         orchestrator._intent_recognizer.recognize.assert_not_called()
         assert captured["intent_result"].action == "query-order"
-        assert captured["intent_result"].intent == "call_remote_api"
+        assert captured["intent_result"].mode == "direct_tool"
         assert captured["intent_result"].params == {"order_id": "WB202405270001"}
-        # simple → 走确定性执行路径，不进 ReAct 自主规划
-        assert captured["intent_result"].complexity == "simple"
+        # direct_tool → 走确定性执行路径，不进 ReAct 自主规划
+        assert captured["intent_result"].plan.skill == "query-order"
         assert captured["steps"][0]["step_name"] == "意图识别（skill_id 硬路由）"
 
     @pytest.mark.asyncio

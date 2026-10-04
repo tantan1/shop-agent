@@ -1,0 +1,21 @@
+{
+  "task": "gate_smoke2",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\gate_smoke2\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\gate_smoke2\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\gate_smoke2\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\gate_smoke2\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\gate_smoke2\\tests.py"
+  }
+}

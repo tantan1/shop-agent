@@ -19,15 +19,15 @@ logger = APILogger("document_service")
 # ═══════════════════════════════════════════════════════════════════════════════
 # Token 限制安全兜底配置
 # ═══════════════════════════════════════════════════════════════════════════════
-# Doubao-embedding 最大输入 tokens（通常 4096，取 80% 留安全余量）
-EMBEDDING_MAX_TOKENS = 4096
+# bge-small-zh-v1.5 最大输入 tokens（BERT 位置编码上限 512，取 80% 留安全余量）
+EMBEDDING_MAX_TOKENS = 512
 TOKEN_SAFETY_MARGIN = 0.8
-# 安全 chunk 大小：中文 1 字符约 1.2~2 tokens，这里按最坏 1:1 估算
-# 即 embed(3276 chars) <= 4096 * 0.8 = 3276 tokens，确保不超限
+# 安全 chunk 大小：中文 BERT 分词约 1 字符 = 1 token，这里按最坏 1:1 估算
+# 即 embed(409 chars) <= 512 * 0.8 = 409 tokens，确保不超限
 MAX_CHUNK_CHARS = int(EMBEDDING_MAX_TOKENS * TOKEN_SAFETY_MARGIN)
 # 安全分割的默认参数（用于兜底对超限 chunk 再切分）
 FALLBACK_CHUNK_SIZE = MAX_CHUNK_CHARS
-FALLBACK_CHUNK_OVERLAP = 200
+FALLBACK_CHUNK_OVERLAP = 50
 
 
 class DocumentService:
@@ -128,9 +128,9 @@ class DocumentService:
     # ════════════════════════════════════════════════════════════════════════
 
     @staticmethod
-    def _hard_pre_split(text: str, max_chars: int = 800) -> List[str]:
+    def _hard_pre_split(text: str, max_chars: int = 400) -> List[str]:
         """字符级硬预切分：在语义切分前把超长文本切成小段，避免整段送 embedding 触发
-        vLLM（bge-m3）1024 token 上限导致 400。
+        vLLM（bge-small-zh-v1.5）512 token 上限导致 400。
 
         优先按空行/换行/句号等自然边界切，避免把一句话拦腰截断；单句超过 max_chars
         则强制按字符截断。返回非空片段列表。
@@ -167,17 +167,17 @@ class DocumentService:
         两层切分 + 向量化 + 写入 Milvus，返回统计信息。
 
         内部流程：
-        0. 字符级硬预切分（防止超长原文直送 embedding 触发 vLLM 1024 token 上限 → 400）
+        0. 字符级硬预切分（防止超长原文直送 embedding 触发 vLLM 512 token 上限 → 400）
         1. 第一层：SemanticChunker 语义切分
         2. 第二层：Token 安全兜底切分
         3. 向量化
         4. 写入 Milvus
         """
         # 第 0 层：字符级硬预切分。SemanticChunker 内部会对文本做嵌入以找语义边界，
-        # 若原文超长（如整本产品手册）会整段送入 embedding，超出 bge-m3 的 1024 token
-        # 上限，vLLM 返回 400 Bad Request。先按 ~800 字符硬切，保证每段送 embedding 时
-        # 都不会超限；再分别做语义切分，最后合并。
-        pre_pieces = self._hard_pre_split(text, max_chars=800)
+        # 若原文超长（如整本产品手册）会整段送入 embedding，超出 bge-small-zh-v1.5 的
+        # 512 token 上限，vLLM 返回 400 Bad Request。先按 ~400 字符硬切，保证每段送
+        # embedding 时都不会超限；再分别做语义切分，最后合并。
+        pre_pieces = self._hard_pre_split(text, max_chars=400)
 
         # 第一层：语义切分（基于向量相似度检测话题边界）
         from langchain_experimental.text_splitter import SemanticChunker
@@ -286,7 +286,7 @@ class DocumentService:
 
                 # 同 _chunk_and_embed：先字符级硬预切分（防超长原文触发 vLLM 400），
                 # 再逐段同步语义切分（丢进线程池避免事件循环冲突），合并结果。
-                pre_pieces = self._hard_pre_split(doc_request.document, max_chars=800)
+                pre_pieces = self._hard_pre_split(doc_request.document, max_chars=400)
                 raw_chunks: List[str] = []
                 for piece in pre_pieces:
                     piece_chunks = await asyncio.to_thread(text_splitter.split_text, piece)

@@ -8,6 +8,7 @@ Langfuse 追踪服务 — 遵循 Langfuse v4.x 官方最佳实践
 - 在应用 shutdown 时调用 flush() 确保数据不丢失
 """
 
+import functools  # noqa: E402
 import os  # noqa: E402
 from typing import List, Optional, Tuple  # noqa: E402
 
@@ -134,16 +135,42 @@ def flush_langfuse() -> None:
         _logger.warning(f"Langfuse flush 失败（非致命）: {str(e)}")
 
 
+def get_langfuse_client():
+    """返回 Langfuse 全局客户端单例（复用 init_langfuse_masking 注入的脱敏实例）。
+
+    供 langfuse_mlops 等模块获取 client 以建 trace / 写 score / 拉 Dataset。
+    未配置 LANGFUSE_PUBLIC_KEY / SECRET_KEY 时，langfuse 返回 disabled client，
+    调用方应对 client 为 None / 调用失败做容错（见 langfuse_mlops._client）。
+    """
+    from langfuse import get_client
+
+    return get_client()
+
+
 if _LANGFUSE_OBSERVE_AVAILABLE:
     from langfuse import observe as _langfuse_observe  # noqa: E402
 else:
     _langfuse_observe = None
 
 
+# 启动预热期抑制开关：warmup 期间的 @observe 调用不建 span。
+# 背景：main.py 的 lifespan 会同步预热 embedding / FAISS 索引 / reranker，这些调用发生在
+# 任何请求之前、没有请求上下文，其 @observe span 会成为**独立的孤儿根 trace**，污染
+# Langfuse（每次容器启动固定产生 3 条无意义 trace）。预热不是业务流量，不应入 trace。
+_OBSERVE_SUPPRESSED = False
+
+
+def set_observe_suppressed(flag: bool) -> None:
+    """开启/关闭 @observe 抑制（用于启动预热期）。"""
+    global _OBSERVE_SUPPRESSED
+    _OBSERVE_SUPPRESSED = bool(flag)
+
+
 def observe(name: Optional[str] = None):
     """条件性 Langfuse @observe 装饰器。
 
     未配置 LANGFUSE_PUBLIC_KEY / SECRET_KEY 时降级为 no-op，避免初始化报错。
+    预热期（set_observe_suppressed(True)）直接执行原函数、不建 span。
     """
     if not _LANGFUSE_OBSERVE_AVAILABLE or _langfuse_observe is None:
 
@@ -151,4 +178,18 @@ def observe(name: Optional[str] = None):
             return func
 
         return noop_decorator
-    return _langfuse_observe(name=name)
+
+    _decorator = _langfuse_observe(name=name)
+
+    def _wrap(func):
+        _wrapped = _decorator(func)
+
+        @functools.wraps(func)
+        def _inner(*args, **kwargs):
+            if _OBSERVE_SUPPRESSED:
+                return func(*args, **kwargs)
+            return _wrapped(*args, **kwargs)
+
+        return _inner
+
+    return _wrap

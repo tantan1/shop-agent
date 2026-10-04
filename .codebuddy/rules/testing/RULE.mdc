@@ -25,6 +25,19 @@ alwaysApply: false
 - `should_xxx` 描述预期行为
 - `test_xxx` 描述动作
 
+## Python / LLM 测试（本项目重点）
+
+### 异步测试
+- 使用 pytest + `pytest-asyncio`；异步用例加 `@pytest.mark.asyncio`
+- 异步 fixture 用 `async def` + `yield`
+
+### LLM / Agent 测试
+- LLM 调用必须 **Mock**（非确定性）：用 `respx`/`unittest.mock` 拦截网关 HTTP，断言请求体（模型名、prompt 结构）而非真实输出
+- 注入检测：构造含注入攻击的 prompt，断言网关/检测器拦截行为（输入/输出/工具参数三道）
+- Agent 编排测试：用 fake tool 替身验证编排器调度顺序与状态传递，不依赖真实外部服务
+- 流式响应：用 `StreamingResponse` 替身验证分块与中断处理
+- 断言优先验证行为（是否调用、是否卡人工审批、是否脱敏），而非精确文本匹配
+
 ## 测试覆盖
 
 ### 核心业务必须覆盖

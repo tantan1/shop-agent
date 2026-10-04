@@ -184,7 +184,7 @@ class RateLimiter:
         client_ip = request.client.host if request.client else "unknown"
         key = f"{client_ip}:{path}"
         # 全局默认限制：30 req / 60s（可通过 GLOBAL_RATE_LIMIT env 调整，压测时提高）
-        max_requests = int(getattr(chat_config, "global_rate_limit", 30))
+        max_requests = int(getattr(chat_config, "GLOBAL_RATE_LIMIT", 30))
         allowed, remaining, reset_seconds = self.check(
             key, max_requests=max_requests, window_seconds=60
         )

@@ -18,8 +18,9 @@ class ChatConfig:
     tool_selector_local_load_in_4bit: bool = config.TOOL_SELECTOR_LOCAL_LOAD_IN_4BIT
     temperature: float = 0.7
 
-    # 本地小模型配置（参数抽取用）
+    # 本地小模型配置（参数抽取用）——优先使用本地路径，不存在则报错
     local_param_model: str = config.LOCAL_PARAM_MODEL
+    local_param_model_path: str = config.LOCAL_PARAM_MODEL_PATH
     local_param_device: str = config.LOCAL_PARAM_DEVICE
     local_param_max_tokens: int = config.LOCAL_PARAM_MAX_TOKENS
     local_param_load_in_4bit: bool = config.LOCAL_PARAM_LOAD_IN_4BIT
@@ -36,6 +37,9 @@ class ChatConfig:
     vllm_tool_selector_model: str = config.VLLM_TOOL_SELECTOR_MODEL
     vllm_timeout: int = config.VLLM_TIMEOUT
 
+    # 工具选择器本地模型路径（独立配置）
+    tool_selector_local_model_path: str = config.TOOL_SELECTOR_LOCAL_MODEL_PATH
+
     # P2 本地工具选择（小模型专项辅助层）。
     # 设计决策（承接架构评审）：本地 1.7B 只作为「意图加权软过滤」的补充确认，
     # 而非通用兜底。因此：
@@ -45,17 +49,27 @@ class ChatConfig:
     enable_p2_local_classify: bool = config.ENABLE_P2_LOCAL_CLASSIFY
     p2_local_classify_min_candidates: int = config.P2_LOCAL_CLASSIFY_MIN_CANDIDATES
 
+    # P2 线性头（ONNX Runtime 推理；权重为 PyTorch 训练产物的 ONNX 导出，
+    # 随镜像打包进 src/modules/chat/agent/assets/）。对候选工具做 embedding→线性头 打分。
+    p2_head_model_path: str = config.P2_HEAD_MODEL_PATH
+    p2_head_meta_path: str = config.P2_HEAD_META_PATH
+    p2_head_embed_model: str = config.P2_HEAD_EMBED_MODEL
+    p2_head_classes_source: str = config.P2_HEAD_CLASSES_SOURCE
+    p2_head_top_k: int = config.P2_HEAD_TOP_K
+
     embedding_model: str = config.EMBEDDING_MODEL
-    # Embedding 后端: local=进程内 sentence-transformers | ollama=进程外 Ollama API | vllm=vLLM bge-m3 直连
+    embedding_model_local_path: str = config.EMBEDDING_MODEL_LOCAL_PATH
+    # Embedding 后端: local=进程内 sentence-transformers | ollama=进程外 Ollama API | vllm=vLLM bge-small-zh-v1.5 直连
     embedding_provider: str = config.EMBEDDING_PROVIDER
     # Ollama embedding 模型名（EMBEDDING_PROVIDER=ollama 时生效）
     ollama_embedding_model: str = config.OLLAMA_EMBEDDING_MODEL
-    # vLLM bge-m3 嵌入（EMBEDDING_PROVIDER=vllm 时生效，直连）
+    # vLLM bge-small-zh-v1.5 嵌入（EMBEDDING_PROVIDER=vllm 时生效，直连）
     vllm_embedding_base_url: str = config.VLLM_EMBEDDING_BASE_URL
     vllm_embedding_model: str = config.VLLM_EMBEDDING_MODEL
 
     # 重排后端: local=进程内 | vllm=远程调 vLLM bge-reranker（直连）
     reranker_provider: str = config.RERANKER_PROVIDER
+    reranker_local_model_path: str = config.RERANKER_LOCAL_MODEL_PATH
     vllm_rerank_base_url: str = config.VLLM_RERANK_BASE_URL
     vllm_rerank_model: str = config.VLLM_RERANK_MODEL
 
@@ -75,16 +89,22 @@ class ChatConfig:
 
     @property
     def embedding_dimension(self) -> int:
-        """根据 provider 返回对应维度（支持完整路径匹配）"""
+        """根据当前生效的 provider 返回对应 embedding 维度（支持完整路径匹配）"""
         _DIMS = {
-            "BAAI/bge-m3": 1024,
+            "BAAI/bge-small-zh-v1.5": 512,
+            "/models/bge-small-zh-v1.5": 512,
         }
-        model = self.embedding_model
-        # 处理完整路径（如 ./models/BAAI/bge-m3）
+        # 取当前 provider 实际使用的模型名（vllm/ollama 优先用各自配置）
+        if self.embedding_provider == "vllm":
+            model = self.vllm_embedding_model
+        elif self.embedding_provider == "ollama":
+            model = self.ollama_embedding_model
+        else:
+            model = self.embedding_model
         for key, dim in _DIMS.items():
             if model.endswith(key) or model == key:
                 return dim
-        return 1024
+        return 512
 
     # Redis 缓存配置（优先读环境变量，回退默认值，对齐 k8s 注入 REDIS_HOST/REDIS_AUTH）
     redis_vector_enabled: bool = True

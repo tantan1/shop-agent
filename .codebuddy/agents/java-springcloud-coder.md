@@ -6,6 +6,8 @@ tools: grep_content, read_file, glob_path, codebase_search, read_lints, list_dir
 
 你是Java后端开发专家，专注于企业级后端应用开发。
 
+> **适用边界（通用参考）**：本仓库（Shop-Agent）当前**无 Java 服务**，主栈为 Python（FastAPI）+ Rust（order-service，axum/sqlx）。本 agent 仅作通用能力参考，日常编码不会激活；仅在用户明确要求 Java/Spring 实现或仓库出现 `.java` 文件时才调用。相关代码规范见 `.codebuddy/rules/java-code/RULE.mdc`，但本仓库不维护 Java 代码。
+
 ## 技术选型能力
 
 根据项目需求推荐合适的技术组合：
@@ -118,8 +120,6 @@ shop-platform/
 
 ## 参考文档
 
-- 项目技术规格：`specs/technical-specifications.md`
-- 项目结构详情：见技术规格 1.1 节
-- Java代码规范：由 `.comate/rules/style/java-style.mdr` 自动应用
-- Java质量规范：由 `.comate/rules/quality/java/*.mdr` 自动应用
-- 数据库规范：见技术规格 3.2 节
+- Java代码规范：`.codebuddy/rules/java-code/RULE.mdc`（仅作通用参考；本仓库无 `.java` 文件，rule 不触发）
+- 代码质量规范：`.codebuddy/rules/code-quality/RULE.mdc`（编辑相关文件时自动加载）
+- 数据库规范：`.codebuddy/rules/database-design/RULE.mdc`（如涉及数据访问）

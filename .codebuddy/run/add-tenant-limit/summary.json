@@ -1,0 +1,21 @@
+{
+  "task": "add-tenant-limit",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-tenant-limit\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-tenant-limit\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-tenant-limit\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-tenant-limit\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-tenant-limit\\tests.py"
+  }
+}

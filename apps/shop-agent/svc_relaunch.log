@@ -1,0 +1,1280 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\__main__.py", line 4, in <module>
+    uvicorn.main()
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\click\core.py", line 1569, in __call__
+    return self.main(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\click\core.py", line 1490, in main
+    rv = self.invoke(ctx)
+         ^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\click\core.py", line 1353, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\click\core.py", line 907, in invoke
+    return callback(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\main.py", line 433, in main
+    run(
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\main.py", line 606, in run
+    server.run()
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\_compat.py", line 30, in asyncio_run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\server.py", line 79, in serve
+    await self._serve(sockets)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\server.py", line 86, in _serve
+    config.load()
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\importer.py", line 22, in import_from_string
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\uvicorn\importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\importlib\__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1206, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1178, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1149, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "E:\workspace\shop-agent\apps\shop-agent\src\main.py", line 34, in <module>
+    from src.modules.chat.digital_human.digital_human_router import (  # noqa: E402
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\digital_human\__init__.py", line 2, in <module>
+    from .digital_human_router import router as digital_human_router
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\digital_human\digital_human_router.py", line 12, in <module>
+    from src.shared.database import get_db
+  File "E:\workspace\shop-agent\apps\shop-agent\src\shared\database.py", line 14, in <module>
+    engine = create_async_engine(
+             ^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py", line 120, in create_async_engine
+    sync_engine = _create_engine(url, **kw)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in create_engine
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\sqlalchemy\util\deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\sqlalchemy\engine\create.py", line 617, in create_engine
+    dbapi = dbapi_meth(**dbapi_args)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\sqlalchemy\dialects\mysql\aiomysql.py", line 205, in import_dbapi
+    __import__("aiomysql"), __import__("pymysql")
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\aiomysql\__init__.py", line 32, in <module>
+    from .connection import Connection, connect
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\aiomysql\connection.py", line 42, in <module>
+    DEFAULT_USER = getpass.getuser()
+                   ^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\getpass.py", line 168, in getuser
+    import pwd
+ModuleNotFoundError: No module named 'pwd'
+[DEBUG] API_V1_PREFIX = '/agent/api/v1'
+INFO:     Started server process [42920]
+INFO:     Waiting for application startup.
+2026-09-05 10:04:31 [info     ] ¶ÀÁ¢Ì½Õë·þÎñÒÑÆô¶¯ http://0.0.0.0:8001 (/healthz /readyz)
+2026-09-05 10:04:31 [info     ] ¼ÓÔØ Skill: check-balance        file=E:\workspace\shop-agent\apps\shop-agent\skills\check-balance\SKILL.md
+2026-09-05 10:04:31 [info     ] ¼ÓÔØ Skill: check-shipping       file=E:\workspace\shop-agent\apps\shop-agent\skills\check-shipping\SKILL.md
+2026-09-05 10:04:31 [info     ] ¼ÓÔØ Skill: coupon-inquiry       file=E:\workspace\shop-agent\apps\shop-agent\skills\coupon-inquiry\SKILL.md
+2026-09-05 10:04:31 [info     ] ¼ÓÔØ Skill: query-order          file=E:\workspace\shop-agent\apps\shop-agent\skills\query-order\SKILL.md
+2026-09-05 10:04:31 [info     ] ¼ÓÔØ Skill: request-return       file=E:\workspace\shop-agent\apps\shop-agent\skills\request-return\SKILL.md
+2026-09-05 10:04:31 [info     ] Skills ¼ÓÔØÍê³É                    names=['check-balance', 'check-shipping', 'coupon-inquiry', 'query-order', 'request-return'] total=5
+2026-09-05 10:04:31 [info     ] Agent Card Ô¤ÈÈÍê³É (15ms)         endpoints_count=12 skills=['check-balance', 'check-shipping', 'coupon-inquiry', 'query-order', 'request-return'] skills_count=5
+2026-09-05 10:04:33 [warning  ] ¼ì²é/´´½¨Ë÷ÒýÊ§°Ü£¨·ÇÖÂÃü£©: unknown command 'FT.CREATE', with args beginning with: 'hospital_questions_idx_v1' 'ON' 'HASH' 'PREFIX' '1' 'hospital_chat:q:v1:' 'SCHEMA' 'question' 'TEXT' 'answer' 'TEXT' 'embedding'
+2026-09-05 10:04:33 [info     ] Redis Á¬½Ó³É¹¦: localhost:6379
+[startup] Redis ÓïÒå»º´æ¾ÍÐ÷£¬°æ±¾»¯ÏòÁ¿Ë÷ÒýÒÑ´´½¨
+[[32m[1minfo     [0m] [1mLangfuse Í³Ò»ÍÑÃô¹³×ÓÒÑ×¢Èë            [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:33.309769Z[0m
+[startup] OTel instrumentation Ìø¹ý: cannot import name 'detect_synthetic_user_agent' from 'opentelemetry.util.http' (E:\workspace\shop-agent\venv\Lib\site-packages\opentelemetry\util\http\__init__.py)
+SkyWalking Agent ÒÑ½ûÓÃ£¨SW_AGENT_ENABLED=false£©
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ vLLM embedding: bge-m3 @ http://localhost:8101[0m [[0m[1m[34membedding_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:33.379648Z[0m
+Using proactor: IocpProactor
+[startup] Embedding Ä£ÐÍÔ¤ÈÈÌø¹ý: Cannot run the event loop while another loop is running
+C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\warnings.py:537: RuntimeWarning: coroutine 'VLLMEmbeddings._embed_async' was never awaited
+  warn(msg, category=RuntimeWarning, stacklevel=2, source=coro)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+connect_tcp.started host='localhost' port=8102 local_address=None timeout=60 socket_options=None
+connect_tcp.failed exception=ConnectError(ConnectionRefusedError(10061, 'ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£', None, 10061, None))
+[[31m[1merror    [0m] [1mvLLM Rerank ÇëÇóÒì³£: [WinError 10061] ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£[0m [[0m[1m[34mreranker_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:37.485502Z[0m
+[startup] BGE-Reranker Ä£ÐÍÔ¤ÈÈÌø¹ý: [WinError 10061] ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£
+[startup] Ð¡Ä£ÐÍ×ßÔ¶³Ìºó¶Ë (ollama)£¬Ìø¹ý½ø³ÌÄÚÔ¤ÈÈ
+[startup] MCP Server ÒÑ½ûÓÃ£¨MCP_ENABLED=false£©
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mGET[0m [36mprocess_time[0m=[35m0.1651s[0m [36mrequest_id[0m=[35m2355876986256[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m200[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:38.240963Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/health[0m
+INFO:     127.0.0.1:63980 - "GET /health HTTP/1.1" 200 OK
+Starting new HTTP connection (1): localhost:3100
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+[[33m[1mwarning  [0m] [1mËÙÂÊÏÞÖÆÆ÷ Redis ²»¿ÉÓÃ£¬»ØÂäµ½ÄÚ´æ½µ¼¶£¨½öÏÞµ¥½ø³Ì£©[0m [[0m[1m[34mrate_limiter[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:54.623486Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0010s[0m [36mrequest_id[0m=[35m2355878334032[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m404[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:54.625490Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:64019 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 404 Not Found
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0000s[0m [36mrequest_id[0m=[35m2355878337936[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m404[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:04:54.628527Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:64045 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 404 Not Found
+[DEBUG] API_V1_PREFIX = '/api/v1'
+INFO:     Started server process [9916]
+INFO:     Waiting for application startup.
+2026-09-05 10:06:42 [info     ] ¶ÀÁ¢Ì½Õë·þÎñÒÑÆô¶¯ http://0.0.0.0:8001 (/healthz /readyz)
+2026-09-05 10:06:42 [info     ] ¼ÓÔØ Skill: check-balance        file=E:\workspace\shop-agent\apps\shop-agent\skills\check-balance\SKILL.md
+2026-09-05 10:06:42 [info     ] ¼ÓÔØ Skill: check-shipping       file=E:\workspace\shop-agent\apps\shop-agent\skills\check-shipping\SKILL.md
+2026-09-05 10:06:42 [info     ] ¼ÓÔØ Skill: coupon-inquiry       file=E:\workspace\shop-agent\apps\shop-agent\skills\coupon-inquiry\SKILL.md
+2026-09-05 10:06:42 [info     ] ¼ÓÔØ Skill: query-order          file=E:\workspace\shop-agent\apps\shop-agent\skills\query-order\SKILL.md
+2026-09-05 10:06:42 [info     ] ¼ÓÔØ Skill: request-return       file=E:\workspace\shop-agent\apps\shop-agent\skills\request-return\SKILL.md
+2026-09-05 10:06:42 [info     ] Skills ¼ÓÔØÍê³É                    names=['check-balance', 'check-shipping', 'coupon-inquiry', 'query-order', 'request-return'] total=5
+2026-09-05 10:06:42 [info     ] Agent Card Ô¤ÈÈÍê³É (17ms)         endpoints_count=12 skills=['check-balance', 'check-shipping', 'coupon-inquiry', 'query-order', 'request-return'] skills_count=5
+2026-09-05 10:06:44 [warning  ] ¼ì²é/´´½¨Ë÷ÒýÊ§°Ü£¨·ÇÖÂÃü£©: unknown command 'FT.CREATE', with args beginning with: 'hospital_questions_idx_v1' 'ON' 'HASH' 'PREFIX' '1' 'hospital_chat:q:v1:' 'SCHEMA' 'question' 'TEXT' 'answer' 'TEXT' 'embedding'
+2026-09-05 10:06:44 [info     ] Redis Á¬½Ó³É¹¦: localhost:6379
+[startup] Redis ÓïÒå»º´æ¾ÍÐ÷£¬°æ±¾»¯ÏòÁ¿Ë÷ÒýÒÑ´´½¨
+[[32m[1minfo     [0m] [1mLangfuse Í³Ò»ÍÑÃô¹³×ÓÒÑ×¢Èë            [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:06:44.529712Z[0m
+[startup] OTel instrumentation Ìø¹ý: cannot import name 'detect_synthetic_user_agent' from 'opentelemetry.util.http' (E:\workspace\shop-agent\venv\Lib\site-packages\opentelemetry\util\http\__init__.py)
+SkyWalking Agent ÒÑ½ûÓÃ£¨SW_AGENT_ENABLED=false£©
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ vLLM embedding: bge-m3 @ http://localhost:8101[0m [[0m[1m[34membedding_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:06:44.632661Z[0m
+Using proactor: IocpProactor
+[startup] Embedding Ä£ÐÍÔ¤ÈÈÌø¹ý: Cannot run the event loop while another loop is running
+C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\warnings.py:537: RuntimeWarning: coroutine 'VLLMEmbeddings._embed_async' was never awaited
+  warn(msg, category=RuntimeWarning, stacklevel=2, source=coro)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+connect_tcp.started host='localhost' port=8102 local_address=None timeout=60 socket_options=None
+connect_tcp.failed exception=ConnectError(ConnectionRefusedError(10061, 'ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£', None, 10061, None))
+[[31m[1merror    [0m] [1mvLLM Rerank ÇëÇóÒì³£: [WinError 10061] ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£[0m [[0m[1m[34mreranker_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:06:48.771257Z[0m
+[startup] BGE-Reranker Ä£ÐÍÔ¤ÈÈÌø¹ý: [WinError 10061] ÓÉÓÚÄ¿±ê¼ÆËã»ú»ý¼«¾Ü¾ø£¬ÎÞ·¨Á¬½Ó¡£
+[startup] Ð¡Ä£ÐÍ×ßÔ¶³Ìºó¶Ë (ollama)£¬Ìø¹ý½ø³ÌÄÚÔ¤ÈÈ
+[startup] MCP Server ÒÑ½ûÓÃ£¨MCP_ENABLED=false£©
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mGET[0m [36mprocess_time[0m=[35m0.1332s[0m [36mrequest_id[0m=[35m2203379560912[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m200[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:06:49.056762Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/health[0m
+INFO:     127.0.0.1:65138 - "GET /health HTTP/1.1" 200 OK
+Starting new HTTP connection (1): localhost:3100
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+[[33m[1mwarning  [0m] [1mËÙÂÊÏÞÖÆÆ÷ Redis ²»¿ÉÓÃ£¬»ØÂäµ½ÄÚ´æ½µ¼¶£¨½öÏÞµ¥½ø³Ì£©[0m [[0m[1m[34mrate_limiter[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:10.179581Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:10.187570Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:10.188645Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': '°ïÎÒ²éÒ»ÏÂ¶©µ¥ S20240101001 µÄµ±Ç°×´Ì¬', 'conversation_id': 'd7a8ee2a6f7248dc8d94261dffc6cd79', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:10.206022Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.090896Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.091896Z[0m
+[[32m[1minfo     [0m] [1mMilvusService ³õÊ¼»¯Íê³É: host=localhost:19530, collection=chat_embeddings[0m [[0m[1m[34mmilvus_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.642156Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.644158Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.644158Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35md7a8ee2a6f7248dc8d94261dffc6cd79[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:11.645156Z[0m
+[[32m[1minfo     [0m] [1mÍ¬Òå´Ê¹éÒ»»¯ [ÕýÔòÆ¥Åä]  '°ïÎÒ²éÒ»ÏÂ¶©µ¥ S20240101001 µÄµ±Ç°×´Ì¬' ¡ú '²éÑ¯¶©µ¥'  pattern=(?:²é|¿´|°ïÎÒ²é|°ïÎÒ¿´¿´|°ïÎÒ²éÒ»ÏÂ|²é¿´|ÏÔÊ¾)(?:ÎÒµÄ)?(?:Ò»ÏÂ)?(?:¶©µ¥|¹ºÂò¼ÇÂ¼|ÏÂµÄµ¥)[0m [[0m[1m[34msynonym_normalizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.647874Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:11.648404Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000201052A4B50>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:11 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:13.981223Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2334ms init_faiss=2334ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:13.983220Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2310[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m26[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.295049Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.297692Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35md7a8ee2a6f7248dc8d94261dffc6cd79[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.297692Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.325089Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m26[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.328085Z[0m
+E:\workspace\shop-agent\venv\Lib\site-packages\structlog\dev.py:921: UserWarning: Remove `format_exc_info` from your processor chain if you want pretty exceptions.
+  warnings.warn(
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.329086Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m6.1511s[0m [36mrequest_id[0m=[35m2203380757584[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.331789Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65197 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.338314Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.338314Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÎÒµÄ¶©µ¥ÎïÁ÷µ½ÄÄÁË£¬Ê²Ã´Ê±ºòÄÜµ½', 'conversation_id': '0bda0ff99eb4428a8750cbbbba520bc8', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.339313Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.340895Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.341891Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.342897Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.343892Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35m0bda0ff99eb4428a8750cbbbba520bc8[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:16.343892Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:16.346891Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000002010525F210>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:15 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:18.671545Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2326ms init_faiss=2326ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:18.672542Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+Resetting dropped connection: localhost
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2311[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m16[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.985054Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.986055Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35m0bda0ff99eb4428a8750cbbbba520bc8[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.986055Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.991055Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m16[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.994053Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.995051Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6603s[0m [36mrequest_id[0m=[35m2203404882960[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:20.996054Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65346 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.002709Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.003709Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÎÒÒªÉêÇëÍË»õ£¬¶©µ¥ A123 ÀïµÄÉÌÆ·ÓÐÖÊÁ¿ÎÊÌâ', 'conversation_id': '1d1565c035214680b4e6251c5628a17d', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.004709Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.006708Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.007249Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.009242Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.009776Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35m1d1565c035214680b4e6251c5628a17d[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:21.009776Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:21.010773Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000002010525EF10>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:20 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:23.342909Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2333ms init_faiss=2333ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:23.343904Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2312[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m24[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.657836Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.658840Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35m1d1565c035214680b4e6251c5628a17d[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.659830Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.662832Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m24[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.664832Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.666050Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6653s[0m [36mrequest_id[0m=[35m2203405323472[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.666050Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65370 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.671063Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.672061Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÎÒµÄÕË»§Àï»¹ÓÐ¶àÉÙ¿ÉÓÃÓà¶î', 'conversation_id': '36d96da3c1d2461c80031613fea4b4f0', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.672901Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.674481Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.675030Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.676592Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.676592Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35m36d96da3c1d2461c80031613fea4b4f0[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:25.677123Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:25.677662Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000002010532D010>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:25 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:28.012121Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2336ms init_faiss=2336ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:28.014121Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2306[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m13[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.321936Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.323016Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35m36d96da3c1d2461c80031613fea4b4f0[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.323016Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.326772Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m13[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.328918Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.329450Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6599s[0m [36mrequest_id[0m=[35m2203405443088[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.329979Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65392 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.353451Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.354452Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÎÒÓÐÄÄÐ©»¹Ã»ÓÃ¹ý¡¢¿ÉÒÔÓÃµÄÓÅ»ÝÈ¯', 'conversation_id': 'd9b8de289fa24d42828b8c508ab7407f', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.354452Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.356746Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.356746Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.357745Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.358743Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35md9b8de289fa24d42828b8c508ab7407f[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:30.358743Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:30.359747Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000201052A6210>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:29 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:32.703022Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2345ms init_faiss=2345ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:32.705001Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2305[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m16[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.011006Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.012082Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35md9b8de289fa24d42828b8c508ab7407f[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.012615Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.016906Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m16[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.019051Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.019571Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6686s[0m [36mrequest_id[0m=[35m2203405487952[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.020089Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65411 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.026597Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.027144Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÔÙ¿´Ò»ÏÂ¸Õ²ÅÄÇ¸ö¶©µ¥µÄÏêÏ¸Ã÷Ï¸', 'conversation_id': 'a11146a5ef884ecfb23626e2db6dc0a3', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.028245Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.030408Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.030408Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.032129Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.032129Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35ma11146a5ef884ecfb23626e2db6dc0a3[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:35.032670Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:35.033216Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000002010533ACD0>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:34 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:37.346969Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2315ms init_faiss=2315ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:37.349159Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2314[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m15[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.663420Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.664418Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35ma11146a5ef884ecfb23626e2db6dc0a3[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.664418Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.668099Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m15[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.671100Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.672096Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6486s[0m [36mrequest_id[0m=[35m2203405447184[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.672786Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65439 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.678787Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.679785Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': '²éÒ»ÏÂ¶©µ¥ºÅ 998877 µÄ×´Ì¬', 'conversation_id': 'a2e4e26f86b84206805e4fc5c409ddcf', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.679785Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.681786Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.682786Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.684576Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.684576Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35ma2e4e26f86b84206805e4fc5c409ddcf[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:07:39.684576Z[0m
+[[32m[1minfo     [0m] [1mÍ¬Òå´Ê¹éÒ»»¯ [ÕýÔòÆ¥Åä]  '²éÒ»ÏÂ¶©µ¥ºÅ 998877 µÄ×´Ì¬' ¡ú '²éÑ¯¶©µ¥'  pattern=(?:²é|¿´|°ïÎÒ²é|°ïÎÒ¿´¿´|°ïÎÒ²éÒ»ÏÂ|²é¿´|ÏÔÊ¾)(?:ÎÒµÄ)?(?:Ò»ÏÂ)?(?:¶©µ¥|¹ºÂò¼ÇÂ¼|ÏÂµÄµ¥)[0m [[0m[1m[34msynonym_normalizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.685574Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:39.685574Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x0000020105346010>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:07:39 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[33m[1mwarning  [0m] [1mFAISSÒâÍ¼Ë÷Òý¹¹½¨Ê§°Ü: All connection attempts failed[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:42.022410Z[0m
+[[32m[1minfo     [0m] [1mÒâÍ¼Ê¶±ð [Ä¬ÈÏrag] total=2338ms init_faiss=2338ms get_emb=0ms embed=0ms[0m [[0m[1m[34mintent_recognizer[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:42.023409Z[0m
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2328[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m17[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.354351Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.355435Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35ma2e4e26f86b84206805e4fc5c409ddcf[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.355972Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.359723Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m17[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.362455Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.362996Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m4.6867s[0m [36mrequest_id[0m=[35m2203405541456[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.363530Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65462 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.369129Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.369129Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 25}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.370129Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0040s[0m [36mrequest_id[0m=[35m2203405492304[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.371129Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65481 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.375132Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.376130Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 25}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.377131Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0030s[0m [36mrequest_id[0m=[35m2203405496528[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.377131Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65482 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.383133Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.383133Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 25}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.384133Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0040s[0m [36mrequest_id[0m=[35m2203405546192[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.385133Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65483 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.388131Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.389131Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 25}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.389131Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0030s[0m [36mrequest_id[0m=[35m2203405539088[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.390131Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65484 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.395133Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.395133Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 25}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.396131Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0040s[0m [36mrequest_id[0m=[35m2203405538192[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:07:44.397132Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:65485 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.011074Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.012065Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 1}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.012605Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0031s[0m [36mrequest_id[0m=[35m2203405495376[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.013138Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:49205 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.015863Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.016389Z[0m
+[[31m[1merror    [0m] [1mHTTPÒì³£                        [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36mdetail[0m=[35m{'error': 'ÇëÇó¹ýÓÚÆµ·±£¬ÇëÉÔºóÔÙÊÔ', 'retry_after': 1}[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.016389Z[0m
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m0.0023s[0m [36mrequest_id[0m=[35m2203405495824[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m429[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:09.017020Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:49206 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 429 Too Many Requests
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.129018Z[0m
+[[32m[1minfo     [0m] [1mAPIµ÷ÓÃ                         [0m [[0m[1m[34mauth_dependencies[0m][0m [36mapi_key[0m=[35m***[0m [36mendpoint[0m=[35mauth_verification[0m [36mkey_name[0m=[35m¾É°æµ÷ÓÃ·½£¨FIXED_API_KEY£©[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mTrue[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.130011Z[0m
+[[32m[1minfo     [0m] [1mchat_with_agent received request[0m [[0m[1m[34mchatagent_service[0m][0m [36mexperiment_assignment[0m=[35mNone[0m [36mrequest[0m=[35m{'message': 'ÄãÃÇµÄÍË»õÕþ²ß¾ßÌåÊÇÔõÃ´¹æ¶¨µÄ', 'conversation_id': 't11_single', 'user_id': 'eval-bot', 'stream': False, 'domain': 'ecommerce', 'experiment_group': None, 'skill_id': None, 'context': None}[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.130011Z[0m
+[[32m[1minfo     [0m] [1mÍ¨ÒåÇ§ÎÊÄ£ÐÍ³õÊ¼»¯³É¹¦: qwen3-unified    [0m [[0m[1m[34mllm_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.132010Z[0m
+[[32m[1minfo     [0m] [1mÊ¹ÓÃ Milvus ×÷ÎªÏòÁ¿´æ´¢              [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.132010Z[0m
+[[32m[1minfo     [0m] [1mRedis »º´æ·þÎñ³õÊ¼»¯³É¹¦               [0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.134009Z[0m
+[[32m[1minfo     [0m] [1mChatAgentService initialization completed[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.134009Z[0m
+[[32m[1minfo     [0m] [1mLangfuse trace handler ÒÑ´´½¨    [0m [[0m[1m[34mlangfuse_callback[0m][0m [36mservice[0m=[35mshop-agent[0m [36msession_id[0m=[35mt11_single[0m [36mspan_id[0m=[35mNone[0m [36mtags[0m=[35m['ecommerce', 'agent-orchestrator'][0m [36mtrace_id[0m=[35mNone[0m [36mtrace_name[0m=[35mecommerce-orchestrator[0m [36mts[0m=[35m2026-09-05T02:08:28.134009Z[0m
+[[33m[1mwarning  [0m] [1mToken Ô¤¹ÀÆ÷: tokenizer.json Î´ÕÒµ½£¬½µ¼¶Îª×Ö·û¹ÀËã[0m [[0m[1m[34mtoken_estimator[0m][0m [36mpath[0m=[35m./models/Qwen3-1.7B/tokenizer.json[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:28.135009Z[0m
+[T] ÒâÍ¼Ê¶±ð [·ñ¶¨ÃüÖÐ] 0ms ¡ú rag_answer
+connect_tcp.started host='localhost' port=8101 local_address=None timeout=60 socket_options=None
+connect_tcp.started host='127.0.0.1' port=8003 local_address=None timeout=5.0 socket_options=None
+connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x0000020105313B10>
+send_request_headers.started request=<Request [b'GET']>
+send_request_headers.complete
+send_request_body.started request=<Request [b'GET']>
+send_request_body.complete
+receive_response_headers.started request=<Request [b'GET']>
+receive_response_headers.complete return_value=(b'HTTP/1.1', 404, b'Not Found', [(b'date', b'Sat, 05 Sep 2026 02:08:27 GMT'), (b'server', b'uvicorn'), (b'content-length', b'22'), (b'content-type', b'application/json')])
+receive_response_body.started request=<Request [b'GET']>
+receive_response_body.complete
+response_closed.started
+response_closed.complete
+close.started
+close.complete
+connect_tcp.failed exception=ConnectError(OSError('All connection attempts failed'))
+[[32m[1minfo     [0m] [1mµ¥ÌõÇ¶ÈëÍê³É                        [0m [[0m[1m[34membedding_service[0m][0m [36mduration_ms[0m=[35m2311[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtext_length[0m=[35m15[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.447811Z[0m
+[[31m[1merror    [0m] [1m[ecommerce] AgentÖ´ÐÐÊ§°Ü: All connection attempts failed[0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.447811Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mgeneral_agent_executor[0m][0m [36mbusiness_event[0m=[35mµçÉÌÖúÊÖ¶Ô»°[0m [36mconversation_id[0m=[35mt11_single[0m [36mdomain[0m=[35mecommerce[0m [36merror[0m=[35m'All connection attempts failed'[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.449310Z[0m
+[[31m[1merror    [0m] [1mµçÉÌ Agent Ö´ÐÐÊ§°Ü: name 'ChatResponse' is not defined
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 149, in execute
+    question_embedding = await self.embedding_service.embed_query(request.message)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 308, in async_wrapper
+    raise e
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\langfuse\_client\observe.py", line 292, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 444, in embed_query
+    return await self.get_embeddings().aembed_query(text, instruction)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 377, in aembed_query
+    result = await self._embed_async([text])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\core\embedding_service.py", line 316, in _embed_async
+    resp = await client.post(url, json=payload)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1859, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "E:\workspace\shop-agent\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\services.py", line 192, in chat_with_agent
+    return await self._orchestrator.chat_with_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 366, in chat_with_agent
+    response = await self._route_intent(routing_ctx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 272, in _route_intent
+    return await self._chat_with_rag_agent(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\orchestrator.py", line 430, in _chat_with_rag_agent
+    response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\workspace\shop-agent\apps\shop-agent\src\modules\chat\agent\executor.py", line 240, in execute
+    return ChatResponse(
+           ^^^^^^^^^^^^
+NameError: name 'ChatResponse' is not defined
+[0m [[0m[1m[34mchatagent_service[0m][0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.451306Z[0m
+[[32m[1minfo     [0m] [1mÒµÎñÊÂ¼þ                          [0m [[0m[1m[34mchatagent_service[0m][0m [36mbusiness_event[0m=[35mµçÉÌAgent¶Ô»°[0m [36merror[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage_length[0m=[35m15[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36msuccess[0m=[35mFalse[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.453306Z[0m
+[[31m[1merror    [0m] [1mÒµÎñÒì³£                          [0m [[0m[1m[34msrc.shared.exceptions[0m][0m [36merror_detail[0m=[35m"name 'ChatResponse' is not defined"[0m [36mmessage[0m=[35mµçÉÌ¿Í·þ¶Ô»°Ê§°Ü[0m [36mmethod[0m=[35mPOST[0m [36mpath[0m=[35m/api/v1/chatagent/agent/chat[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.453306Z[0m
+ValidationException
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mPOST[0m [36mprocess_time[0m=[35m2.3248s[0m [36mrequest_id[0m=[35m2203405540624[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m422[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:08:30.454304Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/api/v1/chatagent/agent/chat[0m
+INFO:     127.0.0.1:49273 - "POST /api/v1/chatagent/agent/chat HTTP/1.1" 422 Unprocessable Entity
+Resetting dropped connection: localhost
+http://localhost:3100 "POST /api/public/otel/v1/traces HTTP/1.1" 200 None
+[[32m[1minfo     [0m] [1mÇëÇóÍê³É                          [0m [[0m[1m[34mapi[0m][0m [36mmethod[0m=[35mGET[0m [36mprocess_time[0m=[35m0.0010s[0m [36mrequest_id[0m=[35m2203380875792[0m [36mservice[0m=[35mshop-agent[0m [36mspan_id[0m=[35mNone[0m [36mstatus_code[0m=[35m200[0m [36mtrace_id[0m=[35mNone[0m [36mts[0m=[35m2026-09-05T02:09:43.328003Z[0m [36murl[0m=[35mhttp://127.0.0.1:8000/health[0m
+INFO:     127.0.0.1:49745 - "GET /health HTTP/1.1" 200 OK

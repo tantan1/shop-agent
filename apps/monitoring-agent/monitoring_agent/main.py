@@ -98,10 +98,10 @@ app.middleware("http")(trace_binding_middleware)
 SHOP_AGENT_URL = os.getenv("SHOP_AGENT_URL", "http://shop-agent:8000/health")
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:8001/health")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "local-redis-password")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")  # 禁止源码硬编码口令；缺失即 fail-closed（生产须注入）
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "local-postgres-password")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")  # 禁止源码硬编码口令；缺失即 fail-closed（生产须注入）
 MONITORING_PERSIST = os.getenv("MONITORING_PERSIST", "1") == "1"
 MONITORING_DB_NAME = os.getenv("MONITORING_DB_NAME", "postgres")
 MONITORING_DB_DSN = os.getenv("MONITORING_DB_DSN", "")

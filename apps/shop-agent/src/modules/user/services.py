@@ -51,7 +51,7 @@ class UserService:
                 user_type="registered" if not user_id.startswith("anon_") else "anonymous",
                 created_at=now,
                 last_seen_at=now,
-                metadata={},
+                user_metadata={},
             )
             self.db.add(user)
         else:

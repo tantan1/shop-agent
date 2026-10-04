@@ -1,0 +1,21 @@
+{
+  "task": "openapi-contract-gen",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\openapi-contract-gen\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\openapi-contract-gen\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\openapi-contract-gen\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\openapi-contract-gen\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\openapi-contract-gen\\tests.py"
+  }
+}

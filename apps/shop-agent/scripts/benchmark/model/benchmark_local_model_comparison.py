@@ -926,9 +926,9 @@ def worker_main(args: argparse.Namespace):
 
         load_kwargs: dict = {"trust_remote_code": True}
         if device == "cpu":
-            load_kwargs["dtype"] = torch.float32
+            load_kwargs["torch_dtype"] = torch.float32
         else:
-            load_kwargs["dtype"] = torch.float16
+            load_kwargs["torch_dtype"] = torch.float16
             load_kwargs["device_map"] = "auto"
 
         print(f"  Loading model: {model_id} (dtype={load_kwargs.get('dtype')})...", flush=True)

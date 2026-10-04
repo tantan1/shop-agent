@@ -1,0 +1,51 @@
+---
+description: LLM/Agent 专项规范 - LLM 调用治理、Prompt 注入防护、可观测、人在回路、缓存与脱敏
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# LLM / Agent 专项规范
+
+> 适用所有调用 LLM、编排 Agent、处理用户 prompt 的 Python 代码。本规则与 `docs/platform-engineering/` 系列口径一致，是代码层的可执行约定。
+> 架构前提：所有 LLM 流量必须经 `gateway`（唯一出口），业务不直接连供应商。
+
+## 1. LLM 调用治理
+- `base_url` 指向网关（`LLM_GATEWAY_URL`），**禁止代码内直连 OpenAI/各家端点**
+- 必须设超时（`timeout`）+ 重试（指数退避，限次）+ 熔断；失败兜底走 `fail-closed` 或 `fail-open` 需显式决策并记录（见 `docs/platform-engineering/01` §5）
+- 并发调用受网关限流约束；批量请求用 `asyncio.gather` 但控制扇出
+- 流式响应（SSE）要处理中断与客户端断开（generator 关闭）
+
+## 2. Prompt 注入防护（三道防线，卡在网关）
+- 输入侧：用户 prompt 进网关即过注入检测（第一道），命中即拦，业务无感
+- 输出侧：供应商回传内容在网关出口再做出站校验（间接注入 / 数据外泄）
+- 工具参数侧：Agent 调用工具前的参数也要过检测（见 `docs/platform-engineering/10`）
+- 业务代码不在本地重做检测逻辑，信任网关；但若本地构造 system prompt，避免拼接未校验的外部内容
+
+## 3. 脱敏与合规护栏
+- 敏感信息（PII）擦除 / 拦截由网关集中做（唯一出口才能覆盖，见 `docs/platform-engineering/06`）
+- 业务侧不假设已脱敏；回传日志/存储前对 PII 做二次确认（纵深防御）
+- 跨平面处置以网关的「处置总表」为唯一权威
+
+## 4. 人在回路（Human-in-the-loop）
+- 涉及资金 / 不可逆操作（退款确认、退货审核等）必须卡人工审批节点
+- 状态用显式枚举（如 `PENDING_HUMAN_APPROVAL`），不允许自动放行高风险动作
+- 参考实现：`apps/order-service` 的 `refund_confirm` 写库待审
+
+## 5. 可观测性（LLM 业务级）
+- 调用处记录：token 用量（in/out）、首 token 延迟、总耗时、模型名、命中缓存与否
+- 质量退化：对关键输出做校验/评分，异常上报（见 `docs/platform-engineering/09`）
+- 指标接入 Prometheus；日志走与监控同源通道，避免污染 LLM 计量（monitoring-agent 旁路探测，不过网关）
+
+## 6. 缓存
+- 重复/相似 prompt 优先走语义缓存（网关层，见 `docs/platform-engineering/08`），省 token 降延迟
+- 业务侧缓存仅用于非 LLM 数据（热点、配置），遵循 `caching` rule
+
+## 7. Agent 编排
+- 多 Agent 协作通过明确消息/状态传递，避免隐式全局共享可变状态
+- 每个 Agent 职责单一；编排器（orchestrator）只做调度，业务逻辑下沉到各 coordinator
+- 工具调用结果视为不可信外部输入，使用前校验（呼应注入防护第 3 道）
+
+## 与其它 rule 的边界
+- **安全治理总纲见 `security` rule**：本 rule 聚焦 LLM/Agent 的代码级约定（调用治理、注入、脱敏、人在回路、可观测、缓存、编排）；`security` rule 覆盖认证授权、输入校验、SQL 注入、接口安全、传输安全等通用安全面。两者互补，代码审查时同时加载。
+- **缓存见 `caching` rule**、**可观测见 `monitoring` rule**、**性能见 `performance` rule**：本 rule 只规定 LLM 特有的语义缓存与业务级指标，通用部分遵循对应 rule。
+- **数据库见 `database-design` rule**：本项目 PostgreSQL，LLM 元数据/向量表设计遵循该 rule。

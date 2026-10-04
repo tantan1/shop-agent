@@ -1,0 +1,197 @@
+diff --git a/apps/shop-agent/src/modules/chat/core/tool_select_stage.py b/apps/shop-agent/src/modules/chat/core/tool_select_stage.py
+new file mode 100644
+index 0000000..156d3d8
+--- /dev/null
++++ b/apps/shop-agent/src/modules/chat/core/tool_select_stage.py
+@@ -0,0 +1,71 @@
++"""工具选择统一 Stage 接口与数据结构。
++
++见 docs/architecture/tool-select-pipeline-design.md §3。
++每层只回答"本层对候选的相关度"，不做最终决策；Pipeline 统一做阈值判断、
++候选传递与降级。
++
++设计要点：
++- `name` 必须在实例化时由配置注入（= 配置中 stage 的 name，如 "p0_rule"），
++  Pipeline 用 `thresholds[stage.name]` / `timeouts[stage.name]` 查找本层阈值与超时。
++- 各层从 `run()` 的 `context` 参数读取自身依赖（embedding_model / llm_service 等），
++  不通过构造参数注入。
++- `STAGE_REGISTRY` 为显式注册表（name→类），不使用 importlib 动态加载；
++  具体 Stage 在其模块导入时通过 `register_stage` 登记（见 Phase 4 迁移）。
++"""
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from dataclasses import dataclass, field
++from typing import Dict, List, Optional
++
++
++@dataclass
++class CandidateScore:
++    """单层对某工具的打分证据，供观测与下一层 scope 缩小使用。"""
++
++    tool: str
++    score: float
++    source: str
++
++
++@dataclass
++class StageResult:
++    """单层的输出。
++
++    - tool / confidence：单层最优（供 Pipeline 早停判断）
++    - scored_candidates：本层对 scope 内候选的打分（供观测与缩小下一层 scope），
++      而非仅 top-1（P1 为 Top-K 子集，P2 为全量 softmax 分布）
++    - error：非空表示该层执行失败，交由 Pipeline 按 on_stage_failure 处理
++    """
++
++    tool: Optional[str] = None
++    confidence: float = 0.0
++    source: str = ""
++    scored_candidates: List[CandidateScore] = field(default_factory=list)
++    error: Optional[str] = None
++
++
++class ToolSelectStage(ABC):
++    """每层的统一接口。"""
++
++    def __init__(self, name: str) -> None:
++        self.name = name
++
++    @abstractmethod
++    async def run(self, query: str, scope: List[str], context: Dict) -> StageResult:
++        """返回该层的选择结果与置信度；scope 为本层待评候选（上一层软过滤后的工具名）。
++
++        context 携带各层依赖（thresholds / tool_registry / embedding_model / llm_service 等），
++        Stage 应从中读取自身依赖，不通过构造参数注入。
++        """
++        raise NotImplementedError
++
++
++# 显式注册表：name -> Stage 类。新增 Stage 在其模块导入时调用 register_stage 登记，
++# 配置加载即按 name 解析，无需改 ToolSelectPipeline（见 §6）。
++STAGE_REGISTRY: Dict[str, type[ToolSelectStage]] = {}
++
++
++def register_stage(name: str, stage_cls: type[ToolSelectStage]) -> None:
++    """登记一个 Stage 类到注册表（name 必须与配置中的 stage.name 一致）。"""
++    STAGE_REGISTRY[name] = stage_cls
+
+diff --git a/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py b/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py
+new file mode 100644
+index 0000000..3fe0ab5
+--- /dev/null
++++ b/apps/shop-agent/src/modules/chat/core/tool_select_pipeline.py
+@@ -0,0 +1,113 @@
++"""工具选择可配置迭代式 Pipeline 调用器。
++
++见 docs/architecture/tool-select-pipeline-design.md §5。
++维护 scope（下一层候选范围）与观测缓冲；统一做早停判断、候选软过滤传递与降级。
++各层 scored_candidates 仅用于观测日志，绝不参与跨层融合决策。
++"""
++from __future__ import annotations
++
++import asyncio
++import logging
++from typing import Any, Dict, List, Optional
++
++from src.modules.chat.core.tool_select_stage import CandidateScore, StageResult, ToolSelectStage
++from src.modules.chat.schemas import PlannedAction, ToolPlan
++
++logger = logging.getLogger(__name__)
++
++
++class ToolSelectPipeline:
++    def __init__(
++        self,
++        stages: List[ToolSelectStage],
++        thresholds: Dict[str, float],
++        all_tools: List[str],
++        deps: Dict[str, Any],
++        fallback: Optional[Dict[str, str]] = None,
++        timeouts: Optional[Dict[str, int]] = None,
++    ) -> None:
++        self.stages = stages
++        self.thresholds = thresholds
++        self._all_tools = list(all_tools)
++        self._deps = deps
++        self._fallback = fallback or {}
++        self._timeout_ms = timeouts or {}
++
++    async def select(self, query: str) -> ToolPlan:
++        scope: List[str] = list(self._all_tools)  # 当前候选 scope，传给各层
++        observations: List[CandidateScore] = []  # 各层打分，仅用于末尾观测日志
++        context = {"thresholds": self.thresholds, **self._deps}
++
++        for stage in self.stages:
++            try:
++                # 每层超时强制（来自配置 timeout_ms）：超时视为该层 error
++                timeout = self._timeout_ms.get(stage.name)
++                if timeout:
++                    result = await asyncio.wait_for(
++                        stage.run(query, scope, context), timeout=timeout / 1000
++                    )
++                else:
++                    result = await stage.run(query, scope, context)
++            except asyncio.TimeoutError:
++                result = StageResult(
++                    tool=None, confidence=0.0, source=stage.name, error="stage timeout"
++                )
++            except Exception as exc:  # 任何未捕获异常视为该层 error
++                result = StageResult(
++                    tool=None, confidence=0.0, source=stage.name, error=str(exc)
++                )
++
++            # 错误处理：按 fallback.on_stage_failure 策略
++            if result.error:
++                policy = self._fallback.get("on_stage_failure", "skip")
++                logger.warning(
++                    "tool_select_stage_error",
++                    extra={"stage": stage.name, "error": result.error},
++                )
++                if policy in ("abort", "hitl"):
++                    # hitl 在代码层等价于 need_llm：返回空结果交上游按部署处置
++                    return ToolPlan(actions=[], stop_condition="need_llm")
++                # policy == "skip"：继续下一层（本层不计入观测）
++            else:
++                # 累积本层打分（仅观测），并把下一层 scope 更新为软过滤结果
++                observations.extend(result.scored_candidates)
++                if result.scored_candidates:
++                    scope = [s.tool for s in result.scored_candidates]
++
++            # 早停：本层足够置信 → 直接返回，不触发更贵层级（成本漏斗）
++            if result.tool and result.confidence >= self.thresholds.get(stage.name, 0.9):
++                return ToolPlan(
++                    actions=[
++                        PlannedAction(
++                            name=result.tool,
++                            source=result.source,
++                            confidence=result.confidence,
++                        )
++                    ],
++                    source=result.source,
++                    stop_condition="plan_complete",
++                )
++
++        # 无层早停：不自行融合打分，按 fallback 策略降级（观测日志见下）
++        logger.info(
++            "tool_select_no_early_exit",
++            extra={
++                "observations": [
++                    (s.tool, round(s.score, 3), s.source) for s in observations
++                ]
++            },
++        )
++        return self._fallback_plan()
++
++    def _fallback_plan(self) -> ToolPlan:
++        """无层跨阈值时的降级结果；融合决策交由上游/策略，本方法不计算分数。"""
++        if self._fallback.get("on_all_stages_failed") == "default_tool" and self._all_tools:
++            return ToolPlan(
++                actions=[
++                    PlannedAction(name=self._all_tools[0], source="default", confidence=0.0)
++                ],
++                source="default",
++                stop_condition="plan_complete",
++            )
++        # 默认 need_llm：交上游按部署策略处置（云端 ReAct / HITL / 本地小模型）
++        return ToolPlan(actions=[], stop_condition="need_llm")

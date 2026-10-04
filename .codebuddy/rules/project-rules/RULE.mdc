@@ -1,62 +1,52 @@
 ---
-description: 项目通用规范 - 项目结构、前后端约定、数据库约定、技术栈
-globs: "**/*.vue,**/*.ts,**/*.tsx,**/*.java,**/*.py"
+description: 项目通用规范 - shop-agent 真实项目结构、三服务边界、技术栈与约定
+globs: "**/*.py,**/*.rs,**/*.vue,**/*.ts"
 alwaysApply: false
 ---
 
-# 项目通用规范
+# 项目通用规范（shop-agent）
 
-## 项目结构
+> 本规则反映仓库真实结构。shop-agent 是**生产级多 Agent 平台**，采用关注点分离的三服务架构 + LLM 流量网关治理。
 
-| 目录 | 说明 |
-|------|------|
-| shop-mall | C端商城 (Nuxt.js 3) |
-| shop-merchant | B端商户后台 (Vue 3 + Vite) |
-| shop-admin-platform | 平台管理后台 (Vue 3 + Vite) |
-| shop-platform | 电商平台后端 (Java Spring Boot) |
-| shop-customer-service | 智能客服微服务 (Python FastAPI) |
+## 项目结构（真实）
 
-## API 代理配置
+| 目录 | 说明 | 技术栈 |
+|------|------|--------|
+| `apps/shop-agent` | 多 Agent 业务平台（纠纷协调、对话编排等） | Python / FastAPI |
+| `apps/gateway` | LLM 流量网关（路由 / 限流 / 成本 / 合规 / 缓存 / 注入检测） | Python / FastAPI |
+| `apps/monitoring-agent` | 健康巡检 / 告警 / 自愈 / 业务可观测 | Python / FastAPI |
+| `apps/order-service` | 订单 CRUD + 售后举证摘要（极致吞吐场景） | **Rust** / axum / sqlx |
 
-```typescript
-// vite.config.ts
-server: {
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8083',
-      changeOrigin: true,
-      rewrite: (path) => path.replace(/^\/api/, ''), // 配合后端 context-path: /api
-    },
-  },
-}
-```
-
-## 前后端约定
-
-- 后端: `server.servlet.context-path: /api`
-- 前端: 请求 `/api/*` → 代理到后端根路径
-- API 规范: RESTful，基础路径 `/api`
-
-## 数据库约定
-
-- MySQL: 8.0+
-- 统一数据库: shop_platform
-- 表名: 蛇形命名 (snake_case)
-- 公共字段: id, create_time, update_time
+> 设计前提：三服务边界已定，独立扩缩、独立发布；统一 Python/FastAPI，仅当极致吞吐硬指标才用 Rust（如 order-service）。
+> 更完整的架构决策见 `docs/platform-engineering/` 系列（10 篇）；LLM 相关约定见本仓库 `llm-agent` rule。
 
 ## 技术栈
 
-### 前端
-- C端: Nuxt.js 3 + Element Plus
-- B端: Vue 3 + Vite + Element Plus
-- 状态管理: Pinia
-
 ### 后端
-- Java: Spring Boot + MyBatis-Plus
-- Python: FastAPI
+- 主栈：Python + FastAPI（异步 `async/await`）
+- 网关治理：统一 LLM 出口，所有 LLM 调用经 `gateway`（见 `docs/platform-engineering/01`）
+- 极致吞吐服务：Rust + axum + sqlx（如 `order-service`）
+- LLM SDK：`base_url` 指向网关（`LLM_GATEWAY_URL`），不直连供应商
+
+### 数据
+- 关系库：**PostgreSQL**（非 MySQL）；`order-service` 用 `sqlx` 纯 Rust 驱动 + `jsonb` 列
+- 向量检索：按需使用 pgvector / Milvus（见 `docs/shop-agent-blog-series/04-HNSW参数调优.md`）
+- 缓存：Redis（热点）+ 语义缓存（LLM 相似 prompt 命中，见 `docs/platform-engineering/08`）
+
+### 前端
+- 管理/演示界面按需使用 Vue 3 + Vite + Element Plus（Pinia 状态管理）
+- 通用约定见 `frontend-code` rule
+
+## 前后端 / 服务间约定
+
+- 服务统一 REST + JSON；网关对外暴露 OpenAI 兼容接口（模型名作路由键）
+- 多服务通过 HTTP 调用，禁止业务内联供应商直连（治理完整性前提）
+- 配置外部化：敏感信息走环境变量 / 配置中心，禁止硬编码（见 `configuration` rule）
+- 统一响应结构：`{ code, message, data }`（成功 code=200）
 
 ## 代码规范
 
-- 遵循对应语言/框架的代码风格规范
-- 配置文件外部化，环境变量管理敏感信息
-- 避免硬编码
+- Python 服务遵循 `python-code` rule；Rust 服务遵循 `rust-code` rule
+- LLM/Agent 相关代码遵循 `llm-agent` rule（调用、注入防护、可观测、人在回路）
+- 配置文件外部化，敏感信息不入库
+- 编写新代码前先搜索已有实现（见 `search-before-code` rule）

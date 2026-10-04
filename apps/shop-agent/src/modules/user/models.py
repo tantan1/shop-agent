@@ -21,7 +21,7 @@ class User(Base):
         DateTime, nullable=False, default=datetime.now,
         onupdate=datetime.now, comment="最近活动时间",
     )
-    metadata = Column(JSONB, nullable=False, default=dict, comment="扩展字段")
+    user_metadata = Column(JSONB, nullable=False, default=dict, comment="扩展字段")
 
 
 class UserProfile(Base):

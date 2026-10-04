@@ -1,0 +1,53 @@
+---
+description: Rust 代码规范 - axum 路由、sqlx 异步 Postgres、错误处理、命名
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust 代码规范（axum + sqlx + PostgreSQL）
+
+> 适用 `apps/order-service` 等 Rust 服务。设计目标：极致吞吐场景下的安全异步服务。
+
+## 项目结构（参考）
+
+```
+src/
+├── main.rs        # 入口：组装 Router、连接池、启动服务
+├── state.rs       # AppState（共享资源，如 PgPool，须 #[derive(Clone)]）
+├── models.rs      # 数据模型（serde + FromRow）
+├── handlers.rs    # 路由处理函数（async fn）
+└── routes.rs      # 路由注册
+```
+
+## 命名规范
+- 模块 / 变量 / 函数：`snake_case`
+- 类型 / trait / 结构体 / 枚举：`PascalCase`
+- 常量：`SCREAMING_SNAKE_CASE`
+- 字段命名与数据库列一致（蛇形）
+
+## HTTP 框架（axum）
+- 使用 `Router::new().route(...)` 声明路由，`State` 注入共享资源
+- Handler 签名：`async fn handler(State(s): State<AppState>, ...) -> Result<Json<T>, StatusCode>`
+- 路径参数用 `Path<T>`，查询用 `Query<T>`，体用 `Json<T>`
+- 健康检查暴露 `GET /health`，供 monitoring-agent 旁路探测
+
+## 数据库（sqlx + PostgreSQL）
+- 使用 `PgPoolOptions` 建池，连接数按负载设上限（如 `max_connections(5)`）
+- 参数化查询用 `.bind()`，占位符 `$1 $2 ...`（**禁止字符串拼接 SQL**）
+- `jsonb` 列用 `sqlx::types::Json<T>` 读写
+- 异步访问全程 `.await`，错误用 `map_err` 转为 `StatusCode`（记录 `eprintln!`/日志）
+- 模型实现 `FromRow` 以便 `query_as` 直接映射
+
+## 错误处理
+- 不 `unwrap()`/`expect()` 在请求路径上（仅在 `main` 启动必选项可用 `expect`）
+- 业务错误映射为 `StatusCode`；内部错误记日志，不向客户端泄露堆栈
+- 统一返回 JSON 错误体（与 Python 服务的 `{code,message,data}` 风格对齐可酌情处理）
+
+## 日志
+- 用 `tracing` 或 `log` + `env_logger`；关键路径记结构化日志
+- 禁止把敏感字段（密钥、PII）写入日志
+
+## 并发与异步
+- runtime 用 tokio；`async/.await` 贯穿 IO
+- 避免在 handler 内做阻塞操作（如 `std::thread::sleep`）；耗时 CPU 任务用 `spawn_blocking`
+- 共享状态用 `Arc` + 内部可变性（如 `Arc<Mutex<...>>`）或通过 `State` 注入

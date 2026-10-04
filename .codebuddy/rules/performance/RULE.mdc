@@ -24,6 +24,14 @@ alwaysApply: false
 - 避免同步阻塞调用
 - 消息队列处理非即时任务
 - 邮件短信等使用异步发送
+- Python 用 `asyncio`；避免在事件循环内做阻塞 IO（耗时 CPU 用 `run_in_executor`）
+
+## LLM 性能（本项目重点）
+- 流式响应（SSE）降低首 token 延迟，客户端尽早可见
+- 并发调用受网关限流约束；批量用 `asyncio.gather` 但控制扇出，避免打爆供应商
+- 语义缓存命中省 token 降延迟（见 `caching` rule 与 `docs/platform-engineering/08`）
+- 关注 token 成本：用更小模型处理简单子任务，路由到本地/自托管降本
+- 检索性能：RAG 用 HNSW/pgvector 调优召回与延迟（见 `docs/shop-agent-blog-series/04`）
 
 ## 前端优化
 - 路由懒加载
@@ -33,6 +41,6 @@ alwaysApply: false
 
 ## 代码优化
 - 避免创建过多临时对象
-- 合理使用连接池
+- 合理使用连接池（如 sqlx `max_connections`、HTTP 连接池）
 - 及时释放资源
-- 避免重复计算
+- 避免重复计算（缓存热点结果）

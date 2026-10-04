@@ -236,4 +236,4 @@ components:
 
 - OpenAPI 3.0规范
 - RESTful API设计最佳实践
-- 项目接口规范：`specs/api-guidelines.md`（如存在）
+- 项目接口规范：`.codebuddy/rules/api-design/RULE.mdc`（如存在则由 rule 系统自动加载）

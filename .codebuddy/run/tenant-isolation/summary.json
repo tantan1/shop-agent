@@ -1,0 +1,21 @@
+{
+  "task": "tenant-isolation",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\tenant-isolation\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\tenant-isolation\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\tenant-isolation\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\tenant-isolation\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\tenant-isolation\\tests.py"
+  }
+}

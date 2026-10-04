@@ -1,0 +1,149 @@
+openapi: 3.0.3
+info:
+  title: order-service API
+  version: "1.0.0"
+  description: |
+    手写的 OpenAPI 契约,用于 openapi-generator / openapi-python-client
+    生成类型安全的 Python 客户端,替换 shop-agent 中手写的 ToolService._call_order_api HTTP 调用。
+    TODO: 各接口的 response schema 字段需与 Rust order-service 实际返回对齐。
+servers:
+  - url: ${ORDER_SERVICE_URL}/api
+paths:
+  /account/balance:
+    post:
+      operationId: getAccountBalance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string }
+      responses:
+        '200':
+          description: 账户余额
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BalanceResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /coupons/list:
+    post:
+      operationId: listCoupons
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string }
+      responses:
+        '200':
+          description: 优惠券列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CouponListResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /returns/create:
+    post:
+      operationId: createReturn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateReturnRequest' }
+      responses:
+        '200':
+          description: 退货单创建结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateReturnResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /refunds/confirm:
+    post:
+      operationId: confirmRefund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmRefundRequest' }
+      responses:
+        '200':
+          description: 退款确认结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfirmRefundResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  responses:
+    Forbidden:
+      description: 用户无权限(被安全层拦截)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        detail: { type: string }
+    BalanceResponse:
+      type: object
+      description: TODO 对齐实际返回字段
+      properties:
+        balance: { type: number }
+        currency: { type: string }
+    CouponListResponse:
+      type: object
+      description: TODO 对齐实际返回字段
+      properties:
+        coupons:
+          type: array
+          items:
+            type: object
+            properties:
+              coupon_id: { type: string }
+              name: { type: string }
+    CreateReturnRequest:
+      type: object
+      required: [user_id, order_id, reason, items]
+      properties:
+        user_id: { type: string }
+        order_id: { type: string }
+        reason: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              sku: { type: string }
+              qty: { type: integer }
+    CreateReturnResponse:
+      type: object
+      description: TODO 对齐实际返回字段
+      properties:
+        return_id: { type: string }
+        status: { type: string }
+    ConfirmRefundRequest:
+      type: object
+      required: [user_id, return_id]
+      properties:
+        user_id: { type: string }
+        return_id: { type: string }
+    ConfirmRefundResponse:
+      type: object
+      description: TODO 对齐实际返回字段
+      properties:
+        refund_id: { type: string }
+        status: { type: string }

@@ -1,6 +1,7 @@
 """
 记忆服务主入口：L2 短期记忆 + L3 长期记忆
 """
+import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -90,27 +91,75 @@ class LongTermMemory:
         self.milvus = milvus_service
         self.embedding = embedding_service
 
+    async def _with_session(self, op):
+        """pg_session 由调用方注入时直接复用；为 None 时自开会话。
+
+        executor / memory_extraction_trigger 当前均传 pg_session=None，
+        故走自开路径，使 L3 用户画像真正持久化（此前返回空 mock）。
+        """
+        if self.pg is not None:
+            return await op(self.pg)
+        from src.shared.database import get_async_session
+
+        async with get_async_session() as db:
+            return await op(db)
+
+    async def _ensure_profile_table(self, db) -> None:
+        """幂等建表：user_profiles 属 Phase 2 画像，当前库可能未 migrate。
+
+        表结构以 user 模块的 UserProfile 模型为唯一权威定义，此处仅在其
+        不存在时按模型自动建表（避免手写字面量 DDL 与模型定义分叉）。
+        """
+        from src.modules.user.models import UserProfile
+
+        await db.run_sync(
+            lambda sess: UserProfile.__table__.create(sess.get_bind(), checkfirst=True)
+        )
+
     async def get_or_create_profile(self, user_id: str) -> Dict[str, Any]:
-        """获取或创建用户画像"""
-        # TODO: 实现 PostgreSQL 查询
-        return {"user_id": user_id, "preferences": {}, "vip_level": "normal"}
+        """获取或创建用户画像（委托 user 模块的 UserRepository 访问 PostgreSQL）"""
+        from src.modules.user.repositories import UserRepository
+
+        async def _do(db):
+            await self._ensure_profile_table(db)
+            repo = UserRepository(db)
+            profile = await repo.get_profile(user_id)
+            if profile is None:
+                profile = await repo.create_profile(user_id)
+                await db.commit()
+            return {
+                "user_id": profile.user_id,
+                "preferences": profile.preferences or {},
+                "vip_level": profile.vip_level,
+                "total_orders": profile.total_orders,
+                "total_complaints": profile.total_complaints,
+                "pending_issues": profile.pending_issues or [],
+            }
+
+        return await self._with_session(_do)
 
     async def _update_profile(
         self, user_id: str, extracted_memories: List[Dict[str, Any]]
     ) -> None:
-        """根据提取的记忆更新用户画像"""
-        profile = await self.get_or_create_profile(user_id)
-        preferences = profile.get("preferences", {})
+        """根据提取的记忆更新并持久化用户画像（委托 UserRepository）"""
+        from src.modules.user.repositories import UserRepository
 
-        for memory in extracted_memories:
-            if memory["type"] == "preference":
-                # 合并用户偏好
-                key = memory["label"]
-                preferences[key] = memory["value"]
+        async def _do(db):
+            await self._ensure_profile_table(db)
+            repo = UserRepository(db)
+            profile = await repo.get_profile(user_id)
+            if profile is None:
+                profile = await repo.create_profile(user_id)
+            preferences = dict(profile.preferences or {})
+            for memory in extracted_memories:
+                if memory["type"] == "preference":
+                    # 合并用户偏好
+                    key = memory["label"]
+                    preferences[key] = memory["value"]
+            await repo.update_profile_preferences(user_id, preferences)
+            await db.commit()
 
-        profile["preferences"] = preferences
-        # TODO: 持久化到 PostgreSQL
-        logger.debug(f"用户画像已更新: {user_id}, preferences={preferences}")
+        await self._with_session(_do)
 
     async def update_from_conversation(
         self, user_id: str, extracted_memories: List[Dict[str, Any]]

@@ -1,4 +1,6 @@
-from pydantic import Field
+from typing import Dict
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"
-    DB_PASSWORD: str = "123456"
+    DB_PASSWORD: str = ""  # 禁止源码硬编码口令；生产环境必须由环境变量/secret 注入
     DB_NAME: str = "fastapi_dev"
 
     # Redis 配置（对齐 k8s 注入的 REDIS_HOST/REDIS_AUTH）
@@ -79,6 +81,7 @@ class Settings(BaseSettings):
     VLLM_PARAM_MODEL: str = "qwen3-unified"
     VLLM_TOOL_SELECTOR_MODEL: str = "qwen3-unified"
     VLLM_TIMEOUT: int = 60
+    AGENT_TIMEOUT: int = 120  # ReAct 主循环整体墙钟超时（秒），超时返回降级响应（防上游 hang 耗尽事件循环）
 
     # P2 本地工具选择（小模型专项辅助层）开关与阈值。
     # 默认关闭：工具选择已由 P0 规则 + P1 意图加权软过滤完成，本地 1.7B 仅作补充确认。
@@ -86,26 +89,53 @@ class Settings(BaseSettings):
     ENABLE_P2_LOCAL_CLASSIFY: bool = False
     P2_LOCAL_CLASSIFY_MIN_CANDIDATES: int = 4
 
+    # P2 线性头（PyTorch 训练的 ToolHead，替代生成式 chat_classify）。
+    # 权重由 scripts/eval/tool_select/eval_embedding_baseline.py 训练产出，
+    # 输入为 BAAI/bge-small-zh-v1.5 归一化后的 query embedding，输出为训练词表上的 logits。
+    # 默认词表为生产 5 个 skill（data/lscale_prod.json：query-order / check-shipping /
+    # check-balance / coupon-inquiry / request-return），与生产候选名一一对应，
+    # 故 P2 可对真实候选正常打分（不再因词表 0 重合而退化为透传）。
+    # P2 线性头（ONNX 导出权重 + 元信息，随镜像打包进 src/modules/chat/agent/assets/）。
+    # 默认相对路径基于容器 WORKDIR=/code 解析；若该路径不存在，分类器自动回退到
+    # 模块同级 assets/ 目录下的同名文件，保证 Docker 构建后一定能定位到打包权重。
+    P2_HEAD_MODEL_PATH: str = Field(default="src/modules/chat/agent/assets/p2_linear_head.onnx")
+    P2_HEAD_META_PATH: str = Field(default="src/modules/chat/agent/assets/head_meta.json")
+    P2_HEAD_EMBED_MODEL: str = Field(default="/models/bge-small-zh-v1.5")
+    P2_HEAD_CLASSES_SOURCE: str = Field(default="data/lscale_prod.json")
+    P2_HEAD_TOP_K: int = Field(default=3)
+
     # Embedding 模型（本地 BGE/Sentence-Transformers）
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-zh-v1.5")
-    # Embedding 后端: local=进程内 sentence-transformers（本地开发） | ollama=进程外 Ollama API（k8s 部署）
-    EMBEDDING_PROVIDER: str = Field(default="local")
+    # Embedding 本地模型路径（优先级最高，存在则直接加载；不存在则报错，不走 HF 下载）
+    # 如 E:/workspace/shop-agent/models/BAAI/bge-small-zh-v1.5
+    EMBEDDING_MODEL_LOCAL_PATH: str = Field(default="")
+    # Embedding 后端: local=进程内 sentence-transformers（本地开发） | ollama=进程外 Ollama API（k8s 部署） | vllm=进程外 vLLM OpenAI 兼容端点
+    EMBEDDING_PROVIDER: str = Field(default="vllm")
     # Ollama embedding 模型名（EMBEDDING_PROVIDER=ollama 时生效，`ollama create` 注册的名字）
-    OLLAMA_EMBEDDING_MODEL: str = Field(default="bge-m3")
+    OLLAMA_EMBEDDING_MODEL: str = Field(default="bge-small-zh-v1.5")
 
     # BGE-Reranker 本地模型路径（用于 RAG 检索结果重排序）
-    # 优先从 ModelScope 本地缓存加载（国内秒下），不存在则回退 HuggingFace 自动下载
-    RERANKER_LOCAL_MODEL_PATH: str = ""  # 如 C:/Users/.../modelscope/BAAI/bge-reranker-base
+    # 优先从本地路径加载，不存在则报错（不走 HF 下载）
+    RERANKER_LOCAL_MODEL_PATH: str = Field(default="")  # 如 E:/workspace/shop-agent/models/BAAI/bge-reranker-base
 
     # 重排后端: local=进程内 sentence-transformers | vllm=远程调 vLLM bge-reranker（直连）
-    RERANKER_PROVIDER: str = "local"
+    RERANKER_PROVIDER: str = "vllm"
     # vLLM bge-reranker（RERANKER_PROVIDER=vllm 时生效，直连容器名）
     VLLM_RERANK_BASE_URL: str = "http://vllm-bge-reranker:8000"
     VLLM_RERANK_MODEL: str = "bge-reranker-base"
 
-    # vLLM bge-m3 嵌入（EMBEDDING_PROVIDER=vllm 时生效，直连容器名）
-    VLLM_EMBEDDING_BASE_URL: str = "http://vllm-bge-m3:8000"
-    VLLM_EMBEDDING_MODEL: str = "bge-m3"
+    # vLLM bge-small-zh-v1.5 嵌入（EMBEDDING_PROVIDER=vllm 时生效，直连容器名）
+    # 生产 embedding 端点（vllm-bge-small-zh 容器）服务 /models/bge-small-zh-v1.5（512 维），
+    # 与 P2 线性头训练所用 embedding 完全一致，实现"工具选择四层统一到一个 embedding 模型"。
+    VLLM_EMBEDDING_BASE_URL: str = "http://vllm-bge-small-zh:8000"
+    VLLM_EMBEDDING_MODEL: str = "/models/bge-small-zh-v1.5"
+
+    # 本地小模型配置（参数抽取、工具选择等）——全部走 vLLM 统一服务，不在 shop-agent 进程内加载
+    LOCAL_PARAM_MODEL_PATH: str = Field(default="")
+    TOOL_SELECTOR_LOCAL_MODEL_PATH: str = Field(default="")
+
+    # 本地小模型后端：统一用 vLLM（openai 兼容端点），不走 transformers 进程内加载
+    LOCAL_MODEL_BACKEND: str = "vllm"
 
     # 向量数据库提供者: milvus | pgvector
     VECTOR_STORE_PROVIDER: str = "milvus"
@@ -119,7 +149,7 @@ class Settings(BaseSettings):
     PGVECTOR_PORT: int = 5432
     PGVECTOR_DB: str = "shop_agent"
     PGVECTOR_USER: str = "postgres"
-    PGVECTOR_PASSWORD: str = "postgres"
+    PGVECTOR_PASSWORD: str = ""  # 禁止源码硬编码口令；生产环境必须外部注入
     PGVECTOR_TABLE: str = "documents"
     # 远程业务API配置（意图识别触发远程调用时使用）
     REMOTE_API_BASE_URL: str = ""
@@ -137,6 +167,8 @@ class Settings(BaseSettings):
 
     # FAISS 意图向量匹配参数
     INTENT_VECTOR_SIMILARITY_THRESHOLD: float = 0.65  # 余弦相似度阈值（BGE归一化向量用内积）
+    INTENT_WRITE_THRESHOLD: float = 0.78  # 写类意图（如 request-return）的高阈值，防止误触发副作用操作
+    AMBIGUITY_SIMILARITY_THRESHOLD: float = 0.72  # 歧义带阈值：低于此值判为可能存在歧义，需 ReAct 处理
 
     # 同义词归一化配置
     # L1+L2: 静态同义词表 + 文本标准化（默认开启，零LLM成本，零延迟）
@@ -147,7 +179,7 @@ class Settings(BaseSettings):
     # NebulaGraph 图数据库配置（商品关系图谱，增强 RAG 的结构化知识）
     NEBULA_GRAPH_ADDRS: str = "127.0.0.1:9669"  # graphd 地址，逗号分隔多地址
     NEBULA_USER: str = "root"
-    NEBULA_PASSWORD: str = "nebula"
+    NEBULA_PASSWORD: str = ""  # 禁止源码硬编码口令；生产环境必须外部注入
     NEBULA_SPACE: str = "shop_graph"  # 图空间名
     NEBULA_TIMEOUT: int = 3000  # 连接超时 ms
     NEBULA_POOL_SIZE: int = 4  # 连接池大小
@@ -187,8 +219,8 @@ class Settings(BaseSettings):
     MCP_CLIENT_SERVERS: str = ""
     MCP_CLIENT_ENABLED: bool = False  # 是否启用 MCP Client 模式
 
-    # 基于角色的工具权限控制（默认关闭，生产环境按需开启）
-    PERMISSION_ENABLED: bool = False
+    # 基于角色的工具权限控制（默认开启；admin 角色放行全部工具，见 core/permissions.py）
+    PERMISSION_ENABLED: bool = True
 
     # 速率限制（可调，压测时提高以测真实编排层吞吐；默认值与历史一致）
     GLOBAL_RATE_LIMIT: int = 30  # 全局中间件：req / 60s / IP
@@ -216,12 +248,112 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """构建数据库连接URL"""
+        """构建数据库连接URL
+
+        优先使用环境注入的完整 DATABASE_URL（.env 中已配置为 PostgreSQL，
+        见 .env 的 DATABASE_URL=postgresql://postgres:...@postgres:5432/postgres），
+        否则回退到 MySQL 拼接（兼容历史默认配置）。
+        """
+        import os
+
+        env_url = os.getenv("DATABASE_URL")
+        if env_url:
+            # 应用使用 SQLAlchemy 异步引擎，需 asyncpg 驱动；
+            # .env 的 DATABASE_URL 为通用 postgresql://（同步 scheme），
+            # 此处统一改写为 async 驱动，避免 SQLA 误用 psycopg2。
+            if env_url.startswith("postgresql://"):
+                env_url = "postgresql+asyncpg://" + env_url[len("postgresql://"):]
+            elif env_url.startswith("postgres://"):
+                env_url = "postgresql+asyncpg://" + env_url[len("postgres://"):]
+            return env_url
         return f"mysql+aiomysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
+    @model_validator(mode="after")
+    def _enforce_secret_hygiene(self) -> "Settings":
+        """生产环境（非 DEBUG）禁止空密码/密钥，fail-closed 启动即报错。
+
+        D 维度修复：移除源码硬编码弱口令（123456/postgres/nebula）后，
+        密码必须外部注入；开发环境（DEBUG_MODE=True）仅告警。
+        """
+        passwords = {
+            "DB_PASSWORD": self.DB_PASSWORD,
+            "PGVECTOR_PASSWORD": self.PGVECTOR_PASSWORD,
+            "NEBULA_PASSWORD": self.NEBULA_PASSWORD,
+            "REDIS_PASSWORD": self.REDIS_PASSWORD,
+        }
+        missing = [name for name, val in passwords.items() if not val]
+        if missing and not self.DEBUG_MODE:
+            raise ValueError(
+                "生产环境禁止空密码，请通过环境变量/secret 注入：" + ", ".join(missing)
+            )
+        if missing:
+            import warnings
+
+            warnings.warn(
+                "以下密码未配置（空值），仅允许在 DEBUG 开发环境使用："
+                + ", ".join(missing),
+                stacklevel=2,
+            )
+        # 生产环境（非 DEBUG）禁止 DEBUG 级别日志，避免敏感信息与海量日志外泄。
+        # D 维度修复：DEBUG_MODE=True / LOG_LEVEL=DEBUG 作为生产默认值是高风险配置。
+        if not self.DEBUG_MODE and self.LOG_LEVEL.upper() == "DEBUG":
+            raise ValueError(
+                "生产环境（DEBUG_MODE=False）禁止 LOG_LEVEL=DEBUG，请改用 INFO/WARNING 等。"
+            )
+        if self.DEBUG_MODE and self.LOG_LEVEL.upper() == "DEBUG":
+            import warnings
+
+            warnings.warn(
+                "当前为 DEBUG_MODE=True 且 LOG_LEVEL=DEBUG，仅在开发与排障时允许；"
+                "生产部署必须设置 DEBUG_MODE=False 并关闭调试日志。",
+                stacklevel=2,
+            )
+        return self
 
     class Config:
         env_file = (".env", ".env.prod")  # 多个环境文件，后者优先
         extra = "ignore"  # 忽略未知的环境变量
+
+
+    # ===== MLOps 闭环模块配置（训练端已解耦到独立 mlops-trainer 服务） =====
+    MLOPS_ENABLED: bool = True
+    # 空字符串 = 本容器自带训练栈本地执行（dev）；生产指向独立训练 worker。
+    # 解耦后训练/评测由 mlops-trainer（独立 GPU 容器）承担，在线 serving 不再 spawn 训练进程。
+    MLOPS_TRAINER_URL: str = ""
+    # 训练/评测产物共享目录：shop-agent 与 mlops-trainer 通过同名挂载共享同一绝对路径。
+    # 两容器均挂载到 /code/mlops_artifacts，故该绝对路径在两容器内一致。
+    MLOPS_ARTIFACTS_DIR: str = "/code/mlops_artifacts"
+    MLOPS_PYTHON: str = "python"  # 仅本地兜底（MLOPS_TRAINER_URL 为空）时使用的解释器
+    MLOPS_BASE_MODEL: str = "/code/models/Qwen3-1.7B"
+    MLOPS_OUTPUT_DIR: str = "outputs/mlops"
+    MLOPS_EVAL_DATA: str = "/code/data/llamafactory/shop_param_v1.json"
+    MLOPS_EVAL_DEVICE: str = "cuda"
+    MLOPS_EVAL_MAX_SAMPLES: int = 200
+    MLOPS_EVAL_THRESHOLDS: Dict[str, float] = Field(
+        default_factory=lambda: {"field_f1": 0.6, "value_exact_match_rate": 0.6}
+    )
+    MLOPS_PUBLISH_CMD: str = ""  # 留空则只写 active 模型文件，需人工重启 serving；可填 scripts/publish_model.sh
+    MLOPS_ACTIVE_MODEL_FILE: str = "models/active_model.txt"
+    # A2A 任务完成时自动把执行 trace（用户 query + 模型输出 + 工具调用轨迹）灌入
+    # MLOps 复核任务作为 sample_content，使标注界面无需手工粘贴即可看到待标注内容。
+    MLOPS_AUTO_CAPTURE_FROM_A2A: bool = True
+    # 工具选择监控：流水线出错 / 退化到 need_llm / 低置信度 时，自动把该次选择灌入
+    # MLOps 复核任务，记录「选了什么 / 候选 / 置信度 / 由哪层选出 / 全部可选工具」，
+    # 标注界面提供工具下拉框供标注员选「应该是什么」。
+    MLOPS_TOOL_SELECT_MONITOR_ENABLED: bool = True
+    # 不仅捕获可疑项，也捕获每一次选择（用于积累标注语料）。
+    # 默认开启：标注语料的分布必须与线上真实分布一致。若只在「报错/低置信/不确定」时
+    # 采集，样本池会系统性偏向难题，缺失 P0/P1/P2 高置信早停（即成本漏斗真正生效）的
+    # 样本，导致训练集分布偏斜、且无法评估便宜层级的真实准确率。代价是 Langfuse 数据量
+    # 上升，但这是训练数据资产，收益远大于存储成本。
+    MLOPS_TOOL_SELECT_MONITOR_ALL: bool = True
+    # 低置信度阈值：主工具置信度低于该值即视为可疑并捕获。
+    MLOPS_TOOL_SELECT_LOW_CONF_THRESHOLD: float = 0.85
+    # 执行/反馈期业务回灌（工具执行失败 + 用户纠正）开关；设计 2（Langfuse 版）。
+    MLOPS_TOOL_SELECT_FEEDBACK_CAPTURE: bool = True
+    # 版本化数据集落盘目录。留空则用默认可写路径（`scripts/data/tool_select`）。
+    # 生产建议指向持久化卷：容器内文件系统会随重建丢失，数据集必须落卷。
+    MLOPS_DATASET_DIR: str = ""
 
 
 config = Settings()

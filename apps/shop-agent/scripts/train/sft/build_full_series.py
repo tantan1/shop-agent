@@ -7,7 +7,9 @@
 import re
 from pathlib import Path
 
-SERIES_DIR = Path(__file__).parent.parent / "docs" / "ai-coding-series"
+# 本脚本位于 apps/shop-agent/scripts/train/sft/，仓库根需上溯 5 层
+REPO_ROOT = Path(__file__).resolve().parents[5]
+SERIES_DIR = REPO_ROOT / "docs" / "ai-coding-series"
 OUTPUT_FILE = SERIES_DIR / "ai-coding-series-full.md"
 
 # SDLC 自然流程顺序（与 structure.md 保持一致）
@@ -24,14 +26,23 @@ ARTICLES = [
     ("设计", "09-API与数据库设计.md", "AI 辅助的 API 与数据库设计"),
     ("编码", "10-Agent协作流水线.md", "多 Agent 协作流水线"),
     ("编码", "11-AI辅助调试.md", "AI 辅助调试"),
+    ("编码", "21-代码理解取舍：为什么我们没上 Code RAG.md",
+     "代码理解取舍：为什么我们没上 Code RAG"),
     ("质量", "12-代码质量与静态分析.md", "AI 驱动的代码质量与静态分析"),
     ("质量", "13-分层测试.md", "分层测试的 AI 辅助"),
     ("质量", "14-性能优化.md", "AI 辅助性能优化"),
     ("质量", "15-AI辅助代码审查.md", "AI 辅助代码审查"),
+    # 注意：ARTICLES 必须按 stage 聚类排列。
+    # build_full() 依赖 `stage != current_stage` 插入阶段标题，
+    # 同一 stage 若被拆散会导致阶段标题重复出现。
     ("横切", "16-Skills与Automation.md", "Skills 与 Automation"),
     ("横切", "17-权限管控.md", "权限管控：deny/allow/ask"),
+    ("横切", "20-AI生成代码的可解释性债.md", "AI 生成代码的可解释性债"),
     ("交付运维", "18-CI-CD集成.md", "AI 编码进入 CI 流水线"),
     ("交付运维", "19-智能运维异常自愈.md", "智能运维异常自愈"),
+    ("交付运维", "22-AI编码自动化水平与失控防线.md", "AI 编码自动化水平与失控防线"),
+    ("交付运维", "23-免审的代价：AI编码里省掉的每一次人眼审查都要有东西兑换.md",
+     "免审的代价"),
 ]
 
 
@@ -61,8 +72,8 @@ def build_full() -> str:
     sections = [
         "# AI 编码实践系列 · 完整合辑",
         "",
-        "> 按 SDLC 自然流程组织的 19 篇方法论文章，来自 Shop-Agent 项目的实战经验。",
-        "> 本文档由 `scripts/build_full_series.py` 自动生成。",
+        f"> 按 SDLC 自然流程组织的 {len(ARTICLES)} 篇方法论文章，来自 Shop-Agent 项目的实战经验。",
+        "> 本文档由 `apps/shop-agent/scripts/train/sft/build_full_series.py` 自动生成。",
         "",
         "---",
         "",

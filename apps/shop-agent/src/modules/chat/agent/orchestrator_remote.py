@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import time as _time
 
 from src.modules.chat.agent.dispute_coordinator import should_use_dispute_coordinator
@@ -22,14 +23,12 @@ async def handle_remote_intent(orchestrator, ctx) -> ChatResponse:
     避免在内部四条 return 分支（缺参反问 / 锁冲突 / 纠纷协调 / ReAct / 直接Tool）
     逐个重复埋点、漏埋。
     """
-    inner_ctx = type('AgentRoutingContext', (), {})()
-    for k, v in ctx.__dict__.items():
-        setattr(inner_ctx, k, v)
-    response = await handle_remote_intent_inner(orchestrator, inner_ctx)
+    response = await handle_remote_intent_inner(orchestrator, ctx)
     conversation_id = ctx.request.conversation_id or f"conv_{int(_time.time())}"
     persist_turn(
         orchestrator._redis_cache_service,
         conversation_id,
+        getattr(ctx.request, "user_id", "eval-bot"),
         ctx.request.message,
         response.message if response else "",
     )
@@ -44,12 +43,32 @@ async def handle_remote_intent_inner(orchestrator, ctx) -> ChatResponse:
     intent_result, intent_steps, blocked, t_params = await _prepare_intent_params(
         orchestrator, ctx.request, ctx.intent_result, ctx.langfuse_handler, conversation_id
     )
+
+    # 设计 5（选项 C）多意图盲区捕获：在「缺参 blocked 早退」之前捕获，否则 blocked 的多意图请求
+    # （如本例「退货退款 + 领优惠」因 request-return 缺订单号被 blocked）永远走不到 execute_direct_tool_flow
+    # 里的捕获点，导致漏标。react 路径未 blocked 时由 react_agent._mlops_capture_tool_select 单独捕获；
+    # 这里覆盖 direct_tool 路径（含未 blocked），以及「react 模式但被缺参 blocked 早退」的分支
+    # （该分支 execute_react_flow 不会被进入，故 react 的捕获也落空）。best-effort，异常一律吞掉。
+    if intent_result.mode != "react" or blocked:
+        try:
+            from src.modules.monitoring.langfuse_mlops import capture_multi_intent_select
+
+            all_names = []
+            svc = getattr(orchestrator, "_tool_service", None)
+            if svc is not None and hasattr(svc, "tools"):
+                all_names = [getattr(t, "name", "") for t in svc.tools]
+            capture_multi_intent_select(
+                ctx.request.message, all_names, [intent_result.action] if intent_result.action else [], source="p0_rule"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     if blocked:
         return blocked
 
-    flow_ctx = type('AgentRoutingContext', (), {})()
-    for k, v in ctx.__dict__.items():
-        setattr(flow_ctx, k, v)
+    # 浅拷贝：替换 intent_result / intent_steps 而不污染调用方持有的 ctx。
+    # 必须浅拷贝——嵌套的 langfuse_handler 持有 OTel span 引用，深拷贝会切链到另一条 trace。
+    flow_ctx = copy.copy(ctx)
     flow_ctx.intent_result = intent_result
     flow_ctx.intent_steps = intent_steps
 
@@ -57,7 +76,8 @@ async def handle_remote_intent_inner(orchestrator, ctx) -> ChatResponse:
     if dispute_response:
         return dispute_response
 
-    if intent_result.complexity == "multi_step":
+    # 路由读取 plan.mode（对齐 yaml_flow 的 node.type），不再直接判 complexity
+    if intent_result.mode == "react":
         return await execute_react_flow(orchestrator, flow_ctx, t_handler_start, t_params)
 
     return await execute_direct_tool_flow(orchestrator, flow_ctx, t_handler_start, t_params)
@@ -125,7 +145,7 @@ async def try_dispute_flow(orchestrator, ctx, t_handler_start: float, t_params: 
             lock_acquired=lock_token is not None,
         )
         t0 = _time.perf_counter()
-        dispute_coordinator = orchestrator._ensure_dispute_coordinator()
+        dispute_coordinator = orchestrator._dispute_coordinator
         response = await dispute_coordinator.resolve(
             request=ctx.request,
             emotion_result=ctx.emotion_result,
@@ -158,12 +178,15 @@ async def try_dispute_flow(orchestrator, ctx, t_handler_start: float, t_params: 
 
 async def execute_react_flow(orchestrator, ctx, t_handler_start: float, t_params: float) -> ChatResponse:
     """ReAct 复杂意图处理。"""
+    ir = ctx.intent_result
+    complexity_label = "multi_step" if ir.mode == "react" else "simple"
     logger.info(
         "意图命中但需要ReAct",
-        action=ctx.intent_result.action,
-        complexity=ctx.intent_result.complexity,
-        reason=ctx.intent_result.complexity_reason,
-        params=ctx.intent_result.params,
+        action=ir.action,
+        mode=ir.mode,
+        complexity=complexity_label,
+        reason=ir.plan.reason if ir.plan else None,
+        params=ir.params,
     )
     t0 = _time.perf_counter()
     response = await orchestrator._chat_with_react_agent(ctx)
@@ -182,11 +205,58 @@ async def execute_react_flow(orchestrator, ctx, t_handler_start: float, t_params
 async def execute_direct_tool_flow(orchestrator, ctx, t_handler_start: float, t_params: float) -> ChatResponse:
     """直接 Tool 调用（简单意图）。"""
     from src.modules.chat.core.content_filter import ContentFilterService
+    from src.modules.monitoring.metrics import (
+        tool_select_exit_total,
+        tool_select_stage_total,
+    )
+
+    # 成本漏斗对齐：direct_tool 即「P0 规则直接命中」——意图路由确定性映射到单工具，
+    # 等价于漏斗在 P0 提前结束。记录 exit_total / stage_total，使成本漏斗面板对全量流量有数据
+    # （此前漏斗只覆盖 react 路径，direct_tool 流量不进漏斗导致面板长期 no data）。
+    if ctx.intent_result.action:
+        tool_select_exit_total.labels(stage="p0_rule", stop_condition="rule_hit").inc()
+        tool_select_stage_total.labels(stage="p0_rule", outcome="hit").inc()
 
     t0 = _time.perf_counter()
-    tool_response = await orchestrator._tool_service.dispatch(
-        ctx.intent_result.action, ctx.intent_result.params
-    )
+    # 早停直调路径此前不经过 LangChain 工具回调，trace 里看不到调用了哪个工具。
+    # 这里补一个 OTel span（挂在根 trace 下），span 名即工具名，并按 Langfuse OTEL
+    # 约定写 input.value / output.value；导出前仍经 PII 脱敏处理器过滤。
+    # 多意图盲区捕获已前移至 handle_remote_intent_inner（缺参 blocked 早退之前），此处不再重复。
+    import json as _json
+
+    from opentelemetry import trace as _otel_trace
+
+    action = ctx.intent_result.action
+    params = ctx.intent_result.params or {}
+    _tracer = _otel_trace.get_tracer("orchestrator_remote")
+    with _tracer.start_as_current_span(f"tool:{action}") as _tool_span:
+        try:
+            _tool_span.set_attribute(
+                "input.value", _json.dumps(params, ensure_ascii=False, default=str)
+            )
+            _tool_span.set_attribute("input.mime_type", "application/json")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            tool_response = await orchestrator._tool_service.dispatch(action, params)
+        except Exception as tool_err:  # noqa: BLE001
+            # 补齐失败回灌缺口：早停直调路径此前 dispatch 抛异常不会进复核队列，
+            # 人工标注台因此看不到该失败样本。best-effort 记录后仍按原行为向上抛出。
+            try:
+                from src.modules.chat.agent.react_agent import _mlops_capture_exec_failed
+
+                await _mlops_capture_exec_failed(
+                    user_query=ctx.request.message,
+                    tool_name=action,
+                    selection_source="p0_rule",
+                    error=str(tool_err),
+                    conversation_id=ctx.request.conversation_id or "",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        _tool_span.set_attribute("output.value", tool_response or "")
+        _tool_span.set_attribute("output.mime_type", "text/plain")
     t_tool = (_time.perf_counter() - t0) * 1000
 
     output_filter_safe = True

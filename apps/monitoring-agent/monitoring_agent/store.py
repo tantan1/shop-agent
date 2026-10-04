@@ -33,7 +33,7 @@ def _build_dsn() -> str:
         return dsn
     host = os.getenv("POSTGRES_HOST", "postgres")
     user = os.getenv("POSTGRES_USER", "postgres")
-    password = os.getenv("POSTGRES_PASSWORD", "local-postgres-password")
+    password = os.getenv("POSTGRES_PASSWORD", "")  # 禁止源码硬编码口令；缺失即 fail-closed（生产须注入）
     db = os.getenv("MONITORING_DB_NAME", "postgres")
     return f"postgresql://{user}:{password}@{host}:5432/{db}"
 

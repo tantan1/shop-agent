@@ -1,0 +1,9 @@
+# MLOps 真实训练栈（仅 INSTALL_TRAINING=1 时安装）
+# 注意：torch CUDA 版（2.5.1+cu121）由 Dockerfile 单独用官方 CUDA 索引安装，
+# 此处不再列 torch，避免 pip 在解析 peft/transformers 时把 CUDA torch 升级成 CPU 版。
+transformers==4.51.3
+peft==0.15.1
+bitsandbytes==0.45.5
+datasets==3.3.0
+accelerate==1.4.0
+sentencepiece==0.2.0

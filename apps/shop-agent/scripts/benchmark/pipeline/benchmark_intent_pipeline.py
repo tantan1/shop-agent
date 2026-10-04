@@ -401,7 +401,7 @@ def run_p0_intent(samples: List[Dict[str, str]]) -> Dict[str, Any]:
 
 @dataclass
 class P1IntentMatcher:
-    model_path: str = "./models/BAAI/bge-m3"
+    model_path: str = "./models/BAAI/bge-small-zh-v1.5"
     _model: Any = None
     _intent_embeddings: Optional[Dict[str, Any]] = None
     _ready: bool = False
@@ -441,7 +441,7 @@ class P1IntentMatcher:
 
 
 def run_p1_intent(samples: List[Dict[str, str]], p0_results: Dict[str, Any],
-                  model_path: str = "./models/BAAI/bge-m3") -> Dict[str, Any]:
+                  model_path: str = "./models/BAAI/bge-small-zh-v1.5") -> Dict[str, Any]:
     """
     P1 语义匹配阶段：
 
@@ -701,7 +701,7 @@ def main():
     )
     parser.add_argument("--stage", choices=["p0", "p0p1", "all"], default="p0p1",
                         help="评测阶段 (默认 p0p1)")
-    parser.add_argument("--p1-model", type=str, default="./models/BAAI/bge-m3",
+    parser.add_argument("--p1-model", type=str, default="./models/BAAI/bge-small-zh-v1.5",
                         help="P1 Embedding 模型路径")
     parser.add_argument("--model", type=str, default=None,
                         help="P2 本地 LLM 路径")

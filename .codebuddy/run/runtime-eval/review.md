@@ -1,0 +1,1 @@
+code-reviewer 审查结论：无 BLOCKING，可进入 test 阶段。已修 task 标识符透传与 Langfuse 探测超时；补 tests_eval.py 覆盖 scope #1-#9（16 测试全过），tests_static 零侵入通过。

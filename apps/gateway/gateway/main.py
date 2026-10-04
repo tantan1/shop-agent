@@ -48,8 +48,10 @@ except Exception:
 
 app.middleware("http")(trace_binding_middleware)
 
-app.include_router(proxy_router)
+# health_router 必须在 proxy_router（catch-all /v1/{path}）之前挂载，
+# 否则 /v1/health 会被代理当成 LLM 请求转发而返 503。
 app.include_router(health_router)
+app.include_router(proxy_router)
 app.include_router(metrics_router)
 
 # 演示页面静态托管（兼容 /demo 和 /demo/，避免 307 重定向）

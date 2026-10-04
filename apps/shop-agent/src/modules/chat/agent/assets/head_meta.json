@@ -1,0 +1,14 @@
+{
+  "embed_model": "/models/bge-small-zh-v1.5",
+  "dim": 512,
+  "n_classes": 5,
+  "classes": [
+    "query-order",
+    "check-shipping",
+    "check-balance",
+    "coupon-inquiry",
+    "request-return"
+  ],
+  "exported_from": "outputs/tool_head_bgem3.pt",
+  "opset": 13
+}

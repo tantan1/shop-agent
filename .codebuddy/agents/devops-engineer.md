@@ -115,23 +115,40 @@ pipeline {
 
 ### Dockerfile
 ```dockerfile
-# 多阶段构建示例
-FROM maven:3.8-openjdk-17 AS builder
-COPY . /app
+# 多阶段构建示例（Python / FastAPI）
+FROM python:3.12-slim AS builder
 WORKDIR /app
-RUN mvn clean package -DskipTests
+RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-FROM eclipse-temurin:17-jre-alpine
-COPY --from=builder /app/target/*.jar app.jar
-EXPOSE 8083
+FROM python:3.12-slim
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY . /app
+ENV PATH="/opt/venv/bin:$PATH"
+EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:8083/actuator/health || exit 1
-ENTRYPOINT ["java", "-jar", "app.jar"]
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+```dockerfile
+# 多阶段构建示例（Rust / order-service，axum + sqlx）
+FROM rust:1.82 AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+WORKDIR /app
+COPY --from=builder /app/target/release/order-service /usr/local/bin/
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost:8080/health || exit 1
+ENTRYPOINT ["order-service"]
 ```
 
 ### CI/CD配置
 ```yaml
-# GitHub Actions示例
+# GitHub Actions示例（Python 服务）
 name: CI/CD Pipeline
 on:
   push:
@@ -144,10 +161,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Build
-        run: mvn clean package
-      - name: Test
-        run: mvn test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install & Lint & Test
+        run: |
+          pip install -r requirements.txt
+          ruff check . && mypy .
+          pytest -q
       - name: Build Docker Image
         run: docker build -t app:${{ github.sha }} .
 ```
@@ -157,7 +178,7 @@ jobs:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app-deployment
+  name: shop-agent-deployment
 spec:
   replicas: 3
   strategy:
@@ -168,7 +189,7 @@ spec:
   template:
     spec:
       containers:
-        - name: app
+        - name: shop-agent
           image: app:latest
           resources:
             requests:
@@ -179,12 +200,12 @@ spec:
               cpu: "500m"
           livenessProbe:
             httpGet:
-              path: /actuator/health
-              port: 8083
+              path: /health
+              port: 8000
           readinessProbe:
             httpGet:
-              path: /actuator/health
-              port: 8083
+              path: /health
+              port: 8000
 ```
 
 ## 参考文档
@@ -193,3 +214,4 @@ spec:
 - Kubernetes官方文档
 - GitHub Actions文档
 - Jenkins Pipeline文档
+- 项目部署约定：`.codebuddy/rules/devops/RULE.mdc`（编辑部署相关文件时由 rule 系统自动加载）；本项目服务为 Python(FastAPI)/Rust(axum)，镜像与探针端口以实际服务为准

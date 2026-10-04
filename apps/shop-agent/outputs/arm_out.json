@@ -1,0 +1,5769 @@
+{
+  "fc": {
+    "per_case": [
+      {
+        "idx": 0,
+        "message": "付完钱的那笔，之前提到的那个，再确认一下",
+        "correct_tool": "order-query",
+        "level": "implied",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 65.432,
+        "scores": {
+          "order-query": 0.936
+        }
+      },
+      {
+        "idx": 1,
+        "message": "刚拍的宝贝，帮我了解下这块的内容",
+        "correct_tool": "order-query",
+        "level": "synonym",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 20.214,
+        "scores": {
+          "order-query": 0.7643
+        }
+      },
+      {
+        "idx": 2,
+        "message": "付完钱的那笔，帮我找出来相关的那些",
+        "correct_tool": "order-query",
+        "level": "ambiguous",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 19.961,
+        "scores": {
+          "order-query": 0.5334
+        }
+      },
+      {
+        "idx": 3,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']查看怎么弄",
+        "correct_tool": "order-query",
+        "level": "exact",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 88.997,
+        "scores": {
+          "order-query": 0.8758
+        }
+      },
+      {
+        "idx": 4,
+        "message": "付完钱的那笔，帮我了解下这块的内容，另外我想看具体那一条的内容",
+        "correct_tool": "order-query",
+        "level": "mixed",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 22.603,
+        "scores": {
+          "order-query": 0.8449
+        }
+      },
+      {
+        "idx": 5,
+        "message": "之前下的那单，把单条的细节点出来",
+        "correct_tool": "order-query",
+        "level": "ambiguous",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 20.192,
+        "scores": {
+          "order-query": 0.8827
+        }
+      },
+      {
+        "idx": 6,
+        "message": "之前下的那单，我想看看相关的情况",
+        "correct_tool": "order-query",
+        "level": "synonym",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 19.969,
+        "scores": {
+          "order-query": 0.4995
+        }
+      },
+      {
+        "idx": 7,
+        "message": "我买的东西，这块我想查一下，另外那条里面具体的部分看一下",
+        "correct_tool": "order-query",
+        "level": "mixed",
+        "selected": "product-detail",
+        "fc_hit": false,
+        "latency_ms": 19.439,
+        "scores": {
+          "product-detail": 0.5285
+        }
+      },
+      {
+        "idx": 8,
+        "message": "之前下的那单，那条里面具体的部分看一下",
+        "correct_tool": "order-query",
+        "level": "ambiguous",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 19.594,
+        "scores": {
+          "order-query": 0.5803
+        }
+      },
+      {
+        "idx": 9,
+        "message": "购物车里那件，把相关的挑出来给我看",
+        "correct_tool": "order-detail",
+        "level": "ambiguous",
+        "selected": "product-detail",
+        "fc_hit": false,
+        "latency_ms": 19.326,
+        "scores": {
+          "product-detail": 0.4967
+        }
+      },
+      {
+        "idx": 10,
+        "message": "付完钱的那笔，那条里面具体的部分看一下，另外我想看看相关的情况",
+        "correct_tool": "order-detail",
+        "level": "mixed",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 19.607,
+        "scores": {
+          "order-detail": 0.8659
+        }
+      },
+      {
+        "idx": 11,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']具体信息怎么弄",
+        "correct_tool": "order-detail",
+        "level": "exact",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 19.967,
+        "scores": {
+          "order-detail": 0.7429
+        }
+      },
+      {
+        "idx": 12,
+        "message": "购物车里那件，那条里面具体的部分看一下",
+        "correct_tool": "order-detail",
+        "level": "ambiguous",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 22.677,
+        "scores": {
+          "order-detail": 0.962
+        }
+      },
+      {
+        "idx": 13,
+        "message": "刚拍的宝贝，我想看看相关的情况",
+        "correct_tool": "order-detail",
+        "level": "ambiguous",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 20.57,
+        "scores": {
+          "order-detail": 0.7391
+        }
+      },
+      {
+        "idx": 14,
+        "message": "付完钱的那笔，我想看具体那一条的内容，再上一条的具体内容是啥",
+        "correct_tool": "order-detail",
+        "level": "mixed",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 21.511,
+        "scores": {
+          "order-detail": 0.9491
+        }
+      },
+      {
+        "idx": 15,
+        "message": "帮我['订单', '下单', '我的订单', '待付款', '已购']具体信息",
+        "correct_tool": "order-detail",
+        "level": "exact",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 19.852,
+        "scores": {
+          "order-detail": 0.8179
+        }
+      },
+      {
+        "idx": 16,
+        "message": "购物车里那件，把那条的具体情况告诉我",
+        "correct_tool": "order-detail",
+        "level": "synonym",
+        "selected": "product-query",
+        "fc_hit": false,
+        "latency_ms": 20.557,
+        "scores": {
+          "product-query": 0.3668
+        }
+      },
+      {
+        "idx": 17,
+        "message": "之前下的那单，我想办一下这个",
+        "correct_tool": "order-apply",
+        "level": "synonym",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 20.265,
+        "scores": {
+          "order-apply": 0.6297
+        }
+      },
+      {
+        "idx": 18,
+        "message": "付完钱的那笔，走一下这个流程",
+        "correct_tool": "order-apply",
+        "level": "ambiguous",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 19.95,
+        "scores": {
+          "order-apply": 0.9245
+        }
+      },
+      {
+        "idx": 19,
+        "message": "付完钱的那笔，我想发起这个",
+        "correct_tool": "order-apply",
+        "level": "implied",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 20.394,
+        "scores": {
+          "order-apply": 0.8179
+        }
+      },
+      {
+        "idx": 20,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']申请怎么弄",
+        "correct_tool": "order-apply",
+        "level": "exact",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 21.219,
+        "scores": {
+          "order-apply": 0.7909
+        }
+      },
+      {
+        "idx": 21,
+        "message": "购物车里那件，这个该怎么去办",
+        "correct_tool": "order-apply",
+        "level": "implied",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 21.641,
+        "scores": {
+          "order-apply": 0.9004
+        }
+      },
+      {
+        "idx": 22,
+        "message": "我买的东西，我想办一下这个，再我想发起这个",
+        "correct_tool": "order-apply",
+        "level": "mixed",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 20.491,
+        "scores": {
+          "order-apply": 0.9655
+        }
+      },
+      {
+        "idx": 23,
+        "message": "付完钱的那笔，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "order-apply",
+        "level": "mixed",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 19.406,
+        "scores": {
+          "order-apply": 0.915
+        }
+      },
+      {
+        "idx": 24,
+        "message": "购物车里那件，帮我提交这个申请",
+        "correct_tool": "order-apply",
+        "level": "ambiguous",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 20.01,
+        "scores": {
+          "order-apply": 0.9932
+        }
+      },
+      {
+        "idx": 25,
+        "message": "之前下的那单，帮我提交这个申请",
+        "correct_tool": "order-apply",
+        "level": "ambiguous",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 19.749,
+        "scores": {
+          "order-apply": 0.9136
+        }
+      },
+      {
+        "idx": 26,
+        "message": "刚拍的宝贝，帮我中止并取消",
+        "correct_tool": "order-cancel",
+        "level": "ambiguous",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.164,
+        "scores": {
+          "order-cancel": 0.9962
+        }
+      },
+      {
+        "idx": 27,
+        "message": "购物车里那件，帮我中止并取消",
+        "correct_tool": "order-cancel",
+        "level": "ambiguous",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.493,
+        "scores": {
+          "order-cancel": 0.6861
+        }
+      },
+      {
+        "idx": 28,
+        "message": "付完钱的那笔，我想停了那个",
+        "correct_tool": "order-cancel",
+        "level": "synonym",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.979,
+        "scores": {
+          "order-cancel": 0.9664
+        }
+      },
+      {
+        "idx": 29,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']取消怎么弄",
+        "correct_tool": "order-cancel",
+        "level": "exact",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.487,
+        "scores": {
+          "order-cancel": 0.8484
+        }
+      },
+      {
+        "idx": 30,
+        "message": "购物车里那件，那个不要了，再不想要了帮我撤",
+        "correct_tool": "order-cancel",
+        "level": "mixed",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.408,
+        "scores": {
+          "order-cancel": 0.6938
+        }
+      },
+      {
+        "idx": 31,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']撤销怎么弄",
+        "correct_tool": "order-cancel",
+        "level": "exact",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.276,
+        "scores": {
+          "order-cancel": 0.9936
+        }
+      },
+      {
+        "idx": 32,
+        "message": "刚拍的宝贝，之前那个不要了",
+        "correct_tool": "order-cancel",
+        "level": "implied",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.361,
+        "scores": {
+          "order-cancel": 0.9149
+        }
+      },
+      {
+        "idx": 33,
+        "message": "我买的东西，我想停了那个",
+        "correct_tool": "order-cancel",
+        "level": "synonym",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.409,
+        "scores": {
+          "order-cancel": 0.9911
+        }
+      },
+      {
+        "idx": 34,
+        "message": "我买的东西，我想改一下这个，再那个地方不对，改掉",
+        "correct_tool": "order-modify",
+        "level": "mixed",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 19.409,
+        "scores": {
+          "order-modify": 0.9855
+        }
+      },
+      {
+        "idx": 35,
+        "message": "刚拍的宝贝，帮我调整这个配置",
+        "correct_tool": "order-modify",
+        "level": "ambiguous",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 20.331,
+        "scores": {
+          "order-modify": 0.9073
+        }
+      },
+      {
+        "idx": 36,
+        "message": "之前下的那单，把设置换一下",
+        "correct_tool": "order-modify",
+        "level": "ambiguous",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 19.597,
+        "scores": {
+          "order-modify": 0.7438
+        }
+      },
+      {
+        "idx": 37,
+        "message": "之前下的那单，想把信息更新下",
+        "correct_tool": "order-modify",
+        "level": "implied",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 19.734,
+        "scores": {
+          "order-modify": 0.5096
+        }
+      },
+      {
+        "idx": 38,
+        "message": "帮我['订单', '下单', '我的订单', '待付款', '已购']更改",
+        "correct_tool": "order-modify",
+        "level": "exact",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 20.075,
+        "scores": {
+          "order-modify": 0.6409
+        }
+      },
+      {
+        "idx": 39,
+        "message": "我买的东西，那个地方换个设置",
+        "correct_tool": "order-modify",
+        "level": "synonym",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 20.054,
+        "scores": {
+          "order-modify": 0.7185
+        }
+      },
+      {
+        "idx": 40,
+        "message": "刚拍的宝贝，帮我调一下，再想把信息更新下",
+        "correct_tool": "order-modify",
+        "level": "mixed",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 20.492,
+        "scores": {
+          "order-modify": 0.8325
+        }
+      },
+      {
+        "idx": 41,
+        "message": "刚拍的宝贝，想把信息更新下",
+        "correct_tool": "order-modify",
+        "level": "implied",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 19.268,
+        "scores": {
+          "order-modify": 0.8509
+        }
+      },
+      {
+        "idx": 42,
+        "message": "刚拍的宝贝，我想改一下这个",
+        "correct_tool": "order-modify",
+        "level": "synonym",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 20.275,
+        "scores": {
+          "order-modify": 0.7242
+        }
+      },
+      {
+        "idx": 43,
+        "message": "要收的包，那个事我想再核实",
+        "correct_tool": "logistics-query",
+        "level": "implied",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 18.372,
+        "scores": {
+          "logistics-query": 0.8458
+        }
+      },
+      {
+        "idx": 44,
+        "message": "要收的包，把单条的细节点出来",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 19.903,
+        "scores": {
+          "logistics-query": 0.9737
+        }
+      },
+      {
+        "idx": 45,
+        "message": "要收的包，把相关的挑出来给我看",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 21.454,
+        "scores": {
+          "logistics-query": 0.9447
+        }
+      },
+      {
+        "idx": 46,
+        "message": "发出的货，帮我了解下这块的内容",
+        "correct_tool": "logistics-query",
+        "level": "synonym",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 18.916,
+        "scores": {
+          "logistics-query": 0.9533
+        }
+      },
+      {
+        "idx": 47,
+        "message": "我那个件，这块我想查一下，另外那条里面具体的部分看一下",
+        "correct_tool": "logistics-query",
+        "level": "mixed",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 19.623,
+        "scores": {
+          "logistics-query": 0.7248
+        }
+      },
+      {
+        "idx": 48,
+        "message": "在路上那单，那条里面具体的部分看一下",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 19.755,
+        "scores": {
+          "logistics-query": 0.6718
+        }
+      },
+      {
+        "idx": 49,
+        "message": "要收的包，帮我了解下这块的内容，再之前提到的那个，再确认一下",
+        "correct_tool": "logistics-query",
+        "level": "mixed",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 20.005,
+        "scores": {
+          "logistics-query": 0.9807
+        }
+      },
+      {
+        "idx": 50,
+        "message": "发出的货，那个事我想再核实",
+        "correct_tool": "logistics-query",
+        "level": "implied",
+        "selected": "complaint-query",
+        "fc_hit": false,
+        "latency_ms": 20.363,
+        "scores": {
+          "complaint-query": 0.352
+        }
+      },
+      {
+        "idx": 51,
+        "message": "发出的货，把相关的挑出来给我看",
+        "correct_tool": "logistics-detail",
+        "level": "ambiguous",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.328,
+        "scores": {
+          "logistics-detail": 0.593
+        }
+      },
+      {
+        "idx": 52,
+        "message": "['物流', '快递', '配送', '到货', '包裹', '运单']明细怎么弄",
+        "correct_tool": "logistics-detail",
+        "level": "exact",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 20.284,
+        "scores": {
+          "logistics-detail": 0.9631
+        }
+      },
+      {
+        "idx": 53,
+        "message": "我那个件，我想看看相关的情况",
+        "correct_tool": "logistics-detail",
+        "level": "ambiguous",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.612,
+        "scores": {
+          "logistics-detail": 0.5586
+        }
+      },
+      {
+        "idx": 54,
+        "message": "发出的货，刚才那个的明细给我",
+        "correct_tool": "logistics-detail",
+        "level": "implied",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 18.436,
+        "scores": {
+          "logistics-detail": 0.9474
+        }
+      },
+      {
+        "idx": 55,
+        "message": "派送的东西，把那条的具体情况告诉我，另外这块我想查一下",
+        "correct_tool": "logistics-detail",
+        "level": "mixed",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 18.876,
+        "scores": {
+          "logistics-detail": 0.8469
+        }
+      },
+      {
+        "idx": 56,
+        "message": "我那个件，我想看具体那一条的内容，另外我想看看相关的情况",
+        "correct_tool": "logistics-detail",
+        "level": "mixed",
+        "selected": "membership-detail",
+        "fc_hit": false,
+        "latency_ms": 19.383,
+        "scores": {
+          "membership-detail": 0.3892
+        }
+      },
+      {
+        "idx": 57,
+        "message": "我那个件，帮我弄个这个",
+        "correct_tool": "logistics-apply",
+        "level": "synonym",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.888,
+        "scores": {
+          "logistics-apply": 0.7833
+        }
+      },
+      {
+        "idx": 58,
+        "message": "要收的包，我想办一下这个",
+        "correct_tool": "logistics-apply",
+        "level": "synonym",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 17.883,
+        "scores": {
+          "logistics-apply": 0.9585
+        }
+      },
+      {
+        "idx": 59,
+        "message": "发出的货，走一下这个流程，再我想发起这个",
+        "correct_tool": "logistics-apply",
+        "level": "mixed",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.159,
+        "scores": {
+          "logistics-apply": 0.9938
+        }
+      },
+      {
+        "idx": 60,
+        "message": "我那个件，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "logistics-apply",
+        "level": "mixed",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 18.216,
+        "scores": {
+          "logistics-apply": 0.9557
+        }
+      },
+      {
+        "idx": 61,
+        "message": "帮我['物流', '快递', '配送', '到货', '包裹', '运单']提交",
+        "correct_tool": "logistics-apply",
+        "level": "exact",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 18.524,
+        "scores": {
+          "logistics-apply": 0.7329
+        }
+      },
+      {
+        "idx": 62,
+        "message": "派送的东西，帮我提交这个申请",
+        "correct_tool": "logistics-apply",
+        "level": "ambiguous",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.728,
+        "scores": {
+          "logistics-apply": 0.9684
+        }
+      },
+      {
+        "idx": 63,
+        "message": "要收的包，这个该怎么去办",
+        "correct_tool": "logistics-apply",
+        "level": "implied",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 18.655,
+        "scores": {
+          "logistics-apply": 0.9844
+        }
+      },
+      {
+        "idx": 64,
+        "message": "派送的东西，帮我中止并取消",
+        "correct_tool": "logistics-cancel",
+        "level": "ambiguous",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.557,
+        "scores": {
+          "logistics-cancel": 0.8575
+        }
+      },
+      {
+        "idx": 65,
+        "message": "要收的包，帮我中止并取消",
+        "correct_tool": "logistics-cancel",
+        "level": "ambiguous",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.226,
+        "scores": {
+          "logistics-cancel": 0.9044
+        }
+      },
+      {
+        "idx": 66,
+        "message": "['物流', '快递', '配送', '到货', '包裹', '运单']撤销怎么弄",
+        "correct_tool": "logistics-cancel",
+        "level": "exact",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.933,
+        "scores": {
+          "logistics-cancel": 0.9857
+        }
+      },
+      {
+        "idx": 67,
+        "message": "发出的货，不想要了帮我撤",
+        "correct_tool": "logistics-cancel",
+        "level": "implied",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.265,
+        "scores": {
+          "logistics-cancel": 0.8066
+        }
+      },
+      {
+        "idx": 68,
+        "message": "在路上那单，把那个撤回来",
+        "correct_tool": "logistics-cancel",
+        "level": "ambiguous",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.457,
+        "scores": {
+          "logistics-cancel": 0.9861
+        }
+      },
+      {
+        "idx": 69,
+        "message": "要收的包，我想停了那个，再之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "mixed",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.495,
+        "scores": {
+          "logistics-cancel": 0.9174
+        }
+      },
+      {
+        "idx": 70,
+        "message": "要收的包，我想停了那个",
+        "correct_tool": "logistics-cancel",
+        "level": "synonym",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.852,
+        "scores": {
+          "logistics-cancel": 0.984
+        }
+      },
+      {
+        "idx": 71,
+        "message": "在路上那单，之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "implied",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.495,
+        "scores": {
+          "logistics-cancel": 0.9669
+        }
+      },
+      {
+        "idx": 72,
+        "message": "发出的货，我想停了那个，再之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "mixed",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.368,
+        "scores": {
+          "logistics-cancel": 0.9563
+        }
+      },
+      {
+        "idx": 73,
+        "message": "在路上那单，想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "implied",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.81,
+        "scores": {
+          "logistics-modify": 0.8904
+        }
+      },
+      {
+        "idx": 74,
+        "message": "发出的货，想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "implied",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 17.611,
+        "scores": {
+          "logistics-modify": 0.8871
+        }
+      },
+      {
+        "idx": 75,
+        "message": "要收的包，那个地方换个设置，再想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "mixed",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.002,
+        "scores": {
+          "logistics-modify": 0.9029
+        }
+      },
+      {
+        "idx": 76,
+        "message": "派送的东西，帮我调一下",
+        "correct_tool": "logistics-modify",
+        "level": "synonym",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 17.379,
+        "scores": {
+          "logistics-modify": 0.8886
+        }
+      },
+      {
+        "idx": 77,
+        "message": "我那个件，那个地方换个设置，再想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "mixed",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 19.958,
+        "scores": {
+          "logistics-modify": 0.8498
+        }
+      },
+      {
+        "idx": 78,
+        "message": "在路上那单，帮我调一下",
+        "correct_tool": "logistics-modify",
+        "level": "synonym",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.163,
+        "scores": {
+          "logistics-modify": 0.8725
+        }
+      },
+      {
+        "idx": 79,
+        "message": "要收的包，把设置换一下",
+        "correct_tool": "logistics-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 17.861,
+        "scores": {
+          "logistics-modify": 0.6966
+        }
+      },
+      {
+        "idx": 80,
+        "message": "我那个件，把设置换一下",
+        "correct_tool": "logistics-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 19.242,
+        "scores": {
+          "logistics-modify": 0.7127
+        }
+      },
+      {
+        "idx": 81,
+        "message": "帮我['物流', '快递', '配送', '到货', '包裹', '运单']修改",
+        "correct_tool": "logistics-modify",
+        "level": "exact",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 19.101,
+        "scores": {
+          "logistics-modify": 0.7014
+        }
+      },
+      {
+        "idx": 82,
+        "message": "发出的货，把设置换一下",
+        "correct_tool": "logistics-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 19.356,
+        "scores": {
+          "logistics-modify": 0.7868
+        }
+      },
+      {
+        "idx": 83,
+        "message": "['退货', '退款', '售后', '退换', '维修']查看怎么弄",
+        "correct_tool": "aftersale-query",
+        "level": "exact",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 19.074,
+        "scores": {
+          "aftersale-query": 0.6607
+        }
+      },
+      {
+        "idx": 84,
+        "message": "要处理的退换，把相关的挑出来给我看",
+        "correct_tool": "aftersale-query",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 19.044,
+        "scores": {
+          "aftersale-query": 0.9639
+        }
+      },
+      {
+        "idx": 85,
+        "message": "要退的那桩，我想看看相关的情况，另外我想看具体那一条的内容",
+        "correct_tool": "aftersale-query",
+        "level": "mixed",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 17.229,
+        "scores": {
+          "aftersale-query": 0.8476
+        }
+      },
+      {
+        "idx": 86,
+        "message": "不想要的那笔，我想看看相关的情况",
+        "correct_tool": "aftersale-query",
+        "level": "synonym",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 15.424,
+        "scores": {
+          "aftersale-query": 0.9187
+        }
+      },
+      {
+        "idx": 87,
+        "message": "出问题的工作，我想看具体那一条的内容",
+        "correct_tool": "aftersale-query",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 14.936,
+        "scores": {
+          "aftersale-query": 0.5654
+        }
+      },
+      {
+        "idx": 88,
+        "message": "收到的坏件，之前提到的那个，再确认一下",
+        "correct_tool": "aftersale-query",
+        "level": "implied",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 15.675,
+        "scores": {
+          "aftersale-query": 0.8923
+        }
+      },
+      {
+        "idx": 89,
+        "message": "收到的坏件，帮我了解下这块的内容，再那个事我想再核实",
+        "correct_tool": "aftersale-query",
+        "level": "mixed",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 15.335,
+        "scores": {
+          "aftersale-query": 0.5603
+        }
+      },
+      {
+        "idx": 90,
+        "message": "要退的那桩，之前提到的那个，再确认一下",
+        "correct_tool": "aftersale-query",
+        "level": "implied",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 15.056,
+        "scores": {
+          "aftersale-query": 0.8669
+        }
+      },
+      {
+        "idx": 91,
+        "message": "['退货', '退款', '售后', '退换', '维修']怎么查怎么弄",
+        "correct_tool": "aftersale-query",
+        "level": "exact",
+        "selected": "aftersale-detail",
+        "fc_hit": false,
+        "latency_ms": 16.633,
+        "scores": {
+          "aftersale-detail": 0.6016
+        }
+      },
+      {
+        "idx": 92,
+        "message": "出问题的工作，我想看具体那一条的内容，另外帮我了解下这块的内容",
+        "correct_tool": "aftersale-detail",
+        "level": "mixed",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.635,
+        "scores": {
+          "aftersale-detail": 0.9416
+        }
+      },
+      {
+        "idx": 93,
+        "message": "要退的那桩，这块我想查一下",
+        "correct_tool": "aftersale-detail",
+        "level": "ambiguous",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.873,
+        "scores": {
+          "aftersale-detail": 0.9806
+        }
+      },
+      {
+        "idx": 94,
+        "message": "['退货', '退款', '售后', '退换', '维修']明细怎么弄",
+        "correct_tool": "aftersale-detail",
+        "level": "exact",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 16.452,
+        "scores": {
+          "aftersale-detail": 0.9093
+        }
+      },
+      {
+        "idx": 95,
+        "message": "不想要的那笔，我想看具体那一条的内容，另外我想看看相关的情况",
+        "correct_tool": "aftersale-detail",
+        "level": "mixed",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.889,
+        "scores": {
+          "aftersale-detail": 0.8112
+        }
+      },
+      {
+        "idx": 96,
+        "message": "要处理的退换，帮我了解下这块的内容",
+        "correct_tool": "aftersale-detail",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": false,
+        "latency_ms": 16.789,
+        "scores": {
+          "aftersale-query": 0.6914
+        }
+      },
+      {
+        "idx": 97,
+        "message": "出问题的工作，把那条的具体情况告诉我",
+        "correct_tool": "aftersale-detail",
+        "level": "synonym",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 14.936,
+        "scores": {
+          "aftersale-detail": 0.7944
+        }
+      },
+      {
+        "idx": 98,
+        "message": "要退的那桩，这个该怎么去办",
+        "correct_tool": "aftersale-apply",
+        "level": "implied",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.884,
+        "scores": {
+          "aftersale-apply": 0.7831
+        }
+      },
+      {
+        "idx": 99,
+        "message": "收到的坏件，帮我提交这个申请",
+        "correct_tool": "aftersale-apply",
+        "level": "ambiguous",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.026,
+        "scores": {
+          "aftersale-apply": 0.9747
+        }
+      },
+      {
+        "idx": 100,
+        "message": "['退货', '退款', '售后', '退换', '维修']申请怎么弄",
+        "correct_tool": "aftersale-apply",
+        "level": "exact",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.306,
+        "scores": {
+          "aftersale-apply": 0.9278
+        }
+      },
+      {
+        "idx": 101,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']申请",
+        "correct_tool": "aftersale-apply",
+        "level": "exact",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.877,
+        "scores": {
+          "aftersale-apply": 0.8236
+        }
+      },
+      {
+        "idx": 102,
+        "message": "要处理的退换，帮我弄个这个",
+        "correct_tool": "aftersale-apply",
+        "level": "synonym",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.39,
+        "scores": {
+          "aftersale-apply": 0.6698
+        }
+      },
+      {
+        "idx": 103,
+        "message": "要处理的退换，走一下这个流程，再这个该怎么去办",
+        "correct_tool": "aftersale-apply",
+        "level": "mixed",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.411,
+        "scores": {
+          "aftersale-apply": 0.7646
+        }
+      },
+      {
+        "idx": 104,
+        "message": "不想要的那笔，这个该怎么去办",
+        "correct_tool": "aftersale-apply",
+        "level": "implied",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 19.881,
+        "scores": {
+          "aftersale-apply": 0.7871
+        }
+      },
+      {
+        "idx": 105,
+        "message": "收到的坏件，帮我弄个这个，再我想发起这个",
+        "correct_tool": "aftersale-apply",
+        "level": "mixed",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.057,
+        "scores": {
+          "aftersale-apply": 0.884
+        }
+      },
+      {
+        "idx": 106,
+        "message": "出问题的工作，我想停了那个",
+        "correct_tool": "aftersale-cancel",
+        "level": "synonym",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.472,
+        "scores": {
+          "aftersale-cancel": 0.8298
+        }
+      },
+      {
+        "idx": 107,
+        "message": "出问题的工作，我想停了那个，再不想要了帮我撤",
+        "correct_tool": "aftersale-cancel",
+        "level": "mixed",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.66,
+        "scores": {
+          "aftersale-cancel": 0.949
+        }
+      },
+      {
+        "idx": 108,
+        "message": "出问题的工作，不想要了帮我撤",
+        "correct_tool": "aftersale-cancel",
+        "level": "implied",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.229,
+        "scores": {
+          "aftersale-cancel": 0.99
+        }
+      },
+      {
+        "idx": 109,
+        "message": "要处理的退换，把那个撤回来",
+        "correct_tool": "aftersale-cancel",
+        "level": "ambiguous",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.408,
+        "scores": {
+          "aftersale-cancel": 0.8054
+        }
+      },
+      {
+        "idx": 110,
+        "message": "不想要的那笔，把那个撤回来",
+        "correct_tool": "aftersale-cancel",
+        "level": "ambiguous",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.451,
+        "scores": {
+          "aftersale-cancel": 0.7448
+        }
+      },
+      {
+        "idx": 111,
+        "message": "要退的那桩，帮我中止这个，再之前那个不要了",
+        "correct_tool": "aftersale-cancel",
+        "level": "mixed",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.707,
+        "scores": {
+          "aftersale-cancel": 0.8898
+        }
+      },
+      {
+        "idx": 112,
+        "message": "要处理的退换，帮我中止这个",
+        "correct_tool": "aftersale-cancel",
+        "level": "synonym",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.708,
+        "scores": {
+          "aftersale-cancel": 0.8162
+        }
+      },
+      {
+        "idx": 113,
+        "message": "['退货', '退款', '售后', '退换', '维修']撤销怎么弄",
+        "correct_tool": "aftersale-cancel",
+        "level": "exact",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.932,
+        "scores": {
+          "aftersale-cancel": 0.9364
+        }
+      },
+      {
+        "idx": 114,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']取消",
+        "correct_tool": "aftersale-cancel",
+        "level": "exact",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.412,
+        "scores": {
+          "aftersale-cancel": 0.8697
+        }
+      },
+      {
+        "idx": 115,
+        "message": "收到的坏件，那个地方不对，改掉",
+        "correct_tool": "aftersale-modify",
+        "level": "implied",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 15.649,
+        "scores": {
+          "aftersale-modify": 0.9119
+        }
+      },
+      {
+        "idx": 116,
+        "message": "要处理的退换，我想改一下这个，再想把信息更新下",
+        "correct_tool": "aftersale-modify",
+        "level": "mixed",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 19.544,
+        "scores": {
+          "aftersale-modify": 0.9953
+        }
+      },
+      {
+        "idx": 117,
+        "message": "出问题的工作，我想改一下这个",
+        "correct_tool": "aftersale-modify",
+        "level": "synonym",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 16.775,
+        "scores": {
+          "aftersale-modify": 0.9939
+        }
+      },
+      {
+        "idx": 118,
+        "message": "出问题的工作，那个地方换个设置，再想把信息更新下",
+        "correct_tool": "aftersale-modify",
+        "level": "mixed",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 16.401,
+        "scores": {
+          "aftersale-modify": 0.996
+        }
+      },
+      {
+        "idx": 119,
+        "message": "['余额', '积分', '钱包', '账户', '资金']查看怎么弄",
+        "correct_tool": "account-query",
+        "level": "exact",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.293,
+        "scores": {
+          "account-query": 0.9985
+        }
+      },
+      {
+        "idx": 120,
+        "message": "卡里的钱，我想看具体那一条的内容",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 17.877,
+        "scores": {
+          "account-query": 0.9624
+        }
+      },
+      {
+        "idx": 121,
+        "message": "里面的余额，之前提到的那个，再确认一下",
+        "correct_tool": "account-query",
+        "level": "implied",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 15.605,
+        "scores": {
+          "account-query": 0.9201
+        }
+      },
+      {
+        "idx": 122,
+        "message": "['余额', '积分', '钱包', '账户', '资金']怎么查怎么弄",
+        "correct_tool": "account-query",
+        "level": "exact",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 18.843,
+        "scores": {
+          "account-query": 0.9716
+        }
+      },
+      {
+        "idx": 123,
+        "message": "卡里的钱，我想看看相关的情况，另外我想看具体那一条的内容",
+        "correct_tool": "account-query",
+        "level": "mixed",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 15.782,
+        "scores": {
+          "account-query": 0.9828
+        }
+      },
+      {
+        "idx": 124,
+        "message": "卡里的钱，帮我了解下这块的内容，另外把那条的具体情况告诉我",
+        "correct_tool": "account-query",
+        "level": "mixed",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 14.846,
+        "scores": {
+          "account-query": 0.8994
+        }
+      },
+      {
+        "idx": 125,
+        "message": "我的资产，把那条的具体情况告诉我",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.372,
+        "scores": {
+          "account-query": 0.9309
+        }
+      },
+      {
+        "idx": 126,
+        "message": "卡里的钱，这块我想查一下",
+        "correct_tool": "account-query",
+        "level": "synonym",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 15.857,
+        "scores": {
+          "account-query": 0.9774
+        }
+      },
+      {
+        "idx": 127,
+        "message": "卡里的钱，之前提到的那个，再确认一下",
+        "correct_tool": "account-query",
+        "level": "implied",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.339,
+        "scores": {
+          "account-query": 0.9929
+        }
+      },
+      {
+        "idx": 128,
+        "message": "攒的那些分，把相关的挑出来给我看",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.479,
+        "scores": {
+          "account-query": 0.9671
+        }
+      },
+      {
+        "idx": 129,
+        "message": "攒的那些分，帮我了解下这块的内容",
+        "correct_tool": "account-detail",
+        "level": "ambiguous",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 13.743,
+        "scores": {
+          "account-detail": 0.8898
+        }
+      },
+      {
+        "idx": 130,
+        "message": "攒的那些分，我想看具体那一条的内容，再上一条的具体内容是啥",
+        "correct_tool": "account-detail",
+        "level": "mixed",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 16.743,
+        "scores": {
+          "account-detail": 0.9697
+        }
+      },
+      {
+        "idx": 131,
+        "message": "攒的那些分，上一条的具体内容是啥",
+        "correct_tool": "account-detail",
+        "level": "implied",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.474,
+        "scores": {
+          "account-detail": 0.9434
+        }
+      },
+      {
+        "idx": 132,
+        "message": "['余额', '积分', '钱包', '账户', '资金']明细怎么弄",
+        "correct_tool": "account-detail",
+        "level": "exact",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.597,
+        "scores": {
+          "account-detail": 0.9945
+        }
+      },
+      {
+        "idx": 133,
+        "message": "我的资产，把那条的具体情况告诉我，另外这块我想查一下",
+        "correct_tool": "account-detail",
+        "level": "mixed",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 14.227,
+        "scores": {
+          "account-detail": 0.6475
+        }
+      },
+      {
+        "idx": 134,
+        "message": "我的资产，我想发起这个",
+        "correct_tool": "account-apply",
+        "level": "implied",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 14.179,
+        "scores": {
+          "account-apply": 0.9896
+        }
+      },
+      {
+        "idx": 135,
+        "message": "帮我['余额', '积分', '钱包', '账户', '资金']申请",
+        "correct_tool": "account-apply",
+        "level": "exact",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 14.934,
+        "scores": {
+          "account-apply": 0.858
+        }
+      },
+      {
+        "idx": 136,
+        "message": "户头里的，我想办一下这个",
+        "correct_tool": "account-apply",
+        "level": "synonym",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 14.605,
+        "scores": {
+          "account-apply": 0.9653
+        }
+      },
+      {
+        "idx": 137,
+        "message": "攒的那些分，帮我提交这个申请",
+        "correct_tool": "account-apply",
+        "level": "ambiguous",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 13.977,
+        "scores": {
+          "account-apply": 0.996
+        }
+      },
+      {
+        "idx": 138,
+        "message": "里面的余额，走一下这个流程，再我想发起这个",
+        "correct_tool": "account-apply",
+        "level": "mixed",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 14.384,
+        "scores": {
+          "account-apply": 0.9747
+        }
+      },
+      {
+        "idx": 139,
+        "message": "攒的那些分，走一下这个流程，再我想发起这个",
+        "correct_tool": "account-apply",
+        "level": "mixed",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 15.133,
+        "scores": {
+          "account-apply": 0.9725
+        }
+      },
+      {
+        "idx": 140,
+        "message": "户头里的，之前那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "implied",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 12.963,
+        "scores": {
+          "account-cancel": 0.9757
+        }
+      },
+      {
+        "idx": 141,
+        "message": "里面的余额，帮我中止这个",
+        "correct_tool": "account-cancel",
+        "level": "synonym",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.411,
+        "scores": {
+          "account-cancel": 0.983
+        }
+      },
+      {
+        "idx": 142,
+        "message": "我的资产，把那个撤回来",
+        "correct_tool": "account-cancel",
+        "level": "ambiguous",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.925,
+        "scores": {
+          "account-cancel": 0.9999
+        }
+      },
+      {
+        "idx": 143,
+        "message": "卡里的钱，把那个撤回来",
+        "correct_tool": "account-cancel",
+        "level": "ambiguous",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.687,
+        "scores": {
+          "account-cancel": 0.9631
+        }
+      },
+      {
+        "idx": 144,
+        "message": "户头里的，帮我中止这个，再不想要了帮我撤",
+        "correct_tool": "account-cancel",
+        "level": "mixed",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.666,
+        "scores": {
+          "account-cancel": 0.7784
+        }
+      },
+      {
+        "idx": 145,
+        "message": "攒的那些分，那个不要了，再之前那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "mixed",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.928,
+        "scores": {
+          "account-cancel": 0.9667
+        }
+      },
+      {
+        "idx": 146,
+        "message": "['余额', '积分', '钱包', '账户', '资金']撤销怎么弄",
+        "correct_tool": "account-cancel",
+        "level": "exact",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.838,
+        "scores": {
+          "account-cancel": 0.9713
+        }
+      },
+      {
+        "idx": 147,
+        "message": "户头里的，那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "synonym",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.307,
+        "scores": {
+          "account-cancel": 0.9894
+        }
+      },
+      {
+        "idx": 148,
+        "message": "里面的余额，想把信息更新下",
+        "correct_tool": "account-modify",
+        "level": "implied",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.0,
+        "scores": {
+          "account-modify": 0.9742
+        }
+      },
+      {
+        "idx": 149,
+        "message": "卡里的钱，想把信息更新下",
+        "correct_tool": "account-modify",
+        "level": "implied",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.152,
+        "scores": {
+          "account-modify": 0.9319
+        }
+      },
+      {
+        "idx": 150,
+        "message": "里面的余额，我想改一下这个",
+        "correct_tool": "account-modify",
+        "level": "synonym",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.289,
+        "scores": {
+          "account-modify": 0.961
+        }
+      },
+      {
+        "idx": 151,
+        "message": "卡里的钱，我想改一下这个，再那个地方不对，改掉",
+        "correct_tool": "account-modify",
+        "level": "mixed",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 15.911,
+        "scores": {
+          "account-modify": 0.9587
+        }
+      },
+      {
+        "idx": 152,
+        "message": "['余额', '积分', '钱包', '账户', '资金']修改怎么弄",
+        "correct_tool": "account-modify",
+        "level": "exact",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 15.325,
+        "scores": {
+          "account-modify": 0.9104
+        }
+      },
+      {
+        "idx": 153,
+        "message": "里面的余额，帮我调一下，再想把信息更新下",
+        "correct_tool": "account-modify",
+        "level": "mixed",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 15.554,
+        "scores": {
+          "account-modify": 0.9231
+        }
+      },
+      {
+        "idx": 154,
+        "message": "里面的余额，帮我调整这个配置",
+        "correct_tool": "account-modify",
+        "level": "ambiguous",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.149,
+        "scores": {
+          "account-modify": 0.9588
+        }
+      },
+      {
+        "idx": 155,
+        "message": "卡里的钱，帮我调一下",
+        "correct_tool": "account-modify",
+        "level": "synonym",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 15.341,
+        "scores": {
+          "account-modify": 0.8919
+        }
+      },
+      {
+        "idx": 156,
+        "message": "平台送的券，帮我了解下这块的内容，再之前提到的那个，再确认一下",
+        "correct_tool": "coupon-query",
+        "level": "mixed",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.313,
+        "scores": {
+          "coupon-query": 0.8569
+        }
+      },
+      {
+        "idx": 157,
+        "message": "活动给的，帮我了解下这块的内容",
+        "correct_tool": "coupon-query",
+        "level": "synonym",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.14,
+        "scores": {
+          "coupon-query": 0.9142
+        }
+      },
+      {
+        "idx": 158,
+        "message": "能省的，帮我了解下这块的内容，再之前提到的那个，再确认一下",
+        "correct_tool": "coupon-query",
+        "level": "mixed",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 17.261,
+        "scores": {
+          "coupon-query": 0.9176
+        }
+      },
+      {
+        "idx": 159,
+        "message": "帮我['优惠券', '满减', '活动', '折扣', '福利', '券']查询",
+        "correct_tool": "coupon-query",
+        "level": "exact",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 15.043,
+        "scores": {
+          "coupon-query": 0.9263
+        }
+      },
+      {
+        "idx": 160,
+        "message": "活动给的，把相关的挑出来给我看",
+        "correct_tool": "coupon-query",
+        "level": "ambiguous",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 15.597,
+        "scores": {
+          "coupon-query": 0.8883
+        }
+      },
+      {
+        "idx": 161,
+        "message": "活动给的，那个事我想再核实",
+        "correct_tool": "coupon-query",
+        "level": "implied",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 14.368,
+        "scores": {
+          "coupon-query": 0.8437
+        }
+      },
+      {
+        "idx": 162,
+        "message": "帮我['优惠券', '满减', '活动', '折扣', '福利', '券']怎么查",
+        "correct_tool": "coupon-query",
+        "level": "exact",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 15.583,
+        "scores": {
+          "coupon-query": 0.9944
+        }
+      },
+      {
+        "idx": 163,
+        "message": "可以减的，那个事我想再核实",
+        "correct_tool": "coupon-query",
+        "level": "implied",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.414,
+        "scores": {
+          "coupon-query": 0.852
+        }
+      },
+      {
+        "idx": 164,
+        "message": "能省的，那条里面具体的部分看一下，另外我想看看相关的情况",
+        "correct_tool": "coupon-detail",
+        "level": "mixed",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.545,
+        "scores": {
+          "coupon-detail": 0.9841
+        }
+      },
+      {
+        "idx": 165,
+        "message": "平台送的券，我想看具体那一条的内容",
+        "correct_tool": "coupon-detail",
+        "level": "synonym",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.207,
+        "scores": {
+          "coupon-detail": 0.9205
+        }
+      },
+      {
+        "idx": 166,
+        "message": "平台送的券，上一条的具体内容是啥",
+        "correct_tool": "coupon-detail",
+        "level": "implied",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 13.343,
+        "scores": {
+          "coupon-detail": 0.5531
+        }
+      },
+      {
+        "idx": 167,
+        "message": "可以减的，刚才那个的明细给我",
+        "correct_tool": "coupon-detail",
+        "level": "implied",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 17.483,
+        "scores": {
+          "coupon-detail": 0.9437
+        }
+      },
+      {
+        "idx": 168,
+        "message": "能省的，把单条的细节点出来",
+        "correct_tool": "coupon-detail",
+        "level": "ambiguous",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.17,
+        "scores": {
+          "coupon-detail": 0.947
+        }
+      },
+      {
+        "idx": 169,
+        "message": "可以减的，那条里面具体的部分看一下，再刚才那个的明细给我",
+        "correct_tool": "coupon-detail",
+        "level": "mixed",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.726,
+        "scores": {
+          "coupon-detail": 0.9759
+        }
+      },
+      {
+        "idx": 170,
+        "message": "平台送的券，帮我了解下这块的内容",
+        "correct_tool": "coupon-detail",
+        "level": "ambiguous",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.777,
+        "scores": {
+          "coupon-detail": 0.9416
+        }
+      },
+      {
+        "idx": 171,
+        "message": "活动给的，走一下这个流程，再我想发起这个",
+        "correct_tool": "coupon-apply",
+        "level": "mixed",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 19.041,
+        "scores": {
+          "coupon-apply": 0.9165
+        }
+      },
+      {
+        "idx": 172,
+        "message": "['优惠券', '满减', '活动', '折扣', '福利', '券']办理怎么弄",
+        "correct_tool": "coupon-apply",
+        "level": "exact",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 15.979,
+        "scores": {
+          "coupon-apply": 0.998
+        }
+      },
+      {
+        "idx": 173,
+        "message": "可以减的，走一下这个流程",
+        "correct_tool": "coupon-apply",
+        "level": "synonym",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 17.2,
+        "scores": {
+          "coupon-apply": 0.8813
+        }
+      },
+      {
+        "idx": 174,
+        "message": "可以减的，帮我提交这个申请",
+        "correct_tool": "coupon-apply",
+        "level": "ambiguous",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 18.075,
+        "scores": {
+          "coupon-apply": 0.9322
+        }
+      },
+      {
+        "idx": 175,
+        "message": "平台送的券，帮我弄个这个，再这个该怎么去办",
+        "correct_tool": "coupon-apply",
+        "level": "mixed",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 15.997,
+        "scores": {
+          "coupon-apply": 0.9532
+        }
+      },
+      {
+        "idx": 176,
+        "message": "平台送的券，那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "synonym",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.039,
+        "scores": {
+          "coupon-cancel": 0.9432
+        }
+      },
+      {
+        "idx": 177,
+        "message": "能省的，那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "synonym",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.926,
+        "scores": {
+          "coupon-cancel": 0.9975
+        }
+      },
+      {
+        "idx": 178,
+        "message": "帮我['优惠券', '满减', '活动', '折扣', '福利', '券']退掉",
+        "correct_tool": "coupon-cancel",
+        "level": "exact",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.347,
+        "scores": {
+          "coupon-cancel": 0.9843
+        }
+      },
+      {
+        "idx": 179,
+        "message": "能领的福利，那个不要了，再不想要了帮我撤",
+        "correct_tool": "coupon-cancel",
+        "level": "mixed",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.712,
+        "scores": {
+          "coupon-cancel": 0.992
+        }
+      },
+      {
+        "idx": 180,
+        "message": "可以减的，那个不要了，再不想要了帮我撤",
+        "correct_tool": "coupon-cancel",
+        "level": "mixed",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.709,
+        "scores": {
+          "coupon-cancel": 0.9992
+        }
+      },
+      {
+        "idx": 181,
+        "message": "可以减的，把那个撤回来",
+        "correct_tool": "coupon-cancel",
+        "level": "ambiguous",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.144,
+        "scores": {
+          "coupon-cancel": 0.9683
+        }
+      },
+      {
+        "idx": 182,
+        "message": "活动给的，把那个撤回来",
+        "correct_tool": "coupon-cancel",
+        "level": "ambiguous",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.354,
+        "scores": {
+          "coupon-cancel": 0.9873
+        }
+      },
+      {
+        "idx": 183,
+        "message": "能省的，之前那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "implied",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.988,
+        "scores": {
+          "coupon-cancel": 0.9162
+        }
+      },
+      {
+        "idx": 184,
+        "message": "可以减的，把设置换一下",
+        "correct_tool": "coupon-modify",
+        "level": "ambiguous",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.086,
+        "scores": {
+          "coupon-modify": 0.9617
+        }
+      },
+      {
+        "idx": 185,
+        "message": "平台送的券，帮我调整这个配置",
+        "correct_tool": "coupon-modify",
+        "level": "ambiguous",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.651,
+        "scores": {
+          "coupon-modify": 0.8343
+        }
+      },
+      {
+        "idx": 186,
+        "message": "平台送的券，想把信息更新下",
+        "correct_tool": "coupon-modify",
+        "level": "implied",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.04,
+        "scores": {
+          "coupon-modify": 0.552
+        }
+      },
+      {
+        "idx": 187,
+        "message": "帮我['优惠券', '满减', '活动', '折扣', '福利', '券']更改",
+        "correct_tool": "coupon-modify",
+        "level": "exact",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.91,
+        "scores": {
+          "coupon-modify": 0.9933
+        }
+      },
+      {
+        "idx": 188,
+        "message": "可以减的，那个地方不对，改掉",
+        "correct_tool": "coupon-modify",
+        "level": "implied",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.345,
+        "scores": {
+          "coupon-modify": 0.94
+        }
+      },
+      {
+        "idx": 189,
+        "message": "平台送的券，我想改一下这个",
+        "correct_tool": "coupon-modify",
+        "level": "synonym",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 14.278,
+        "scores": {
+          "coupon-modify": 0.9973
+        }
+      },
+      {
+        "idx": 190,
+        "message": "活动给的，帮我调一下，再想把信息更新下",
+        "correct_tool": "coupon-modify",
+        "level": "mixed",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 16.026,
+        "scores": {
+          "coupon-modify": 0.8361
+        }
+      },
+      {
+        "idx": 191,
+        "message": "平台送的券，把设置换一下",
+        "correct_tool": "coupon-modify",
+        "level": "ambiguous",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 15.369,
+        "scores": {
+          "coupon-modify": 0.9837
+        }
+      },
+      {
+        "idx": 192,
+        "message": "可以减的，我想改一下这个",
+        "correct_tool": "coupon-modify",
+        "level": "synonym",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 17.557,
+        "scores": {
+          "coupon-modify": 0.9239
+        }
+      },
+      {
+        "idx": 193,
+        "message": "平台送的券，我想改一下这个，再那个地方不对，改掉",
+        "correct_tool": "coupon-modify",
+        "level": "mixed",
+        "selected": "coupon-modify",
+        "fc_hit": true,
+        "latency_ms": 14.343,
+        "scores": {
+          "coupon-modify": 0.8886
+        }
+      },
+      {
+        "idx": 194,
+        "message": "相中的宝贝，之前提到的那个，再确认一下",
+        "correct_tool": "product-query",
+        "level": "implied",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 14.209,
+        "scores": {
+          "product-query": 0.5388
+        }
+      },
+      {
+        "idx": 195,
+        "message": "想买的那个，帮我了解下这块的内容",
+        "correct_tool": "product-query",
+        "level": "synonym",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 15.088,
+        "scores": {
+          "product-query": 0.482
+        }
+      },
+      {
+        "idx": 196,
+        "message": "货架上的，我想看具体那一条的内容",
+        "correct_tool": "product-query",
+        "level": "ambiguous",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 15.394,
+        "scores": {
+          "product-query": 0.5053
+        }
+      },
+      {
+        "idx": 197,
+        "message": "想买的那个，那条里面具体的部分看一下",
+        "correct_tool": "product-query",
+        "level": "ambiguous",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 14.246,
+        "scores": {
+          "product-query": 0.9449
+        }
+      },
+      {
+        "idx": 198,
+        "message": "相中的宝贝，这块我想查一下",
+        "correct_tool": "product-query",
+        "level": "synonym",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 17.546,
+        "scores": {
+          "product-query": 0.9146
+        }
+      },
+      {
+        "idx": 199,
+        "message": "看中的款，那条里面具体的部分看一下",
+        "correct_tool": "product-query",
+        "level": "ambiguous",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 18.524,
+        "scores": {
+          "product-query": 0.8137
+        }
+      },
+      {
+        "idx": 200,
+        "message": "看中的款，这块我想查一下，另外把那条的具体情况告诉我",
+        "correct_tool": "product-query",
+        "level": "mixed",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 18.973,
+        "scores": {
+          "product-query": 0.6306
+        }
+      },
+      {
+        "idx": 201,
+        "message": "想买的那个，把单条的细节点出来",
+        "correct_tool": "product-query",
+        "level": "ambiguous",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 17.874,
+        "scores": {
+          "product-query": 0.9886
+        }
+      },
+      {
+        "idx": 202,
+        "message": "['商品', '规格', '参数', '材质', '详情', '库存']查询怎么弄",
+        "correct_tool": "product-query",
+        "level": "exact",
+        "selected": "product-query",
+        "fc_hit": true,
+        "latency_ms": 19.231,
+        "scores": {
+          "product-query": 0.8456
+        }
+      },
+      {
+        "idx": 203,
+        "message": "['商品', '规格', '参数', '材质', '详情', '库存']明细怎么弄",
+        "correct_tool": "product-detail",
+        "level": "exact",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 18.597,
+        "scores": {
+          "product-detail": 0.8266
+        }
+      },
+      {
+        "idx": 204,
+        "message": "相中的宝贝，把那条的具体情况告诉我",
+        "correct_tool": "product-detail",
+        "level": "synonym",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 18.741,
+        "scores": {
+          "product-detail": 0.4343
+        }
+      },
+      {
+        "idx": 205,
+        "message": "看中的款，我想看看相关的情况",
+        "correct_tool": "product-detail",
+        "level": "ambiguous",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 18.51,
+        "scores": {
+          "product-detail": 0.4967
+        }
+      },
+      {
+        "idx": 206,
+        "message": "要下单的物，帮我了解下这块的内容",
+        "correct_tool": "product-detail",
+        "level": "ambiguous",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 18.865,
+        "scores": {
+          "product-detail": 0.695
+        }
+      },
+      {
+        "idx": 207,
+        "message": "货架上的，上一条的具体内容是啥",
+        "correct_tool": "product-detail",
+        "level": "implied",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 19.153,
+        "scores": {
+          "product-detail": 0.9377
+        }
+      },
+      {
+        "idx": 208,
+        "message": "想买的那个，我想看具体那一条的内容，再上一条的具体内容是啥",
+        "correct_tool": "product-detail",
+        "level": "mixed",
+        "selected": "product-query",
+        "fc_hit": false,
+        "latency_ms": 18.681,
+        "scores": {
+          "product-query": 0.3671
+        }
+      },
+      {
+        "idx": 209,
+        "message": "看中的款，我想看具体那一条的内容",
+        "correct_tool": "product-detail",
+        "level": "synonym",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 21.555,
+        "scores": {
+          "product-detail": 0.8886
+        }
+      },
+      {
+        "idx": 210,
+        "message": "想买的那个，帮我找出来相关的那些",
+        "correct_tool": "product-detail",
+        "level": "ambiguous",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 19.253,
+        "scores": {
+          "product-detail": 0.9448
+        }
+      },
+      {
+        "idx": 211,
+        "message": "相中的宝贝，我想看具体那一条的内容，另外这块我想查一下",
+        "correct_tool": "product-detail",
+        "level": "mixed",
+        "selected": "product-detail",
+        "fc_hit": true,
+        "latency_ms": 19.173,
+        "scores": {
+          "product-detail": 0.9556
+        }
+      },
+      {
+        "idx": 212,
+        "message": "想买的那个，我想办一下这个",
+        "correct_tool": "product-apply",
+        "level": "synonym",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 19.208,
+        "scores": {
+          "product-apply": 0.8657
+        }
+      },
+      {
+        "idx": 213,
+        "message": "['商品', '规格', '参数', '材质', '详情', '库存']办理怎么弄",
+        "correct_tool": "product-apply",
+        "level": "exact",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 18.754,
+        "scores": {
+          "product-apply": 0.6184
+        }
+      },
+      {
+        "idx": 214,
+        "message": "想买的那个，我想发起这个",
+        "correct_tool": "product-apply",
+        "level": "implied",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 19.071,
+        "scores": {
+          "product-apply": 0.4711
+        }
+      },
+      {
+        "idx": 215,
+        "message": "货架上的，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "product-apply",
+        "level": "mixed",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 18.446,
+        "scores": {
+          "product-apply": 0.9259
+        }
+      },
+      {
+        "idx": 216,
+        "message": "货架上的，我想办一下这个",
+        "correct_tool": "product-apply",
+        "level": "synonym",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 20.269,
+        "scores": {
+          "product-apply": 0.9836
+        }
+      },
+      {
+        "idx": 217,
+        "message": "要下单的物，帮我提交这个申请",
+        "correct_tool": "product-apply",
+        "level": "ambiguous",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 21.157,
+        "scores": {
+          "product-apply": 0.7604
+        }
+      },
+      {
+        "idx": 218,
+        "message": "相中的宝贝，这个该怎么去办",
+        "correct_tool": "product-apply",
+        "level": "implied",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 19.208,
+        "scores": {
+          "product-apply": 0.4544
+        }
+      },
+      {
+        "idx": 219,
+        "message": "想买的那个，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "product-apply",
+        "level": "mixed",
+        "selected": "product-apply",
+        "fc_hit": true,
+        "latency_ms": 18.796,
+        "scores": {
+          "product-apply": 0.5551
+        }
+      },
+      {
+        "idx": 220,
+        "message": "相中的宝贝，把那个撤回来",
+        "correct_tool": "product-cancel",
+        "level": "ambiguous",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.188,
+        "scores": {
+          "product-cancel": 0.9277
+        }
+      },
+      {
+        "idx": 221,
+        "message": "想买的那个，帮我中止这个",
+        "correct_tool": "product-cancel",
+        "level": "synonym",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.576,
+        "scores": {
+          "product-cancel": 0.9749
+        }
+      },
+      {
+        "idx": 222,
+        "message": "货架上的，把那个撤回来",
+        "correct_tool": "product-cancel",
+        "level": "ambiguous",
+        "selected": "logistics-cancel",
+        "fc_hit": false,
+        "latency_ms": 19.227,
+        "scores": {
+          "logistics-cancel": 0.4299
+        }
+      },
+      {
+        "idx": 223,
+        "message": "要下单的物，之前那个不要了",
+        "correct_tool": "product-cancel",
+        "level": "implied",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.627,
+        "scores": {
+          "product-cancel": 0.9909
+        }
+      },
+      {
+        "idx": 224,
+        "message": "看中的款，之前那个不要了",
+        "correct_tool": "product-cancel",
+        "level": "implied",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.915,
+        "scores": {
+          "product-cancel": 0.9828
+        }
+      },
+      {
+        "idx": 225,
+        "message": "['商品', '规格', '参数', '材质', '详情', '库存']取消怎么弄",
+        "correct_tool": "product-cancel",
+        "level": "exact",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 20.395,
+        "scores": {
+          "product-cancel": 0.9698
+        }
+      },
+      {
+        "idx": 226,
+        "message": "货架上的，帮我中止这个，再之前那个不要了",
+        "correct_tool": "product-cancel",
+        "level": "mixed",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.422,
+        "scores": {
+          "product-cancel": 0.994
+        }
+      },
+      {
+        "idx": 227,
+        "message": "要下单的物，我想停了那个，再不想要了帮我撤",
+        "correct_tool": "product-cancel",
+        "level": "mixed",
+        "selected": "product-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.189,
+        "scores": {
+          "product-cancel": 0.9727
+        }
+      },
+      {
+        "idx": 228,
+        "message": "要下单的物，把设置换一下",
+        "correct_tool": "product-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": false,
+        "latency_ms": 19.429,
+        "scores": {
+          "logistics-modify": 0.5619
+        }
+      },
+      {
+        "idx": 229,
+        "message": "看中的款，把设置换一下",
+        "correct_tool": "product-modify",
+        "level": "ambiguous",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 18.363,
+        "scores": {
+          "product-modify": 0.9986
+        }
+      },
+      {
+        "idx": 230,
+        "message": "货架上的，把设置换一下",
+        "correct_tool": "product-modify",
+        "level": "ambiguous",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 18.456,
+        "scores": {
+          "product-modify": 0.9963
+        }
+      },
+      {
+        "idx": 231,
+        "message": "相中的宝贝，把设置换一下",
+        "correct_tool": "product-modify",
+        "level": "ambiguous",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 18.694,
+        "scores": {
+          "product-modify": 0.868
+        }
+      },
+      {
+        "idx": 232,
+        "message": "相中的宝贝，帮我调一下",
+        "correct_tool": "product-modify",
+        "level": "synonym",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 20.57,
+        "scores": {
+          "product-modify": 0.9638
+        }
+      },
+      {
+        "idx": 233,
+        "message": "货架上的，帮我调一下，再那个地方不对，改掉",
+        "correct_tool": "product-modify",
+        "level": "mixed",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 19.363,
+        "scores": {
+          "product-modify": 0.821
+        }
+      },
+      {
+        "idx": 234,
+        "message": "想买的那个，想把信息更新下",
+        "correct_tool": "product-modify",
+        "level": "implied",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 19.567,
+        "scores": {
+          "product-modify": 0.9328
+        }
+      },
+      {
+        "idx": 235,
+        "message": "想买的那个，那个地方换个设置",
+        "correct_tool": "product-modify",
+        "level": "synonym",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 19.376,
+        "scores": {
+          "product-modify": 0.858
+        }
+      },
+      {
+        "idx": 236,
+        "message": "看中的款，帮我调一下，再那个地方不对，改掉",
+        "correct_tool": "product-modify",
+        "level": "mixed",
+        "selected": "product-modify",
+        "fc_hit": true,
+        "latency_ms": 19.543,
+        "scores": {
+          "product-modify": 0.6308
+        }
+      },
+      {
+        "idx": 237,
+        "message": "VIP 相关，那条里面具体的部分看一下",
+        "correct_tool": "membership-query",
+        "level": "ambiguous",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 19.528,
+        "scores": {
+          "membership-query": 0.9024
+        }
+      },
+      {
+        "idx": 238,
+        "message": "会员那块，这块我想查一下",
+        "correct_tool": "membership-query",
+        "level": "synonym",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 20.195,
+        "scores": {
+          "membership-query": 0.8828
+        }
+      },
+      {
+        "idx": 239,
+        "message": "VIP 相关，我想看看相关的情况，另外那条里面具体的部分看一下",
+        "correct_tool": "membership-query",
+        "level": "mixed",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 18.616,
+        "scores": {
+          "membership-query": 0.9837
+        }
+      },
+      {
+        "idx": 240,
+        "message": "等级相关的，我想看看相关的情况，另外那条里面具体的部分看一下",
+        "correct_tool": "membership-query",
+        "level": "mixed",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 16.808,
+        "scores": {
+          "membership-query": 0.9848
+        }
+      },
+      {
+        "idx": 241,
+        "message": "帮我['会员', '等级', '成长值', '权益', 'VIP']查询",
+        "correct_tool": "membership-query",
+        "level": "exact",
+        "selected": "membership-apply",
+        "fc_hit": false,
+        "latency_ms": 15.296,
+        "scores": {
+          "membership-apply": 0.524
+        }
+      },
+      {
+        "idx": 242,
+        "message": "VIP 相关，这块我想查一下",
+        "correct_tool": "membership-query",
+        "level": "synonym",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 16.022,
+        "scores": {
+          "membership-query": 0.9861
+        }
+      },
+      {
+        "idx": 243,
+        "message": "等级相关的，那条里面具体的部分看一下",
+        "correct_tool": "membership-query",
+        "level": "ambiguous",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 16.223,
+        "scores": {
+          "membership-query": 0.9787
+        }
+      },
+      {
+        "idx": 244,
+        "message": "会员那块，帮我找出来相关的那些",
+        "correct_tool": "membership-query",
+        "level": "ambiguous",
+        "selected": "membership-query",
+        "fc_hit": true,
+        "latency_ms": 16.535,
+        "scores": {
+          "membership-query": 0.9216
+        }
+      },
+      {
+        "idx": 245,
+        "message": "成长的那点，我想看看相关的情况",
+        "correct_tool": "membership-detail",
+        "level": "ambiguous",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 17.566,
+        "scores": {
+          "membership-detail": 0.9966
+        }
+      },
+      {
+        "idx": 246,
+        "message": "成长的那点，把那条的具体情况告诉我",
+        "correct_tool": "membership-detail",
+        "level": "synonym",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 17.727,
+        "scores": {
+          "membership-detail": 0.7617
+        }
+      },
+      {
+        "idx": 247,
+        "message": "等级相关的，刚才那个的明细给我",
+        "correct_tool": "membership-detail",
+        "level": "implied",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 15.904,
+        "scores": {
+          "membership-detail": 0.8901
+        }
+      },
+      {
+        "idx": 248,
+        "message": "等级相关的，帮我找出来相关的那些",
+        "correct_tool": "membership-detail",
+        "level": "ambiguous",
+        "selected": "membership-query",
+        "fc_hit": false,
+        "latency_ms": 15.401,
+        "scores": {
+          "membership-query": 0.7715
+        }
+      },
+      {
+        "idx": 249,
+        "message": "权益方面，上一条的具体内容是啥",
+        "correct_tool": "membership-detail",
+        "level": "implied",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 15.23,
+        "scores": {
+          "membership-detail": 0.9995
+        }
+      },
+      {
+        "idx": 250,
+        "message": "成长的那点，我想看具体那一条的内容，再刚才那个的明细给我",
+        "correct_tool": "membership-detail",
+        "level": "mixed",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 16.383,
+        "scores": {
+          "membership-detail": 0.9329
+        }
+      },
+      {
+        "idx": 251,
+        "message": "权益方面，我想看看相关的情况",
+        "correct_tool": "membership-detail",
+        "level": "ambiguous",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 14.843,
+        "scores": {
+          "membership-detail": 0.9878
+        }
+      },
+      {
+        "idx": 252,
+        "message": "VIP 相关，把那条的具体情况告诉我，再刚才那个的明细给我",
+        "correct_tool": "membership-detail",
+        "level": "mixed",
+        "selected": "membership-detail",
+        "fc_hit": true,
+        "latency_ms": 14.204,
+        "scores": {
+          "membership-detail": 0.8132
+        }
+      },
+      {
+        "idx": 253,
+        "message": "VIP 相关，帮我提交这个申请",
+        "correct_tool": "membership-apply",
+        "level": "ambiguous",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 15.015,
+        "scores": {
+          "membership-apply": 0.9689
+        }
+      },
+      {
+        "idx": 254,
+        "message": "会员那块，帮我弄个这个",
+        "correct_tool": "membership-apply",
+        "level": "synonym",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 14.709,
+        "scores": {
+          "membership-apply": 0.7554
+        }
+      },
+      {
+        "idx": 255,
+        "message": "权益方面，帮我弄个这个",
+        "correct_tool": "membership-apply",
+        "level": "synonym",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 14.607,
+        "scores": {
+          "membership-apply": 0.9784
+        }
+      },
+      {
+        "idx": 256,
+        "message": "等级相关的，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "membership-apply",
+        "level": "mixed",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 14.896,
+        "scores": {
+          "membership-apply": 0.9472
+        }
+      },
+      {
+        "idx": 257,
+        "message": "会员那块，走一下这个流程，再这个该怎么去办",
+        "correct_tool": "membership-apply",
+        "level": "mixed",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 15.424,
+        "scores": {
+          "membership-apply": 0.9294
+        }
+      },
+      {
+        "idx": 258,
+        "message": "权益方面，我想发起这个",
+        "correct_tool": "membership-apply",
+        "level": "implied",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 14.105,
+        "scores": {
+          "membership-apply": 0.9662
+        }
+      },
+      {
+        "idx": 259,
+        "message": "VIP 相关，这个该怎么去办",
+        "correct_tool": "membership-apply",
+        "level": "implied",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 15.899,
+        "scores": {
+          "membership-apply": 0.9675
+        }
+      },
+      {
+        "idx": 260,
+        "message": "权益方面，帮我提交这个申请",
+        "correct_tool": "membership-apply",
+        "level": "ambiguous",
+        "selected": "membership-apply",
+        "fc_hit": true,
+        "latency_ms": 14.066,
+        "scores": {
+          "membership-apply": 0.9867
+        }
+      },
+      {
+        "idx": 261,
+        "message": "等级相关的，帮我中止并取消",
+        "correct_tool": "membership-cancel",
+        "level": "ambiguous",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.545,
+        "scores": {
+          "membership-cancel": 0.9818
+        }
+      },
+      {
+        "idx": 262,
+        "message": "['会员', '等级', '成长值', '权益', 'VIP']取消怎么弄",
+        "correct_tool": "membership-cancel",
+        "level": "exact",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.69,
+        "scores": {
+          "membership-cancel": 0.9934
+        }
+      },
+      {
+        "idx": 263,
+        "message": "成长的那点，之前那个不要了",
+        "correct_tool": "membership-cancel",
+        "level": "implied",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.437,
+        "scores": {
+          "membership-cancel": 0.9598
+        }
+      },
+      {
+        "idx": 264,
+        "message": "等级相关的，不想要了帮我撤",
+        "correct_tool": "membership-cancel",
+        "level": "implied",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 13.968,
+        "scores": {
+          "membership-cancel": 0.9647
+        }
+      },
+      {
+        "idx": 265,
+        "message": "VIP 相关，帮我中止并取消",
+        "correct_tool": "membership-cancel",
+        "level": "ambiguous",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.044,
+        "scores": {
+          "membership-cancel": 0.981
+        }
+      },
+      {
+        "idx": 266,
+        "message": "会员那块，我想停了那个，再不想要了帮我撤",
+        "correct_tool": "membership-cancel",
+        "level": "mixed",
+        "selected": "membership-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.6,
+        "scores": {
+          "membership-cancel": 0.9994
+        }
+      },
+      {
+        "idx": 267,
+        "message": "权益方面，把设置换一下",
+        "correct_tool": "membership-modify",
+        "level": "ambiguous",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.161,
+        "scores": {
+          "membership-modify": 0.9776
+        }
+      },
+      {
+        "idx": 268,
+        "message": "帮我['会员', '等级', '成长值', '权益', 'VIP']修改",
+        "correct_tool": "membership-modify",
+        "level": "exact",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.876,
+        "scores": {
+          "membership-modify": 0.5315
+        }
+      },
+      {
+        "idx": 269,
+        "message": "会员那块，那个地方不对，改掉",
+        "correct_tool": "membership-modify",
+        "level": "implied",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 17.247,
+        "scores": {
+          "membership-modify": 0.9569
+        }
+      },
+      {
+        "idx": 270,
+        "message": "成长的那点，那个地方换个设置",
+        "correct_tool": "membership-modify",
+        "level": "synonym",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.801,
+        "scores": {
+          "membership-modify": 0.9936
+        }
+      },
+      {
+        "idx": 271,
+        "message": "VIP 相关，想把信息更新下",
+        "correct_tool": "membership-modify",
+        "level": "implied",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.847,
+        "scores": {
+          "membership-modify": 0.9389
+        }
+      },
+      {
+        "idx": 272,
+        "message": "VIP 相关，把设置换一下",
+        "correct_tool": "membership-modify",
+        "level": "ambiguous",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 17.106,
+        "scores": {
+          "membership-modify": 0.9775
+        }
+      },
+      {
+        "idx": 273,
+        "message": "['会员', '等级', '成长值', '权益', 'VIP']修改怎么弄",
+        "correct_tool": "membership-modify",
+        "level": "exact",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.386,
+        "scores": {
+          "membership-modify": 0.9985
+        }
+      },
+      {
+        "idx": 274,
+        "message": "成长的那点，帮我调一下，再那个地方不对，改掉",
+        "correct_tool": "membership-modify",
+        "level": "mixed",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 18.392,
+        "scores": {
+          "membership-modify": 0.8888
+        }
+      },
+      {
+        "idx": 275,
+        "message": "成长的那点，帮我调一下",
+        "correct_tool": "membership-modify",
+        "level": "synonym",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 15.393,
+        "scores": {
+          "membership-modify": 0.944
+        }
+      },
+      {
+        "idx": 276,
+        "message": "成长的那点，那个地方换个设置，再那个地方不对，改掉",
+        "correct_tool": "membership-modify",
+        "level": "mixed",
+        "selected": "membership-modify",
+        "fc_hit": true,
+        "latency_ms": 16.489,
+        "scores": {
+          "membership-modify": 0.9177
+        }
+      },
+      {
+        "idx": 277,
+        "message": "帮我['投诉', '差评', '举报', '建议', '反馈']怎么查",
+        "correct_tool": "complaint-query",
+        "level": "exact",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 15.316,
+        "scores": {
+          "complaint-query": 0.7563
+        }
+      },
+      {
+        "idx": 278,
+        "message": "要吐槽的，我想看具体那一条的内容",
+        "correct_tool": "complaint-query",
+        "level": "ambiguous",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 15.173,
+        "scores": {
+          "complaint-query": 0.9384
+        }
+      },
+      {
+        "idx": 279,
+        "message": "想反映的，我想看看相关的情况，另外我想看具体那一条的内容",
+        "correct_tool": "complaint-query",
+        "level": "mixed",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 14.795,
+        "scores": {
+          "complaint-query": 0.938
+        }
+      },
+      {
+        "idx": 280,
+        "message": "闹心的经历，我想看看相关的情况，另外我想看具体那一条的内容",
+        "correct_tool": "complaint-query",
+        "level": "mixed",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 14.684,
+        "scores": {
+          "complaint-query": 0.9742
+        }
+      },
+      {
+        "idx": 281,
+        "message": "要说的毛病，这块我想查一下",
+        "correct_tool": "complaint-query",
+        "level": "synonym",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 15.041,
+        "scores": {
+          "complaint-query": 0.9707
+        }
+      },
+      {
+        "idx": 282,
+        "message": "要吐槽的，把那条的具体情况告诉我",
+        "correct_tool": "complaint-query",
+        "level": "ambiguous",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 13.982,
+        "scores": {
+          "complaint-query": 0.9691
+        }
+      },
+      {
+        "idx": 283,
+        "message": "不爽的那桩，这块我想查一下",
+        "correct_tool": "complaint-query",
+        "level": "synonym",
+        "selected": "complaint-detail",
+        "fc_hit": false,
+        "latency_ms": 15.345,
+        "scores": {
+          "complaint-detail": 0.5319
+        }
+      },
+      {
+        "idx": 284,
+        "message": "要说的毛病，那个事我想再核实",
+        "correct_tool": "complaint-query",
+        "level": "implied",
+        "selected": "complaint-query",
+        "fc_hit": true,
+        "latency_ms": 16.298,
+        "scores": {
+          "complaint-query": 0.9618
+        }
+      },
+      {
+        "idx": 285,
+        "message": "要吐槽的，把单条的细节点出来",
+        "correct_tool": "complaint-query",
+        "level": "ambiguous",
+        "selected": "complaint-detail",
+        "fc_hit": false,
+        "latency_ms": 16.35,
+        "scores": {
+          "complaint-detail": 0.6993
+        }
+      },
+      {
+        "idx": 286,
+        "message": "不爽的那桩，我想看具体那一条的内容",
+        "correct_tool": "complaint-detail",
+        "level": "synonym",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 14.318,
+        "scores": {
+          "complaint-detail": 0.9372
+        }
+      },
+      {
+        "idx": 287,
+        "message": "帮我['投诉', '差评', '举报', '建议', '反馈']详情",
+        "correct_tool": "complaint-detail",
+        "level": "exact",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.527,
+        "scores": {
+          "complaint-detail": 0.8535
+        }
+      },
+      {
+        "idx": 288,
+        "message": "要说的毛病，刚才那个的明细给我",
+        "correct_tool": "complaint-detail",
+        "level": "implied",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.467,
+        "scores": {
+          "complaint-detail": 0.8713
+        }
+      },
+      {
+        "idx": 289,
+        "message": "要吐槽的，那条里面具体的部分看一下，再刚才那个的明细给我",
+        "correct_tool": "complaint-detail",
+        "level": "mixed",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.193,
+        "scores": {
+          "complaint-detail": 0.9156
+        }
+      },
+      {
+        "idx": 290,
+        "message": "想反映的，那条里面具体的部分看一下",
+        "correct_tool": "complaint-detail",
+        "level": "ambiguous",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 14.777,
+        "scores": {
+          "complaint-detail": 0.8625
+        }
+      },
+      {
+        "idx": 291,
+        "message": "要说的毛病，那条里面具体的部分看一下",
+        "correct_tool": "complaint-detail",
+        "level": "ambiguous",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.713,
+        "scores": {
+          "complaint-detail": 0.765
+        }
+      },
+      {
+        "idx": 292,
+        "message": "闹心的经历，刚才那个的明细给我",
+        "correct_tool": "complaint-detail",
+        "level": "implied",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.874,
+        "scores": {
+          "complaint-detail": 0.9668
+        }
+      },
+      {
+        "idx": 293,
+        "message": "想反映的，我想看具体那一条的内容，另外这块我想查一下",
+        "correct_tool": "complaint-detail",
+        "level": "mixed",
+        "selected": "complaint-detail",
+        "fc_hit": true,
+        "latency_ms": 15.905,
+        "scores": {
+          "complaint-detail": 0.8087
+        }
+      },
+      {
+        "idx": 294,
+        "message": "不爽的那桩，帮我弄个这个，再这个该怎么去办",
+        "correct_tool": "complaint-apply",
+        "level": "mixed",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.781,
+        "scores": {
+          "complaint-apply": 0.9514
+        }
+      },
+      {
+        "idx": 295,
+        "message": "闹心的经历，帮我弄个这个",
+        "correct_tool": "complaint-apply",
+        "level": "synonym",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 13.769,
+        "scores": {
+          "complaint-apply": 0.976
+        }
+      },
+      {
+        "idx": 296,
+        "message": "不爽的那桩，这个该怎么去办",
+        "correct_tool": "complaint-apply",
+        "level": "implied",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.195,
+        "scores": {
+          "complaint-apply": 0.8889
+        }
+      },
+      {
+        "idx": 297,
+        "message": "要吐槽的，走一下这个流程",
+        "correct_tool": "complaint-apply",
+        "level": "ambiguous",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.343,
+        "scores": {
+          "complaint-apply": 0.9985
+        }
+      },
+      {
+        "idx": 298,
+        "message": "['投诉', '差评', '举报', '建议', '反馈']申请怎么弄",
+        "correct_tool": "complaint-apply",
+        "level": "exact",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 16.661,
+        "scores": {
+          "complaint-apply": 0.9467
+        }
+      },
+      {
+        "idx": 299,
+        "message": "闹心的经历，我想办一下这个，再我想发起这个",
+        "correct_tool": "complaint-apply",
+        "level": "mixed",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.622,
+        "scores": {
+          "complaint-apply": 0.9792
+        }
+      },
+      {
+        "idx": 300,
+        "message": "要说的毛病，帮我提交这个申请",
+        "correct_tool": "complaint-apply",
+        "level": "ambiguous",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.676,
+        "scores": {
+          "complaint-apply": 0.9983
+        }
+      },
+      {
+        "idx": 301,
+        "message": "要吐槽的，我想发起这个",
+        "correct_tool": "complaint-apply",
+        "level": "implied",
+        "selected": "complaint-apply",
+        "fc_hit": true,
+        "latency_ms": 15.447,
+        "scores": {
+          "complaint-apply": 0.988
+        }
+      },
+      {
+        "idx": 302,
+        "message": "要说的毛病，我想停了那个，再不想要了帮我撤",
+        "correct_tool": "complaint-cancel",
+        "level": "mixed",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 29.153,
+        "scores": {
+          "complaint-cancel": 0.8
+        }
+      },
+      {
+        "idx": 303,
+        "message": "闹心的经历，我想停了那个，再之前那个不要了",
+        "correct_tool": "complaint-cancel",
+        "level": "mixed",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 21.47,
+        "scores": {
+          "complaint-cancel": 0.9224
+        }
+      },
+      {
+        "idx": 304,
+        "message": "不爽的那桩，之前那个不要了",
+        "correct_tool": "complaint-cancel",
+        "level": "implied",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.721,
+        "scores": {
+          "complaint-cancel": 0.8847
+        }
+      },
+      {
+        "idx": 305,
+        "message": "想反映的，之前那个不要了",
+        "correct_tool": "complaint-cancel",
+        "level": "implied",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.069,
+        "scores": {
+          "complaint-cancel": 0.9859
+        }
+      },
+      {
+        "idx": 306,
+        "message": "闹心的经历，帮我中止这个",
+        "correct_tool": "complaint-cancel",
+        "level": "synonym",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.657,
+        "scores": {
+          "complaint-cancel": 0.7632
+        }
+      },
+      {
+        "idx": 307,
+        "message": "要吐槽的，我想停了那个",
+        "correct_tool": "complaint-cancel",
+        "level": "synonym",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.484,
+        "scores": {
+          "complaint-cancel": 0.9933
+        }
+      },
+      {
+        "idx": 308,
+        "message": "要吐槽的，把那个撤回来",
+        "correct_tool": "complaint-cancel",
+        "level": "ambiguous",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.611,
+        "scores": {
+          "complaint-cancel": 0.9791
+        }
+      },
+      {
+        "idx": 309,
+        "message": "不爽的那桩，把那个撤回来",
+        "correct_tool": "complaint-cancel",
+        "level": "ambiguous",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.91,
+        "scores": {
+          "complaint-cancel": 0.9865
+        }
+      },
+      {
+        "idx": 310,
+        "message": "['投诉', '差评', '举报', '建议', '反馈']退掉怎么弄",
+        "correct_tool": "complaint-cancel",
+        "level": "exact",
+        "selected": "complaint-cancel",
+        "fc_hit": true,
+        "latency_ms": 13.953,
+        "scores": {
+          "complaint-cancel": 0.92
+        }
+      },
+      {
+        "idx": 311,
+        "message": "想反映的，帮我调一下，再想把信息更新下",
+        "correct_tool": "complaint-modify",
+        "level": "mixed",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 15.159,
+        "scores": {
+          "complaint-modify": 0.6578
+        }
+      },
+      {
+        "idx": 312,
+        "message": "闹心的经历，那个地方换个设置，再那个地方不对，改掉",
+        "correct_tool": "complaint-modify",
+        "level": "mixed",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 15.576,
+        "scores": {
+          "complaint-modify": 0.998
+        }
+      },
+      {
+        "idx": 313,
+        "message": "要说的毛病，帮我调整这个配置",
+        "correct_tool": "complaint-modify",
+        "level": "ambiguous",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 16.924,
+        "scores": {
+          "complaint-modify": 0.9989
+        }
+      },
+      {
+        "idx": 314,
+        "message": "想反映的，我想改一下这个",
+        "correct_tool": "complaint-modify",
+        "level": "synonym",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 15.209,
+        "scores": {
+          "complaint-modify": 0.8156
+        }
+      },
+      {
+        "idx": 315,
+        "message": "闹心的经历，帮我调一下",
+        "correct_tool": "complaint-modify",
+        "level": "synonym",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 16.066,
+        "scores": {
+          "complaint-modify": 0.7851
+        }
+      },
+      {
+        "idx": 316,
+        "message": "帮我['投诉', '差评', '举报', '建议', '反馈']更改",
+        "correct_tool": "complaint-modify",
+        "level": "exact",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 15.542,
+        "scores": {
+          "complaint-modify": 0.921
+        }
+      },
+      {
+        "idx": 317,
+        "message": "要吐槽的，那个地方不对，改掉",
+        "correct_tool": "complaint-modify",
+        "level": "implied",
+        "selected": "complaint-modify",
+        "fc_hit": true,
+        "latency_ms": 15.944,
+        "scores": {
+          "complaint-modify": 0.9473
+        }
+      },
+      {
+        "idx": 318,
+        "message": "之前下的那单，把那条的具体情况告诉我",
+        "correct_tool": "order-query",
+        "level": "ambiguous",
+        "selected": "logistics-detail",
+        "fc_hit": false,
+        "latency_ms": 15.667,
+        "scores": {
+          "logistics-detail": 0.714
+        }
+      },
+      {
+        "idx": 319,
+        "message": "刚拍的宝贝，我想看看相关的情况，再那个事我想再核实",
+        "correct_tool": "order-query",
+        "level": "mixed",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 15.585,
+        "scores": {
+          "order-query": 0.9397
+        }
+      },
+      {
+        "idx": 320,
+        "message": "付完钱的那笔，这块我想查一下，另外我想看具体那一条的内容",
+        "correct_tool": "order-query",
+        "level": "mixed",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 19.081,
+        "scores": {
+          "order-query": 0.8998
+        }
+      },
+      {
+        "idx": 321,
+        "message": "之前下的那单，帮我了解下这块的内容",
+        "correct_tool": "order-query",
+        "level": "synonym",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 20.996,
+        "scores": {
+          "order-query": 0.4514
+        }
+      },
+      {
+        "idx": 322,
+        "message": "付完钱的那笔，那个事我想再核实",
+        "correct_tool": "order-query",
+        "level": "implied",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 16.441,
+        "scores": {
+          "order-query": 0.8634
+        }
+      },
+      {
+        "idx": 323,
+        "message": "刚拍的宝贝，那个事我想再核实",
+        "correct_tool": "order-query",
+        "level": "implied",
+        "selected": "order-query",
+        "fc_hit": true,
+        "latency_ms": 16.863,
+        "scores": {
+          "order-query": 0.8969
+        }
+      },
+      {
+        "idx": 324,
+        "message": "购物车里那件，把单条的细节点出来",
+        "correct_tool": "order-detail",
+        "level": "ambiguous",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 16.573,
+        "scores": {
+          "order-detail": 0.5262
+        }
+      },
+      {
+        "idx": 325,
+        "message": "我买的东西，我想看看相关的情况",
+        "correct_tool": "order-detail",
+        "level": "ambiguous",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 17.102,
+        "scores": {
+          "order-detail": 0.8067
+        }
+      },
+      {
+        "idx": 326,
+        "message": "购物车里那件，那条里面具体的部分看一下，再刚才那个的明细给我",
+        "correct_tool": "order-detail",
+        "level": "mixed",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 16.247,
+        "scores": {
+          "order-detail": 0.5847
+        }
+      },
+      {
+        "idx": 327,
+        "message": "我买的东西，上一条的具体内容是啥",
+        "correct_tool": "order-detail",
+        "level": "implied",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 15.717,
+        "scores": {
+          "order-detail": 0.9289
+        }
+      },
+      {
+        "idx": 328,
+        "message": "付完钱的那笔，那条里面具体的部分看一下，再刚才那个的明细给我",
+        "correct_tool": "order-detail",
+        "level": "mixed",
+        "selected": "order-detail",
+        "fc_hit": true,
+        "latency_ms": 16.877,
+        "scores": {
+          "order-detail": 0.979
+        }
+      },
+      {
+        "idx": 329,
+        "message": "我买的东西，我想发起这个",
+        "correct_tool": "order-apply",
+        "level": "implied",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 21.745,
+        "scores": {
+          "order-apply": 0.7955
+        }
+      },
+      {
+        "idx": 330,
+        "message": "之前下的那单，走一下这个流程，再这个该怎么去办",
+        "correct_tool": "order-apply",
+        "level": "mixed",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 17.68,
+        "scores": {
+          "order-apply": 0.4502
+        }
+      },
+      {
+        "idx": 331,
+        "message": "我买的东西，这个该怎么去办",
+        "correct_tool": "order-apply",
+        "level": "implied",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 16.697,
+        "scores": {
+          "order-apply": 0.9374
+        }
+      },
+      {
+        "idx": 332,
+        "message": "我买的东西，帮我弄个这个",
+        "correct_tool": "order-apply",
+        "level": "synonym",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 16.005,
+        "scores": {
+          "order-apply": 0.6704
+        }
+      },
+      {
+        "idx": 333,
+        "message": "付完钱的那笔，帮我弄个这个，再这个该怎么去办",
+        "correct_tool": "order-apply",
+        "level": "mixed",
+        "selected": "order-apply",
+        "fc_hit": true,
+        "latency_ms": 16.729,
+        "scores": {
+          "order-apply": 0.8726
+        }
+      },
+      {
+        "idx": 334,
+        "message": "付完钱的那笔，之前那个不要了",
+        "correct_tool": "order-cancel",
+        "level": "implied",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.183,
+        "scores": {
+          "order-cancel": 0.7206
+        }
+      },
+      {
+        "idx": 335,
+        "message": "购物车里那件，之前那个不要了",
+        "correct_tool": "order-cancel",
+        "level": "implied",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.78,
+        "scores": {
+          "order-cancel": 0.9933
+        }
+      },
+      {
+        "idx": 336,
+        "message": "之前下的那单，把那个撤回来",
+        "correct_tool": "order-cancel",
+        "level": "ambiguous",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.754,
+        "scores": {
+          "order-cancel": 0.9981
+        }
+      },
+      {
+        "idx": 337,
+        "message": "付完钱的那笔，那个不要了，再之前那个不要了",
+        "correct_tool": "order-cancel",
+        "level": "mixed",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.785,
+        "scores": {
+          "order-cancel": 0.9144
+        }
+      },
+      {
+        "idx": 338,
+        "message": "购物车里那件，帮我中止这个",
+        "correct_tool": "order-cancel",
+        "level": "synonym",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.318,
+        "scores": {
+          "order-cancel": 0.9941
+        }
+      },
+      {
+        "idx": 339,
+        "message": "付完钱的那笔，帮我中止这个，再之前那个不要了",
+        "correct_tool": "order-cancel",
+        "level": "mixed",
+        "selected": "order-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.549,
+        "scores": {
+          "order-cancel": 0.7718
+        }
+      },
+      {
+        "idx": 340,
+        "message": "购物车里那件，帮我调一下，再那个地方不对，改掉",
+        "correct_tool": "order-modify",
+        "level": "mixed",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 16.088,
+        "scores": {
+          "order-modify": 0.622
+        }
+      },
+      {
+        "idx": 341,
+        "message": "['订单', '下单', '我的订单', '待付款', '已购']修改怎么弄",
+        "correct_tool": "order-modify",
+        "level": "exact",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 15.93,
+        "scores": {
+          "order-modify": 0.8381
+        }
+      },
+      {
+        "idx": 342,
+        "message": "购物车里那件，想把信息更新下",
+        "correct_tool": "order-modify",
+        "level": "implied",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 15.992,
+        "scores": {
+          "order-modify": 0.9977
+        }
+      },
+      {
+        "idx": 343,
+        "message": "刚拍的宝贝，那个地方换个设置，再那个地方不对，改掉",
+        "correct_tool": "order-modify",
+        "level": "mixed",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 16.212,
+        "scores": {
+          "order-modify": 0.6855
+        }
+      },
+      {
+        "idx": 344,
+        "message": "我买的东西，帮我调一下",
+        "correct_tool": "order-modify",
+        "level": "synonym",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 15.563,
+        "scores": {
+          "order-modify": 0.9886
+        }
+      },
+      {
+        "idx": 345,
+        "message": "付完钱的那笔，那个地方不对，改掉",
+        "correct_tool": "order-modify",
+        "level": "implied",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 16.251,
+        "scores": {
+          "order-modify": 0.9482
+        }
+      },
+      {
+        "idx": 346,
+        "message": "刚拍的宝贝，把设置换一下",
+        "correct_tool": "order-modify",
+        "level": "ambiguous",
+        "selected": "order-modify",
+        "fc_hit": true,
+        "latency_ms": 16.172,
+        "scores": {
+          "order-modify": 0.7988
+        }
+      },
+      {
+        "idx": 347,
+        "message": "派送的东西，帮我找出来相关的那些",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 16.906,
+        "scores": {
+          "logistics-query": 0.9123
+        }
+      },
+      {
+        "idx": 348,
+        "message": "我那个件，帮我了解下这块的内容",
+        "correct_tool": "logistics-query",
+        "level": "synonym",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 15.461,
+        "scores": {
+          "logistics-query": 0.658
+        }
+      },
+      {
+        "idx": 349,
+        "message": "帮我['物流', '快递', '配送', '到货', '包裹', '运单']怎么查",
+        "correct_tool": "logistics-query",
+        "level": "exact",
+        "selected": "logistics-detail",
+        "fc_hit": false,
+        "latency_ms": 17.035,
+        "scores": {
+          "logistics-detail": 0.5119
+        }
+      },
+      {
+        "idx": 350,
+        "message": "派送的东西，我想看看相关的情况",
+        "correct_tool": "logistics-query",
+        "level": "synonym",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 14.996,
+        "scores": {
+          "logistics-query": 0.9465
+        }
+      },
+      {
+        "idx": 351,
+        "message": "['物流', '快递', '配送', '到货', '包裹', '运单']查看怎么弄",
+        "correct_tool": "logistics-query",
+        "level": "exact",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 22.335,
+        "scores": {
+          "logistics-query": 0.8179
+        }
+      },
+      {
+        "idx": 352,
+        "message": "我那个件，帮我了解下这块的内容，另外我想看具体那一条的内容",
+        "correct_tool": "logistics-query",
+        "level": "mixed",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 18.413,
+        "scores": {
+          "logistics-query": 0.5015
+        }
+      },
+      {
+        "idx": 353,
+        "message": "我那个件，把那条的具体情况告诉我",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-detail",
+        "fc_hit": false,
+        "latency_ms": 18.204,
+        "scores": {
+          "logistics-detail": 0.4396
+        }
+      },
+      {
+        "idx": 354,
+        "message": "我那个件，我想看具体那一条的内容",
+        "correct_tool": "logistics-query",
+        "level": "ambiguous",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 19.287,
+        "scores": {
+          "logistics-query": 0.5104
+        }
+      },
+      {
+        "idx": 355,
+        "message": "发出的货，这块我想查一下，另外把那条的具体情况告诉我",
+        "correct_tool": "logistics-query",
+        "level": "mixed",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 18.653,
+        "scores": {
+          "logistics-query": 0.9431
+        }
+      },
+      {
+        "idx": 356,
+        "message": "派送的东西，之前提到的那个，再确认一下",
+        "correct_tool": "logistics-query",
+        "level": "implied",
+        "selected": "logistics-query",
+        "fc_hit": true,
+        "latency_ms": 19.333,
+        "scores": {
+          "logistics-query": 0.8055
+        }
+      },
+      {
+        "idx": 357,
+        "message": "在路上那单，把单条的细节点出来",
+        "correct_tool": "logistics-detail",
+        "level": "ambiguous",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.532,
+        "scores": {
+          "logistics-detail": 0.9373
+        }
+      },
+      {
+        "idx": 358,
+        "message": "发出的货，上一条的具体内容是啥",
+        "correct_tool": "logistics-detail",
+        "level": "implied",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 18.983,
+        "scores": {
+          "logistics-detail": 0.8924
+        }
+      },
+      {
+        "idx": 359,
+        "message": "派送的东西，刚才那个的明细给我",
+        "correct_tool": "logistics-detail",
+        "level": "implied",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.095,
+        "scores": {
+          "logistics-detail": 0.8241
+        }
+      },
+      {
+        "idx": 360,
+        "message": "我那个件，我想看具体那一条的内容，再上一条的具体内容是啥",
+        "correct_tool": "logistics-detail",
+        "level": "mixed",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.354,
+        "scores": {
+          "logistics-detail": 0.4639
+        }
+      },
+      {
+        "idx": 361,
+        "message": "我那个件，把相关的挑出来给我看",
+        "correct_tool": "logistics-detail",
+        "level": "ambiguous",
+        "selected": "product-detail",
+        "fc_hit": false,
+        "latency_ms": 18.295,
+        "scores": {
+          "product-detail": 0.3228
+        }
+      },
+      {
+        "idx": 362,
+        "message": "派送的东西，我想看具体那一条的内容",
+        "correct_tool": "logistics-detail",
+        "level": "synonym",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 17.528,
+        "scores": {
+          "logistics-detail": 0.8481
+        }
+      },
+      {
+        "idx": 363,
+        "message": "我那个件，把那条的具体情况告诉我，另外我想看看相关的情况",
+        "correct_tool": "logistics-detail",
+        "level": "mixed",
+        "selected": "logistics-detail",
+        "fc_hit": true,
+        "latency_ms": 19.309,
+        "scores": {
+          "logistics-detail": 0.5161
+        }
+      },
+      {
+        "idx": 364,
+        "message": "在路上那单，我想发起这个",
+        "correct_tool": "logistics-apply",
+        "level": "implied",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.679,
+        "scores": {
+          "logistics-apply": 0.816
+        }
+      },
+      {
+        "idx": 365,
+        "message": "派送的东西，帮我弄个这个",
+        "correct_tool": "logistics-apply",
+        "level": "synonym",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 20.343,
+        "scores": {
+          "logistics-apply": 0.8862
+        }
+      },
+      {
+        "idx": 366,
+        "message": "发出的货，帮我弄个这个，再这个该怎么去办",
+        "correct_tool": "logistics-apply",
+        "level": "mixed",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 20.062,
+        "scores": {
+          "logistics-apply": 0.9887
+        }
+      },
+      {
+        "idx": 367,
+        "message": "要收的包，走一下这个流程",
+        "correct_tool": "logistics-apply",
+        "level": "ambiguous",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.971,
+        "scores": {
+          "logistics-apply": 0.9974
+        }
+      },
+      {
+        "idx": 368,
+        "message": "在路上那单，走一下这个流程",
+        "correct_tool": "logistics-apply",
+        "level": "ambiguous",
+        "selected": "logistics-apply",
+        "fc_hit": true,
+        "latency_ms": 19.596,
+        "scores": {
+          "logistics-apply": 0.9829
+        }
+      },
+      {
+        "idx": 369,
+        "message": "在路上那单，那个不要了，再之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "mixed",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.723,
+        "scores": {
+          "logistics-cancel": 0.9575
+        }
+      },
+      {
+        "idx": 370,
+        "message": "在路上那单，我想停了那个，再之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "mixed",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.755,
+        "scores": {
+          "logistics-cancel": 0.7798
+        }
+      },
+      {
+        "idx": 371,
+        "message": "发出的货，我想停了那个",
+        "correct_tool": "logistics-cancel",
+        "level": "synonym",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 19.022,
+        "scores": {
+          "logistics-cancel": 0.5162
+        }
+      },
+      {
+        "idx": 372,
+        "message": "发出的货，之前那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "implied",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.918,
+        "scores": {
+          "logistics-cancel": 0.8795
+        }
+      },
+      {
+        "idx": 373,
+        "message": "在路上那单，帮我中止并取消",
+        "correct_tool": "logistics-cancel",
+        "level": "ambiguous",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.953,
+        "scores": {
+          "logistics-cancel": 0.9962
+        }
+      },
+      {
+        "idx": 374,
+        "message": "我那个件，那个不要了",
+        "correct_tool": "logistics-cancel",
+        "level": "synonym",
+        "selected": "logistics-cancel",
+        "fc_hit": true,
+        "latency_ms": 18.216,
+        "scores": {
+          "logistics-cancel": 0.9321
+        }
+      },
+      {
+        "idx": 375,
+        "message": "帮我['物流', '快递', '配送', '到货', '包裹', '运单']调整",
+        "correct_tool": "logistics-modify",
+        "level": "exact",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 17.955,
+        "scores": {
+          "logistics-modify": 0.8093
+        }
+      },
+      {
+        "idx": 376,
+        "message": "要收的包，帮我调整这个配置",
+        "correct_tool": "logistics-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 17.958,
+        "scores": {
+          "logistics-modify": 0.805
+        }
+      },
+      {
+        "idx": 377,
+        "message": "派送的东西，把设置换一下",
+        "correct_tool": "logistics-modify",
+        "level": "ambiguous",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 23.99,
+        "scores": {
+          "logistics-modify": 0.9329
+        }
+      },
+      {
+        "idx": 378,
+        "message": "['物流', '快递', '配送', '到货', '包裹', '运单']调整怎么弄",
+        "correct_tool": "logistics-modify",
+        "level": "exact",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.48,
+        "scores": {
+          "logistics-modify": 0.879
+        }
+      },
+      {
+        "idx": 379,
+        "message": "发出的货，帮我调一下",
+        "correct_tool": "logistics-modify",
+        "level": "synonym",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.681,
+        "scores": {
+          "logistics-modify": 0.5819
+        }
+      },
+      {
+        "idx": 380,
+        "message": "我那个件，想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "implied",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 19.248,
+        "scores": {
+          "logistics-modify": 0.9258
+        }
+      },
+      {
+        "idx": 381,
+        "message": "在路上那单，那个地方换个设置，再想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "mixed",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.69,
+        "scores": {
+          "logistics-modify": 0.7272
+        }
+      },
+      {
+        "idx": 382,
+        "message": "派送的东西，那个地方换个设置，再想把信息更新下",
+        "correct_tool": "logistics-modify",
+        "level": "mixed",
+        "selected": "logistics-modify",
+        "fc_hit": true,
+        "latency_ms": 18.739,
+        "scores": {
+          "logistics-modify": 0.8157
+        }
+      },
+      {
+        "idx": 383,
+        "message": "出问题的工作，帮我了解下这块的内容",
+        "correct_tool": "aftersale-query",
+        "level": "synonym",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 22.533,
+        "scores": {
+          "aftersale-query": 0.5613
+        }
+      },
+      {
+        "idx": 384,
+        "message": "不想要的那笔，之前提到的那个，再确认一下",
+        "correct_tool": "aftersale-query",
+        "level": "implied",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 19.391,
+        "scores": {
+          "aftersale-query": 0.8854
+        }
+      },
+      {
+        "idx": 385,
+        "message": "收到的坏件，帮我了解下这块的内容",
+        "correct_tool": "aftersale-query",
+        "level": "synonym",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 18.73,
+        "scores": {
+          "aftersale-query": 0.9593
+        }
+      },
+      {
+        "idx": 386,
+        "message": "要处理的退换，这块我想查一下，再那个事我想再核实",
+        "correct_tool": "aftersale-query",
+        "level": "mixed",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 19.092,
+        "scores": {
+          "aftersale-query": 0.5819
+        }
+      },
+      {
+        "idx": 387,
+        "message": "收到的坏件，我想看看相关的情况，另外我想看具体那一条的内容",
+        "correct_tool": "aftersale-query",
+        "level": "mixed",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 20.641,
+        "scores": {
+          "aftersale-query": 0.8744
+        }
+      },
+      {
+        "idx": 388,
+        "message": "要处理的退换，把单条的细节点出来",
+        "correct_tool": "aftersale-query",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 20.387,
+        "scores": {
+          "aftersale-query": 0.7457
+        }
+      },
+      {
+        "idx": 389,
+        "message": "要退的那桩，帮我找出来相关的那些",
+        "correct_tool": "aftersale-query",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 18.943,
+        "scores": {
+          "aftersale-query": 0.9491
+        }
+      },
+      {
+        "idx": 390,
+        "message": "收到的坏件，把相关的挑出来给我看",
+        "correct_tool": "aftersale-query",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": true,
+        "latency_ms": 19.234,
+        "scores": {
+          "aftersale-query": 0.5588
+        }
+      },
+      {
+        "idx": 391,
+        "message": "出问题的工作，把相关的挑出来给我看",
+        "correct_tool": "aftersale-detail",
+        "level": "ambiguous",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 18.219,
+        "scores": {
+          "aftersale-detail": 0.6365
+        }
+      },
+      {
+        "idx": 392,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']明细",
+        "correct_tool": "aftersale-detail",
+        "level": "exact",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 19.147,
+        "scores": {
+          "aftersale-detail": 0.8329
+        }
+      },
+      {
+        "idx": 393,
+        "message": "要处理的退换，我想看具体那一条的内容，另外这块我想查一下",
+        "correct_tool": "aftersale-detail",
+        "level": "mixed",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.458,
+        "scores": {
+          "aftersale-detail": 0.983
+        }
+      },
+      {
+        "idx": 394,
+        "message": "要处理的退换，上一条的具体内容是啥",
+        "correct_tool": "aftersale-detail",
+        "level": "implied",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 18.455,
+        "scores": {
+          "aftersale-detail": 0.9745
+        }
+      },
+      {
+        "idx": 395,
+        "message": "出问题的工作，那条里面具体的部分看一下",
+        "correct_tool": "aftersale-detail",
+        "level": "synonym",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 16.657,
+        "scores": {
+          "aftersale-detail": 0.8865
+        }
+      },
+      {
+        "idx": 396,
+        "message": "要退的那桩，把那条的具体情况告诉我，再上一条的具体内容是啥",
+        "correct_tool": "aftersale-detail",
+        "level": "mixed",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.002,
+        "scores": {
+          "aftersale-detail": 0.9296
+        }
+      },
+      {
+        "idx": 397,
+        "message": "不想要的那笔，那条里面具体的部分看一下",
+        "correct_tool": "aftersale-detail",
+        "level": "ambiguous",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 14.98,
+        "scores": {
+          "aftersale-detail": 0.8537
+        }
+      },
+      {
+        "idx": 398,
+        "message": "收到的坏件，上一条的具体内容是啥",
+        "correct_tool": "aftersale-detail",
+        "level": "implied",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 22.433,
+        "scores": {
+          "aftersale-detail": 0.8972
+        }
+      },
+      {
+        "idx": 399,
+        "message": "要处理的退换，那条里面具体的部分看一下",
+        "correct_tool": "aftersale-detail",
+        "level": "ambiguous",
+        "selected": "aftersale-query",
+        "fc_hit": false,
+        "latency_ms": 16.446,
+        "scores": {
+          "aftersale-query": 0.6139
+        }
+      },
+      {
+        "idx": 400,
+        "message": "['退货', '退款', '售后', '退换', '维修']详情怎么弄",
+        "correct_tool": "aftersale-detail",
+        "level": "exact",
+        "selected": "aftersale-detail",
+        "fc_hit": true,
+        "latency_ms": 15.594,
+        "scores": {
+          "aftersale-detail": 0.6779
+        }
+      },
+      {
+        "idx": 401,
+        "message": "要处理的退换，走一下这个流程",
+        "correct_tool": "aftersale-apply",
+        "level": "ambiguous",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.895,
+        "scores": {
+          "aftersale-apply": 0.8925
+        }
+      },
+      {
+        "idx": 402,
+        "message": "要退的那桩，帮我提交这个申请",
+        "correct_tool": "aftersale-apply",
+        "level": "ambiguous",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 15.953,
+        "scores": {
+          "aftersale-apply": 0.9483
+        }
+      },
+      {
+        "idx": 403,
+        "message": "要处理的退换，帮我提交这个申请",
+        "correct_tool": "aftersale-apply",
+        "level": "ambiguous",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.451,
+        "scores": {
+          "aftersale-apply": 0.9346
+        }
+      },
+      {
+        "idx": 404,
+        "message": "出问题的工作，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "aftersale-apply",
+        "level": "mixed",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 15.306,
+        "scores": {
+          "aftersale-apply": 0.9356
+        }
+      },
+      {
+        "idx": 405,
+        "message": "要退的那桩，走一下这个流程，再我想发起这个",
+        "correct_tool": "aftersale-apply",
+        "level": "mixed",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 15.815,
+        "scores": {
+          "aftersale-apply": 0.9458
+        }
+      },
+      {
+        "idx": 406,
+        "message": "要处理的退换，我想发起这个",
+        "correct_tool": "aftersale-apply",
+        "level": "implied",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.129,
+        "scores": {
+          "aftersale-apply": 0.9421
+        }
+      },
+      {
+        "idx": 407,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']提交",
+        "correct_tool": "aftersale-apply",
+        "level": "exact",
+        "selected": "aftersale-apply",
+        "fc_hit": true,
+        "latency_ms": 16.696,
+        "scores": {
+          "aftersale-apply": 0.7598
+        }
+      },
+      {
+        "idx": 408,
+        "message": "要退的那桩，之前那个不要了",
+        "correct_tool": "aftersale-cancel",
+        "level": "implied",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 14.706,
+        "scores": {
+          "aftersale-cancel": 0.9548
+        }
+      },
+      {
+        "idx": 409,
+        "message": "['退货', '退款', '售后', '退换', '维修']取消怎么弄",
+        "correct_tool": "aftersale-cancel",
+        "level": "exact",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.382,
+        "scores": {
+          "aftersale-cancel": 0.8095
+        }
+      },
+      {
+        "idx": 410,
+        "message": "要退的那桩，把那个撤回来",
+        "correct_tool": "aftersale-cancel",
+        "level": "ambiguous",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.477,
+        "scores": {
+          "aftersale-cancel": 0.9944
+        }
+      },
+      {
+        "idx": 411,
+        "message": "出问题的工作，我想停了那个，再之前那个不要了",
+        "correct_tool": "aftersale-cancel",
+        "level": "mixed",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.03,
+        "scores": {
+          "aftersale-cancel": 0.8774
+        }
+      },
+      {
+        "idx": 412,
+        "message": "收到的坏件，那个不要了，再之前那个不要了",
+        "correct_tool": "aftersale-cancel",
+        "level": "mixed",
+        "selected": "aftersale-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.341,
+        "scores": {
+          "aftersale-cancel": 0.7732
+        }
+      },
+      {
+        "idx": 413,
+        "message": "出问题的工作，帮我调一下，再想把信息更新下",
+        "correct_tool": "aftersale-modify",
+        "level": "mixed",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 15.532,
+        "scores": {
+          "aftersale-modify": 0.9899
+        }
+      },
+      {
+        "idx": 414,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']调整",
+        "correct_tool": "aftersale-modify",
+        "level": "exact",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 17.227,
+        "scores": {
+          "aftersale-modify": 0.7877
+        }
+      },
+      {
+        "idx": 415,
+        "message": "要处理的退换，想把信息更新下",
+        "correct_tool": "aftersale-modify",
+        "level": "implied",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 15.986,
+        "scores": {
+          "aftersale-modify": 0.9589
+        }
+      },
+      {
+        "idx": 416,
+        "message": "收到的坏件，那个地方换个设置",
+        "correct_tool": "aftersale-modify",
+        "level": "synonym",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 15.997,
+        "scores": {
+          "aftersale-modify": 0.8036
+        }
+      },
+      {
+        "idx": 417,
+        "message": "不想要的那笔，我想改一下这个，再想把信息更新下",
+        "correct_tool": "aftersale-modify",
+        "level": "mixed",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 18.376,
+        "scores": {
+          "aftersale-modify": 0.9965
+        }
+      },
+      {
+        "idx": 418,
+        "message": "要退的那桩，把设置换一下",
+        "correct_tool": "aftersale-modify",
+        "level": "ambiguous",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 17.239,
+        "scores": {
+          "aftersale-modify": 0.9759
+        }
+      },
+      {
+        "idx": 419,
+        "message": "帮我['退货', '退款', '售后', '退换', '维修']修改",
+        "correct_tool": "aftersale-modify",
+        "level": "exact",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 17.006,
+        "scores": {
+          "aftersale-modify": 0.6946
+        }
+      },
+      {
+        "idx": 420,
+        "message": "要处理的退换，帮我调整这个配置",
+        "correct_tool": "aftersale-modify",
+        "level": "ambiguous",
+        "selected": "aftersale-modify",
+        "fc_hit": true,
+        "latency_ms": 17.269,
+        "scores": {
+          "aftersale-modify": 0.9351
+        }
+      },
+      {
+        "idx": 421,
+        "message": "我的资产，帮我找出来相关的那些",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 17.025,
+        "scores": {
+          "account-query": 0.9508
+        }
+      },
+      {
+        "idx": 422,
+        "message": "攒的那些分，那条里面具体的部分看一下",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.681,
+        "scores": {
+          "account-query": 0.5057
+        }
+      },
+      {
+        "idx": 423,
+        "message": "攒的那些分，把那条的具体情况告诉我",
+        "correct_tool": "account-query",
+        "level": "ambiguous",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.504,
+        "scores": {
+          "account-query": 0.9413
+        }
+      },
+      {
+        "idx": 424,
+        "message": "我的资产，我想看看相关的情况",
+        "correct_tool": "account-query",
+        "level": "synonym",
+        "selected": "account-detail",
+        "fc_hit": false,
+        "latency_ms": 16.266,
+        "scores": {
+          "account-detail": 0.6189
+        }
+      },
+      {
+        "idx": 425,
+        "message": "户头里的，这块我想查一下，另外我想看具体那一条的内容",
+        "correct_tool": "account-query",
+        "level": "mixed",
+        "selected": "account-query",
+        "fc_hit": true,
+        "latency_ms": 16.896,
+        "scores": {
+          "account-query": 0.8604
+        }
+      },
+      {
+        "idx": 426,
+        "message": "里面的余额，那条里面具体的部分看一下，另外帮我了解下这块的内容",
+        "correct_tool": "account-detail",
+        "level": "mixed",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.7,
+        "scores": {
+          "account-detail": 0.5449
+        }
+      },
+      {
+        "idx": 427,
+        "message": "我的资产，我想看具体那一条的内容",
+        "correct_tool": "account-detail",
+        "level": "synonym",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 16.105,
+        "scores": {
+          "account-detail": 0.5081
+        }
+      },
+      {
+        "idx": 428,
+        "message": "我的资产，上一条的具体内容是啥",
+        "correct_tool": "account-detail",
+        "level": "implied",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.371,
+        "scores": {
+          "account-detail": 0.9276
+        }
+      },
+      {
+        "idx": 429,
+        "message": "里面的余额，上一条的具体内容是啥",
+        "correct_tool": "account-detail",
+        "level": "implied",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 16.497,
+        "scores": {
+          "account-detail": 0.9805
+        }
+      },
+      {
+        "idx": 430,
+        "message": "['余额', '积分', '钱包', '账户', '资金']详情怎么弄",
+        "correct_tool": "account-detail",
+        "level": "exact",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 16.116,
+        "scores": {
+          "account-detail": 0.9807
+        }
+      },
+      {
+        "idx": 431,
+        "message": "帮我['余额', '积分', '钱包', '账户', '资金']具体信息",
+        "correct_tool": "account-detail",
+        "level": "exact",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.103,
+        "scores": {
+          "account-detail": 0.6885
+        }
+      },
+      {
+        "idx": 432,
+        "message": "里面的余额，那条里面具体的部分看一下，另外这块我想查一下",
+        "correct_tool": "account-detail",
+        "level": "mixed",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 15.647,
+        "scores": {
+          "account-detail": 0.9982
+        }
+      },
+      {
+        "idx": 433,
+        "message": "我的资产，把单条的细节点出来",
+        "correct_tool": "account-detail",
+        "level": "ambiguous",
+        "selected": "account-detail",
+        "fc_hit": true,
+        "latency_ms": 16.414,
+        "scores": {
+          "account-detail": 0.8105
+        }
+      },
+      {
+        "idx": 434,
+        "message": "里面的余额，这个该怎么去办",
+        "correct_tool": "account-apply",
+        "level": "implied",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 16.595,
+        "scores": {
+          "account-apply": 0.7375
+        }
+      },
+      {
+        "idx": 435,
+        "message": "['余额', '积分', '钱包', '账户', '资金']申请怎么弄",
+        "correct_tool": "account-apply",
+        "level": "exact",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 16.946,
+        "scores": {
+          "account-apply": 0.9913
+        }
+      },
+      {
+        "idx": 436,
+        "message": "里面的余额，帮我提交这个申请",
+        "correct_tool": "account-apply",
+        "level": "ambiguous",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 15.363,
+        "scores": {
+          "account-apply": 0.9958
+        }
+      },
+      {
+        "idx": 437,
+        "message": "户头里的，我想办一下这个，再这个该怎么去办",
+        "correct_tool": "account-apply",
+        "level": "mixed",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 15.84,
+        "scores": {
+          "account-apply": 0.9727
+        }
+      },
+      {
+        "idx": 438,
+        "message": "卡里的钱，走一下这个流程",
+        "correct_tool": "account-apply",
+        "level": "ambiguous",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 16.217,
+        "scores": {
+          "account-apply": 0.9911
+        }
+      },
+      {
+        "idx": 439,
+        "message": "户头里的，这个该怎么去办",
+        "correct_tool": "account-apply",
+        "level": "implied",
+        "selected": "account-apply",
+        "fc_hit": true,
+        "latency_ms": 16.175,
+        "scores": {
+          "account-apply": 0.998
+        }
+      },
+      {
+        "idx": 440,
+        "message": "里面的余额，那个不要了，再不想要了帮我撤",
+        "correct_tool": "account-cancel",
+        "level": "mixed",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.718,
+        "scores": {
+          "account-cancel": 0.8252
+        }
+      },
+      {
+        "idx": 441,
+        "message": "卡里的钱，那个不要了，再之前那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "mixed",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.378,
+        "scores": {
+          "account-cancel": 0.9515
+        }
+      },
+      {
+        "idx": 442,
+        "message": "我的资产，帮我中止并取消",
+        "correct_tool": "account-cancel",
+        "level": "ambiguous",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.358,
+        "scores": {
+          "account-cancel": 0.9503
+        }
+      },
+      {
+        "idx": 443,
+        "message": "攒的那些分，把那个撤回来",
+        "correct_tool": "account-cancel",
+        "level": "ambiguous",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.499,
+        "scores": {
+          "account-cancel": 0.9981
+        }
+      },
+      {
+        "idx": 444,
+        "message": "['余额', '积分', '钱包', '账户', '资金']取消怎么弄",
+        "correct_tool": "account-cancel",
+        "level": "exact",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.8,
+        "scores": {
+          "account-cancel": 0.9733
+        }
+      },
+      {
+        "idx": 445,
+        "message": "里面的余额，那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "synonym",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.203,
+        "scores": {
+          "account-cancel": 0.999
+        }
+      },
+      {
+        "idx": 446,
+        "message": "卡里的钱，之前那个不要了",
+        "correct_tool": "account-cancel",
+        "level": "implied",
+        "selected": "account-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.796,
+        "scores": {
+          "account-cancel": 0.9922
+        }
+      },
+      {
+        "idx": 447,
+        "message": "户头里的，那个地方换个设置，再那个地方不对，改掉",
+        "correct_tool": "account-modify",
+        "level": "mixed",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 15.469,
+        "scores": {
+          "account-modify": 0.5228
+        }
+      },
+      {
+        "idx": 448,
+        "message": "户头里的，帮我调一下",
+        "correct_tool": "account-modify",
+        "level": "synonym",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.159,
+        "scores": {
+          "account-modify": 0.898
+        }
+      },
+      {
+        "idx": 449,
+        "message": "卡里的钱，帮我调一下，再想把信息更新下",
+        "correct_tool": "account-modify",
+        "level": "mixed",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.194,
+        "scores": {
+          "account-modify": 0.9495
+        }
+      },
+      {
+        "idx": 450,
+        "message": "我的资产，帮我调整这个配置",
+        "correct_tool": "account-modify",
+        "level": "ambiguous",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.742,
+        "scores": {
+          "account-modify": 0.8973
+        }
+      },
+      {
+        "idx": 451,
+        "message": "攒的那些分，帮我调整这个配置",
+        "correct_tool": "account-modify",
+        "level": "ambiguous",
+        "selected": "account-modify",
+        "fc_hit": true,
+        "latency_ms": 16.044,
+        "scores": {
+          "account-modify": 0.9708
+        }
+      },
+      {
+        "idx": 452,
+        "message": "平台送的券，把那条的具体情况告诉我",
+        "correct_tool": "coupon-query",
+        "level": "ambiguous",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 17.19,
+        "scores": {
+          "coupon-query": 0.9699
+        }
+      },
+      {
+        "idx": 453,
+        "message": "['优惠券', '满减', '活动', '折扣', '福利', '券']查询怎么弄",
+        "correct_tool": "coupon-query",
+        "level": "exact",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 20.704,
+        "scores": {
+          "coupon-query": 0.9346
+        }
+      },
+      {
+        "idx": 454,
+        "message": "平台送的券，帮我了解下这块的内容，另外那条里面具体的部分看一下",
+        "correct_tool": "coupon-query",
+        "level": "mixed",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.026,
+        "scores": {
+          "coupon-query": 0.6106
+        }
+      },
+      {
+        "idx": 455,
+        "message": "平台送的券，那个事我想再核实",
+        "correct_tool": "coupon-query",
+        "level": "implied",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.1,
+        "scores": {
+          "coupon-query": 0.8865
+        }
+      },
+      {
+        "idx": 456,
+        "message": "能领的福利，我想看看相关的情况，另外把那条的具体情况告诉我",
+        "correct_tool": "coupon-query",
+        "level": "mixed",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 17.334,
+        "scores": {
+          "coupon-query": 0.9572
+        }
+      },
+      {
+        "idx": 457,
+        "message": "能领的福利，把单条的细节点出来",
+        "correct_tool": "coupon-query",
+        "level": "ambiguous",
+        "selected": "coupon-detail",
+        "fc_hit": false,
+        "latency_ms": 17.05,
+        "scores": {
+          "coupon-detail": 0.5831
+        }
+      },
+      {
+        "idx": 458,
+        "message": "可以减的，这块我想查一下",
+        "correct_tool": "coupon-query",
+        "level": "synonym",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 14.939,
+        "scores": {
+          "coupon-query": 0.9244
+        }
+      },
+      {
+        "idx": 459,
+        "message": "能领的福利，把相关的挑出来给我看",
+        "correct_tool": "coupon-query",
+        "level": "ambiguous",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 16.085,
+        "scores": {
+          "coupon-query": 0.9969
+        }
+      },
+      {
+        "idx": 460,
+        "message": "能领的福利，帮我了解下这块的内容",
+        "correct_tool": "coupon-query",
+        "level": "synonym",
+        "selected": "coupon-detail",
+        "fc_hit": false,
+        "latency_ms": 16.305,
+        "scores": {
+          "coupon-detail": 0.5636
+        }
+      },
+      {
+        "idx": 461,
+        "message": "能领的福利，那条里面具体的部分看一下",
+        "correct_tool": "coupon-query",
+        "level": "ambiguous",
+        "selected": "coupon-query",
+        "fc_hit": true,
+        "latency_ms": 20.536,
+        "scores": {
+          "coupon-query": 0.9983
+        }
+      },
+      {
+        "idx": 462,
+        "message": "能省的，把相关的挑出来给我看",
+        "correct_tool": "coupon-detail",
+        "level": "ambiguous",
+        "selected": "coupon-query",
+        "fc_hit": false,
+        "latency_ms": 18.283,
+        "scores": {
+          "coupon-query": 0.5433
+        }
+      },
+      {
+        "idx": 463,
+        "message": "能领的福利，把那条的具体情况告诉我，另外我想看看相关的情况",
+        "correct_tool": "coupon-detail",
+        "level": "mixed",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 16.781,
+        "scores": {
+          "coupon-detail": 0.9944
+        }
+      },
+      {
+        "idx": 464,
+        "message": "能领的福利，刚才那个的明细给我",
+        "correct_tool": "coupon-detail",
+        "level": "implied",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 15.295,
+        "scores": {
+          "coupon-detail": 0.9939
+        }
+      },
+      {
+        "idx": 465,
+        "message": "活动给的，我想看具体那一条的内容，另外这块我想查一下",
+        "correct_tool": "coupon-detail",
+        "level": "mixed",
+        "selected": "coupon-detail",
+        "fc_hit": true,
+        "latency_ms": 19.289,
+        "scores": {
+          "coupon-detail": 0.8714
+        }
+      },
+      {
+        "idx": 466,
+        "message": "能领的福利，帮我弄个这个，再我想发起这个",
+        "correct_tool": "coupon-apply",
+        "level": "mixed",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 16.798,
+        "scores": {
+          "coupon-apply": 0.9175
+        }
+      },
+      {
+        "idx": 467,
+        "message": "平台送的券，走一下这个流程，再这个该怎么去办",
+        "correct_tool": "coupon-apply",
+        "level": "mixed",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 16.11,
+        "scores": {
+          "coupon-apply": 0.954
+        }
+      },
+      {
+        "idx": 468,
+        "message": "平台送的券，走一下这个流程",
+        "correct_tool": "coupon-apply",
+        "level": "ambiguous",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 16.268,
+        "scores": {
+          "coupon-apply": 0.9746
+        }
+      },
+      {
+        "idx": 469,
+        "message": "活动给的，帮我提交这个申请",
+        "correct_tool": "coupon-apply",
+        "level": "ambiguous",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 17.012,
+        "scores": {
+          "coupon-apply": 0.9972
+        }
+      },
+      {
+        "idx": 470,
+        "message": "活动给的，我想发起这个",
+        "correct_tool": "coupon-apply",
+        "level": "implied",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 16.514,
+        "scores": {
+          "coupon-apply": 0.8113
+        }
+      },
+      {
+        "idx": 471,
+        "message": "可以减的，我想办一下这个",
+        "correct_tool": "coupon-apply",
+        "level": "synonym",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 17.665,
+        "scores": {
+          "coupon-apply": 0.9398
+        }
+      },
+      {
+        "idx": 472,
+        "message": "能省的，我想发起这个",
+        "correct_tool": "coupon-apply",
+        "level": "implied",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 16.029,
+        "scores": {
+          "coupon-apply": 0.9277
+        }
+      },
+      {
+        "idx": 473,
+        "message": "活动给的，我想办一下这个",
+        "correct_tool": "coupon-apply",
+        "level": "synonym",
+        "selected": "coupon-apply",
+        "fc_hit": true,
+        "latency_ms": 15.447,
+        "scores": {
+          "coupon-apply": 0.9996
+        }
+      },
+      {
+        "idx": 474,
+        "message": "活动给的，我想停了那个，再之前那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "mixed",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.522,
+        "scores": {
+          "coupon-cancel": 0.8347
+        }
+      },
+      {
+        "idx": 475,
+        "message": "能省的，我想停了那个",
+        "correct_tool": "coupon-cancel",
+        "level": "synonym",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.976,
+        "scores": {
+          "coupon-cancel": 0.9469
+        }
+      },
+      {
+        "idx": 476,
+        "message": "帮我['优惠券', '满减', '活动', '折扣', '福利', '券']取消",
+        "correct_tool": "coupon-cancel",
+        "level": "exact",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.155,
+        "scores": {
+          "coupon-cancel": 0.9589
+        }
+      },
+      {
+        "idx": 477,
+        "message": "能领的福利，之前那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "implied",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 17.102,
+        "scores": {
+          "coupon-cancel": 0.9423
+        }
+      },
+      {
+        "idx": 478,
+        "message": "平台送的券，之前那个不要了",
+        "correct_tool": "coupon-cancel",
+        "level": "implied",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 16.169,
+        "scores": {
+          "coupon-cancel": 0.9958
+        }
+      },
+      {
+        "idx": 479,
+        "message": "能省的，帮我中止并取消",
+        "correct_tool": "coupon-cancel",
+        "level": "ambiguous",
+        "selected": "coupon-cancel",
+        "fc_hit": true,
+        "latency_ms": 15.943,
+        "scores": {
+          "coupon-cancel": 0.9785
+        }
+      }
+    ],
+    "mode": "fc",
+    "p50_latency_ms": 16.8,
+    "p95_latency_ms": 20.5
+  }
+}

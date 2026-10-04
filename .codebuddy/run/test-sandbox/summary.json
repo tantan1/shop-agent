@@ -1,0 +1,21 @@
+{
+  "task": "test-sandbox",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\test-sandbox\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\test-sandbox\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\test-sandbox\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\test-sandbox\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\test-sandbox\\tests.py"
+  }
+}

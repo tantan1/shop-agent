@@ -1,0 +1,1 @@
+code 阶段实现完成。新增 benchmark/runtime_eval/ 共12文件（models/redact/checks/logging_setup/tests_static/tasks/extract/collector/engine/persistence/run/__init__）+ benchmark/__init__.py。纯标准库、零侵入。校验：tests_static 退出0；--mock 自测 11/12 通过（t08 PII 题故意 FAIL 验证 pii_leak/forbid 灵敏），pass_rate=0.9167。

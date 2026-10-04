@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import uuid
 from typing import Callable
 
 import structlog
@@ -85,7 +86,9 @@ async def logging_middleware(request: Request, call_next: Callable) -> Response:
 
     # 获取请求信息
     logger = get_logger("api")
-    request_id = id(request)  # 简单的请求ID
+    request_id = uuid.uuid4().hex  # 跨进程可关联的请求ID
+    # 将 request_id 注入 structlog context，使本请求全链日志均携带（C 维度修复）
+    structlog.contextvars.bind_contextvars(request_id=request_id)
 
     try:
         # 处理请求
@@ -106,6 +109,7 @@ async def logging_middleware(request: Request, call_next: Callable) -> Response:
 
         # 添加处理时间到响应头
         response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-Request-Id"] = request_id  # 回传请求ID，便于客户端关联
 
         return response
 

@@ -1,7 +1,7 @@
 """
 模型下载工具
 用法：
-    python download.py bge-m3            # 下载 BGE-M3 embedding 模型
+    python download.py bge-small-zh-v1.5  # 下载 bge-small-zh-v1.5 embedding 模型
     python download.py qwen3-tokenizer   # 下载 Qwen3 tokenizer（仅词表，~15MB，用于 token 限流）
     python download.py qwen3-1.7b        # 下载 Qwen3-1.7B 完整模型（约 4GB）
 """
@@ -14,17 +14,17 @@ HF_ENDPOINT = "https://hf-mirror.com"
 MODELS_DIR = "./models"
 
 
-def download_bge_m3():
-    """下载 BGE-M3 embedding 模型"""
-    target_dir = os.path.join(MODELS_DIR, "bge-m3")
-    print(f"[bge-m3] 下载到 {target_dir} ...")
+def download_bge_small_zh():
+    """下载 bge-small-zh-v1.5 embedding 模型"""
+    target_dir = os.path.join(MODELS_DIR, "BAAI", "bge-small-zh-v1.5")
+    print(f"[bge-small-zh-v1.5] 下载到 {target_dir} ...")
     snapshot_download(
-        repo_id="BAAI/bge-m3",
+        repo_id="BAAI/bge-small-zh-v1.5",
         local_dir=target_dir,
         endpoint=HF_ENDPOINT,
         local_dir_use_symlinks=False,
     )
-    print("[bge-m3] ✅ 下载完成")
+    print("[bge-small-zh-v1.5] ✅ 下载完成")
 
 
 def download_qwen3_tokenizer():
@@ -78,7 +78,7 @@ def download_qwen3_1_7b():
 
 
 COMMANDS = {
-    "bge-m3": download_bge_m3,
+    "bge-small-zh-v1.5": download_bge_small_zh,
     "qwen3-tokenizer": download_qwen3_tokenizer,
     "qwen3-1.7b": download_qwen3_1_7b,
 }

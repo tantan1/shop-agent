@@ -1,0 +1,1441 @@
+---
+description: 自动生成的组件清单——项目内可复用公共类/函数。由 scripts/generate_component_catalog.py 扫描生成，勿手动编辑。
+alwaysApply: false
+---
+
+# 组件清单（自动同步）
+
+> 本文件由 `scripts/generate_component_catalog.py` 基于 `ast` 静态分析自动生成，
+> 生成时间 2026-08-23，扫描根 `E:\workspace\shop-agent\apps\shop-agent\src`。
+> **AI 编码前先检索此清单**：要加某能力时，优先复用下方已有组件，禁止重复实现。
+
+## 使用约定
+
+- 列表仅含带 docstring 的**公共**类/函数/方法（排除私有 `_`、魔术方法、测试文件）。
+- 新增能力前，先 grep / 搜此清单确认无现成实现；若有，直接 import 复用。
+- 本清单由 Automation 每周一自动重建，无需人工维护。
+
+## `core.dependencies`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `get_api_logger` | function | 获取API日志记录器依赖 | core/dependencies.py:8 |
+| `get_database_session` | function | 获取数据库会话依赖 | core/dependencies.py:13 |
+
+## `core.permissions`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ClientInfo` | class | 调用方应用上下文 | core/permissions.py:67 |
+| `Role` | class | 调用方角色枚举 | core/permissions.py:22 |
+| `check_tool_permission` | function | 检查调用方是否有权限执行指定工具。 | core/permissions.py:129 |
+| `clear_current_client` | function | 清除当前请求上下文中的调用方信息。 | core/permissions.py:165 |
+| `get_client_accessible_tools` | function | 获取调用方可用的工具集合（用于工具注册时过滤）。 | core/permissions.py:143 |
+| `get_current_client` | function | 获取当前请求上下文中的调用方信息。 | core/permissions.py:160 |
+| `lookup_client` | function | 根据 API Key 查找调用方（mock 查找）。 | core/permissions.py:120 |
+| `register_legacy_client` | function | 将 .env 中的旧 FIXED_API_KEY 注册为 admin 调用方（向后兼容）。 | core/permissions.py:106 |
+| `set_current_client` | function | 在当前请求上下文中设置调用方信息。 | core/permissions.py:155 |
+
+## `core.probe`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ProbeServer` | class | 以独立守护线程维护的探针 HTTP 服务。 | core/probe.py:151 |
+| `start_probe_server` | function | 启动探针服务（幂等），返回实例。 | core/probe.py:191 |
+
+## `core.rate_limiter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `RateLimiter` | class | Redis 为主、内存降级的滑动窗口速率限制器。 | core/rate_limiter.py:52 |
+| `RateLimiter.check` | method | 检查是否允许请求。返回 (allowed, remaining, reset_seconds)。 | core/rate_limiter.py:156 |
+| `RateLimiter.check_tokens` | method | Token 消耗预检：检查本次预估 token 是否会导致超限。 | core/rate_limiter.py:304 |
+| `RateLimiter.dependency` | method | FastAPI Depends 工厂：创建端点级速率限制依赖。 | core/rate_limiter.py:200 |
+| `RateLimiter.report_tokens` | method | Token 消耗上报：LLM 调用完成后，用真实 token 数修正预估。 | core/rate_limiter.py:333 |
+| `RateLimiter.token_dependency` | method | FastAPI Depends 工厂：创建 token 消耗限流依赖。 | core/rate_limiter.py:373 |
+| `get_rate_limiter` | function | 获取全局 RateLimiter 单例。 | core/rate_limiter.py:426 |
+
+## `core.token_estimator`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `TokenEstimator` | class | 基于 HuggingFace tokenizers 的 Qwen3 轻量 Token 预估器。 | core/token_estimator.py:45 |
+| `TokenEstimator.cache_info` | method | 返回 LRU 缓存的命中率等统计信息。 | core/token_estimator.py:192 |
+| `TokenEstimator.clear_cache` | method | 手动清空 LRU 缓存（通常不需要，tokenizer 重载时自动清）。 | core/token_estimator.py:203 |
+| `TokenEstimator.estimate` | method | 预估文本的 token 数（含 LRU 缓存）。 | core/token_estimator.py:143 |
+| `TokenEstimator.estimate_messages` | method | 预估消息列表的总 token 数（含 role 前缀开销）。 | core/token_estimator.py:167 |
+| `TokenEstimator.estimate_system_prompt` | method | 预估 system + user 的总 token 数。 | core/token_estimator.py:186 |
+| `TokenEstimator.get_instance` | method | 获取全局单例。 | core/token_estimator.py:71 |
+| `TokenEstimator.truncate_to_tokens` | method | 将文本截断到 max_tokens 以内，返回 (截断后文本, 原始token数, 截断后token数)。 | core/token_estimator.py:225 |
+| `estimate_tokens` | function | 快捷函数：预估文本 token 数。 | core/token_estimator.py:363 |
+| `get_token_estimator` | function | 获取全局 TokenEstimator 单例。 | core/token_estimator.py:358 |
+
+## `modules.chat.a2a_routers`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `register_conversation_event` | function | 注册对话事件（供 ChatAgentService 回调）。 | modules/chat/a2a_routers.py:357 |
+
+## `modules.chat.agent.command_tool_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `CommandToolService` | class | 审批服务：聚合 ApprovalGate，提供 approve/reject 入口（命令模式）。 | modules/chat/agent/command_tool_service.py:20 |
+
+## `modules.chat.agent.composite`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentContext` | class | Agent 执行上下文（领域无关）。 | modules/chat/agent/composite.py:22 |
+| `AgentNode` | class | Agent 抽象基类（组合模式）。 | modules/chat/agent/composite.py:37 |
+| `ParallelComposite` | class | 并行组合 Agent（同时执行多个子 Agent，合并结果）。 | modules/chat/agent/composite.py:54 |
+| `ResultMerger` | class | Agent 结果合并器。 | modules/chat/agent/composite.py:113 |
+| `SerialComposite` | class | 串行组合 Agent（按顺序执行子 Agent，后一个依赖前一个的输出）。 | modules/chat/agent/composite.py:88 |
+
+## `modules.chat.agent.conversation_summarizer`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ConversationSummarizer` | class | 对话历史摘要器（LLM 驱动）。 | modules/chat/agent/conversation_summarizer.py:34 |
+| `get_token_estimator` | function | 获取 token 预估器（延迟加载，避免循环 import）。 | modules/chat/agent/conversation_summarizer.py:124 |
+
+## `modules.chat.agent.dispute_agents`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `BuyerAnalysisAgent` | class | 买家分析 Agent（叶子节点）。 | modules/chat/agent/dispute_agents.py:110 |
+| `FactCollectorAgent` | class | 事实收集 Agent（叶子节点）。 | modules/chat/agent/dispute_agents.py:44 |
+| `MediatorAgent` | class | 调停裁决 Agent（叶子节点，需要 buyer + seller 输入）。 | modules/chat/agent/dispute_agents.py:309 |
+| `SellerAnalysisAgent` | class | 卖家分析 Agent（叶子节点）。 | modules/chat/agent/dispute_agents.py:209 |
+
+## `modules.chat.agent.dispute_common`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentPerspective` | class | 单个 Agent 的分析结果 | modules/chat/agent/dispute_common.py:16 |
+
+## `modules.chat.agent.dispute_coordinator`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `DisputeCoordinator` | class | 多 Agent 纠纷协调器。 | modules/chat/agent/dispute_coordinator.py:76 |
+| `should_use_dispute_coordinator` | function | 判断当前请求是否适合路由到纠纷协调器。 | modules/chat/agent/dispute_coordinator.py:480 |
+
+## `modules.chat.agent.dispute_graph`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `DisputeLangGraph` | class | 纠纷协调 LangGraph 封装。 | modules/chat/agent/dispute_graph.py:212 |
+| `DisputeState` | class | LangGraph 共享状态。 | modules/chat/agent/dispute_graph.py:34 |
+| `build_dispute_graph` | function | 构建纠纷协调 LangGraph。 | modules/chat/agent/dispute_graph.py:163 |
+
+## `modules.chat.agent.executor`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `GeneralAgentExecutor` | class | 通用 Agent 执行器（Pipeline 编排器）。 | modules/chat/agent/executor.py:43 |
+
+## `modules.chat.agent.orchestrator`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentOrchestrator` | class | Agent 编排器，将 ChatAgentService 中的业务流程抽离到此处 | modules/chat/agent/orchestrator.py:71 |
+| `AgentRoutingContext` | class | 编排器路由上下文，封装 remote_api / RAG 公共参数。 | modules/chat/agent/orchestrator.py:58 |
+
+## `modules.chat.agent.orchestrator_history`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `persist_turn` | function | 将一轮 user/assistant 消息写入 Redis 对话历史，并触发 L2 保存。 | modules/chat/agent/orchestrator_history.py:22 |
+
+## `modules.chat.agent.pipeline`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Pipeline` | class | 通用 Agent 执行管线。 | modules/chat/agent/pipeline.py:21 |
+
+## `modules.chat.agent.prompts`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `PromptTemplateManager` | class | 提示词模板管理器 | modules/chat/agent/prompts.py:15 |
+| `PromptTemplateManager.get` | method | 获取指定领域和key的模板 | modules/chat/agent/prompts.py:32 |
+| `PromptTemplateManager.get_prompt_obj` | method | 获取ChatPromptTemplate对象 | modules/chat/agent/prompts.py:42 |
+| `PromptTemplateManager.register` | method | 注册领域模板 | modules/chat/agent/prompts.py:22 |
+| `PromptTemplateManager.register_funcs` | method | 注册领域模板生成函数 | modules/chat/agent/prompts.py:27 |
+
+## `modules.chat.agent.react_agent`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `PendingApprovalContext` | class | 人在回路上下文，封装 _handle_pending_approval 所需参数。 | modules/chat/agent/react_agent.py:132 |
+| `ReActAgent` | class | 真正的 ReAct Agent —— 具备 tool-calling 迭代循环 + 意图前置工具过滤 | modules/chat/agent/react_agent.py:154 |
+| `ReActRunContext` | class | ReAct Agent 执行上下文，封装 run 方法所需参数。 | modules/chat/agent/react_agent.py:120 |
+| `SuccessResponseContext` | class | 成功响应构建上下文，封装 _build_success_response 所需参数。 | modules/chat/agent/react_agent.py:143 |
+| `get_graph` | function | LangGraph Studio 入口：返回带 MemorySaver 的编译后 graph。 | modules/chat/agent/react_agent.py:1192 |
+
+## `modules.chat.agent.react_agent_interrupt`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `InterruptContext` | class | 人在回路中断上下文，替代散参传递。 | modules/chat/agent/react_agent_interrupt.py:21 |
+
+## `modules.chat.agent.react_agent_reply`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `apply_scenario_reply` | function | 场景化回退回复。 | modules/chat/agent/react_agent_reply.py:136 |
+| `build_balance_summary` | function | 构建余额查询概要。 | modules/chat/agent/react_agent_reply.py:91 |
+| `build_coupon_summary` | function | 构建优惠券查询概要。 | modules/chat/agent/react_agent_reply.py:102 |
+| `build_missing_id_reply` | function | 构建缺参数回复。 | modules/chat/agent/react_agent_reply.py:43 |
+| `build_not_found_reply` | function | 构建查无结果回复。 | modules/chat/agent/react_agent_reply.py:52 |
+| `build_order_summary` | function | 构建订单查询概要。 | modules/chat/agent/react_agent_reply.py:80 |
+| `build_shipping_summary` | function | 构建物流查询概要。 | modules/chat/agent/react_agent_reply.py:65 |
+| `build_summary_from_observation` | function | 从工具 observation 确定性生成概要。 | modules/chat/agent/react_agent_reply.py:117 |
+| `extract_identifier` | function | 从工具输入/观测中取关键标识符。 | modules/chat/agent/react_agent_reply.py:25 |
+| `format_intermediate_steps` | function | 将 (tool_name, tool_input, observation) 元组列表转成统一 step 格式 | modules/chat/agent/react_agent_reply.py:196 |
+| `is_scenario_covered` | function | 检查最终答复是否已覆盖查无/缺参数场景。 | modules/chat/agent/react_agent_reply.py:12 |
+| `parse_messages` | function | 从 LangGraph messages 列表中提取最终回复和中间步骤。 | modules/chat/agent/react_agent_reply.py:165 |
+
+## `modules.chat.agent.react_agent_rules`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Rule` | class | 单条 Agent 规则的结构化表示。 | modules/chat/agent/react_agent_rules.py:19 |
+
+## `modules.chat.agent.react_agent_selection`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EmbeddingToolMatcher` | class | 基于 FAISS HNSW 图索引的工具语义匹配器。 | modules/chat/agent/react_agent_selection.py:114 |
+
+## `modules.chat.agent.schemas`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentStepResult` | class | Agent 单步执行结果 | modules/chat/agent/schemas.py:35 |
+| `AgentStreamEvent` | class | 流式事件 | modules/chat/agent/schemas.py:74 |
+| `AnswerQualitySchema` | class | 答案质量评估 Schema | modules/chat/agent/schemas.py:122 |
+| `ComplianceCheckSchema` | class | 合规检查结果 Schema | modules/chat/agent/schemas.py:100 |
+| `QuestionClassifySchema` | class | 问题分类结果 Schema | modules/chat/agent/schemas.py:107 |
+| `QuestionRewriteResult` | class | 问题重写结果 | modules/chat/agent/schemas.py:58 |
+| `QuestionRewriteSchema` | class | 问题改写结果 Schema（用于关键词提取） | modules/chat/agent/schemas.py:116 |
+| `RetrievalResult` | class | 检索结果 | modules/chat/agent/schemas.py:66 |
+| `SafetyCheckResult` | class | 安全审查结果 | modules/chat/agent/schemas.py:48 |
+| `SafetyCheckSchema` | class | 安全审查结果 Schema | modules/chat/agent/schemas.py:91 |
+| `get_structured_schema` | function | 获取结构化输出 Schema | modules/chat/agent/schemas.py:141 |
+
+## `modules.chat.agent.skill_loader`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `SkillDef` | class | 单个 Skill 的完整定义（从 SKILL.md 解析出）。 | modules/chat/agent/skill_loader.py:65 |
+| `SkillLoader` | class | 从 skills/ 目录批量加载 SKILL.md 文件。 | modules/chat/agent/skill_loader.py:132 |
+| `SkillLoader.load` | method | 加载所有 SKILL.md，返回 SkillRegistry。 | modules/chat/agent/skill_loader.py:139 |
+| `SkillRegistry` | class | Skills 注册表 —— 所有已加载 skill 的集合。 | modules/chat/agent/skill_loader.py:81 |
+| `SkillRegistry.intent_tool_map` | method | 根据 allowed_tools 自动生成 INTENT_TOOL_MAP（key/value 均为连字符格式）。 | modules/chat/agent/skill_loader.py:92 |
+| `SkillRegistry.tool_descriptions` | method | 生成工具描述字典（key 为连字符格式）。 | modules/chat/agent/skill_loader.py:87 |
+| `get_skill_registry` | function | 获取全局 SkillRegistry 单例（线程安全）。 | modules/chat/agent/skill_loader.py:291 |
+
+## `modules.chat.agent.steps.base`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentContext` | class | Agent 执行上下文，封装所有步骤共享的依赖与状态。 | modules/chat/agent/steps/base.py:13 |
+| `BaseStep` | class | Agent 执行步骤抽象基类（模板方法模式）。 | modules/chat/agent/steps/base.py:31 |
+
+## `modules.chat.agent.steps.step1_understand`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `UnderstandStep` | class | 使用 LLM 理解并改写用户问题，生成多角度检索查询。 | modules/chat/agent/steps/step1_understand.py:12 |
+
+## `modules.chat.agent.steps.step2_review`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ReviewStep` | class | 分级安全审查：本地小模型 → 云端 LLM 复核。 | modules/chat/agent/steps/step2_review.py:14 |
+
+## `modules.chat.agent.steps.step3_retrieve`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `RetrieveQueryContext` | class | 单次检索查询上下文，封装 _retrieve_single_query 所需参数。 | modules/chat/agent/steps/step3_retrieve.py:31 |
+| `RetrieveStep` | class | Milvus 混合检索 + Reranker 重排序 + LLM 相关性过滤。 | modules/chat/agent/steps/step3_retrieve.py:41 |
+| `StepSuccessContext` | class | 步骤成功执行上下文，封装 _build_success_result 所需参数。 | modules/chat/agent/steps/step3_retrieve.py:20 |
+
+## `modules.chat.agent.steps.step4_generate`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `GenerateStep` | class | 构建 prompt → Token 预算守卫 → LLM 生成 → 输出过滤 → 质量评估。 | modules/chat/agent/steps/step4_generate.py:42 |
+| `GenerateSuccessContext` | class | 回答生成成功上下文，封装 _build_success_result 所需参数。 | modules/chat/agent/steps/step4_generate.py:18 |
+| `PromptBuildContext` | class | Prompt 构建上下文，封装 _build_and_fit_prompt 所需参数。 | modules/chat/agent/steps/step4_generate.py:29 |
+
+## `modules.chat.agent.tool_commands`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ApprovalGate` | class | 人在回路审批门。 | modules/chat/agent/tool_commands.py:71 |
+| `CheckBalanceCommand` | class | 查询余额命令（无需审批）。 | modules/chat/agent/tool_commands.py:320 |
+| `CheckShippingCommand` | class | 查询物流命令（无需审批）。 | modules/chat/agent/tool_commands.py:306 |
+| `CouponInquiryCommand` | class | 查询优惠券命令（无需审批）。 | modules/chat/agent/tool_commands.py:334 |
+| `QueryOrderCommand` | class | 查询订单命令（无需审批）。 | modules/chat/agent/tool_commands.py:292 |
+| `RefundCommand` | class | 退款命令（需审批）。 | modules/chat/agent/tool_commands.py:229 |
+| `ToolCommand` | class | 工具命令抽象基类（命令模式）。 | modules/chat/agent/tool_commands.py:44 |
+| `ToolCommand.description` | method | 工具描述（用于日志/审计）。 | modules/chat/agent/tool_commands.py:63 |
+| `ToolCommand.requires_approval` | method | 是否需要人工审批（默认不需要）。 | modules/chat/agent/tool_commands.py:59 |
+| `ToolContext` | class | 工具执行上下文。 | modules/chat/agent/tool_commands.py:20 |
+| `ToolResult` | class | 工具执行结果。 | modules/chat/agent/tool_commands.py:31 |
+
+## `modules.chat.agent.yaml_flow.compiler`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `FlowCompiler` | class | FlowFile → CompiledGraph（阶段 2.1-2.9）。 | modules/chat/agent/yaml_flow/compiler.py:138 |
+
+## `modules.chat.agent.yaml_flow.loader`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `load_flow_file` | function | 加载并校验一个 YAML 编排文件。 | modules/chat/agent/yaml_flow/loader.py:18 |
+
+## `modules.chat.agent.yaml_flow.nodes.handlers`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `DirectToolHandler` | class | 直接 Tool 节点（无 LLM 循环）：dispatch 到业务工具。 | modules/chat/agent/yaml_flow/nodes/handlers.py:126 |
+| `DisputeHandler` | class | 纠纷协调节点（2.4.4）：接入现有 DisputeCoordinator。 | modules/chat/agent/yaml_flow/nodes/handlers.py:374 |
+| `GuardHandler` | class | 横切守卫节点（输入/输出过滤、锁、持久化、埋点）的 v1 占位包装。 | modules/chat/agent/yaml_flow/nodes/handlers.py:106 |
+| `HumanApprovalHandler` | class | 人在回路节点：LangGraph interrupt 真挂起 + ApprovalGate 审批双分支（阶段 3）。 | modules/chat/agent/yaml_flow/nodes/handlers.py:467 |
+| `IntentHandler` | class | 意图识别节点：v1 占位，直接沿用上游已写入 state.intent。 | modules/chat/agent/yaml_flow/nodes/handlers.py:92 |
+| `LLMCallHandler` | class | 单步 LLM 调用节点（阶段 4.1 轻量版）：替代不需要工具循环的 react 节点。 | modules/chat/agent/yaml_flow/nodes/handlers.py:230 |
+| `NodeHandler` | class | 节点处理器基类。 | modules/chat/agent/yaml_flow/nodes/handlers.py:66 |
+| `NormalizeHandler` | class | 归一化节点：复用现有 InputNormalizer。 | modules/chat/agent/yaml_flow/nodes/handlers.py:81 |
+| `RagPipelineHandler` | class | RAG 固定四步节点（2.4.1）：接入现有 GeneralAgentExecutor / Pipeline。 | modules/chat/agent/yaml_flow/nodes/handlers.py:319 |
+| `ReactHandler` | class | ReAct 节点（v1 黑盒循环）：调用现有 ReActAgent。 | modules/chat/agent/yaml_flow/nodes/handlers.py:168 |
+| `build_handler` | function | 节点类型 → handler 实例（阶段 2.4 / 2.5 / 2.6）。 | modules/chat/agent/yaml_flow/nodes/handlers.py:571 |
+
+## `modules.chat.agent.yaml_flow.nodes.rag_handlers`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `RagGenerateHandler` | class | 步骤4：回答生成 + 质量评估节点（rag_generate）。 | modules/chat/agent/yaml_flow/nodes/rag_handlers.py:223 |
+| `RagRetrieveHandler` | class | 步骤3：知识检索节点（rag_retrieve）。 | modules/chat/agent/yaml_flow/nodes/rag_handlers.py:168 |
+| `RagReviewHandler` | class | 步骤2：安全审查节点（rag_review）。 | modules/chat/agent/yaml_flow/nodes/rag_handlers.py:132 |
+| `RagRewriteHandler` | class | 步骤1：问题理解/改写节点（rag_rewrite）。 | modules/chat/agent/yaml_flow/nodes/rag_handlers.py:89 |
+
+## `modules.chat.agent.yaml_flow.runtime`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `CompiledFlow` | class | 编译后的流程图封装（阶段 2.9）。 | modules/chat/agent/yaml_flow/runtime.py:53 |
+| `CompiledFlow.get_graph` | method | LangGraph Studio 调试入口（阶段 2.10）。 | modules/chat/agent/yaml_flow/runtime.py:108 |
+| `new_graph_state` | function | 构造初始 state。 | modules/chat/agent/yaml_flow/runtime.py:39 |
+
+## `modules.chat.agent.yaml_flow.schema`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Condition` | class | 条件边路由条件（阶段 1.3）。 | modules/chat/agent/yaml_flow/schema.py:197 |
+| `ConditionOp` | class | 条件边算子（阶段 1.3）。 | modules/chat/agent/yaml_flow/schema.py:57 |
+| `FlowFile` | class | YAML 编排文件顶层模型（阶段 1.1）。 | modules/chat/agent/yaml_flow/schema.py:278 |
+| `GraphState` | class | 流程共享状态契约（阶段 1.5a）。 | modules/chat/agent/yaml_flow/schema.py:85 |
+| `GuardDef` | class | 横切守卫（输入过滤/输出过滤/锁/持久化/埋点）。 | modules/chat/agent/yaml_flow/schema.py:217 |
+| `HardcodeDecl` | class | 节点 config 中的硬强制字段声明（阶段 1.4）。 | modules/chat/agent/yaml_flow/schema.py:127 |
+| `NodeConfig` | class | 节点 config（按节点类型可选字段）。 | modules/chat/agent/yaml_flow/schema.py:145 |
+| `ReadFrom` | class | 节点从 GraphState 读取的字段（阶段 1.5b）。 | modules/chat/agent/yaml_flow/schema.py:99 |
+| `StateField` | class | GraphState 中的一个共享字段（阶段 1.5a）。 | modules/chat/agent/yaml_flow/schema.py:74 |
+| `SubgraphFlow` | class | 子流程定义（阶段 4.1 完整版）：被 react 节点的 config.subgraph 引用。 | modules/chat/agent/yaml_flow/schema.py:255 |
+| `WriteTo` | class | 节点写回 GraphState 的字段（阶段 1.5b）。 | modules/chat/agent/yaml_flow/schema.py:112 |
+
+## `modules.chat.agent.yaml_flow.validator`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `FlowValidationError` | class | 流程校验失败（fail-closed 信号）。 | modules/chat/agent/yaml_flow/validator.py:42 |
+| `validate_flow` | function | 校验 FlowFile，返回告警列表（非空不阻断）；非法则抛 FlowValidationError。 | modules/chat/agent/yaml_flow/validator.py:46 |
+
+## `modules.chat.config`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentConfig` | class | 通用Agent配置 | modules/chat/config.py:163 |
+| `AgentStepConfig` | class | 单步骤配置 | modules/chat/config.py:149 |
+| `ChatConfig` | class | 聊天服务配置 - 使用全局配置 | modules/chat/config.py:8 |
+| `ChatConfig.embedding_dimension` | method | 根据 provider 返回对应维度（支持完整路径匹配） | modules/chat/config.py:77 |
+| `get_agent_config` | function | 获取指定领域的Agent配置 | modules/chat/config.py:450 |
+| `get_available_domains` | function | 获取所有可用领域列表 | modules/chat/config.py:455 |
+| `register_domain_config` | function | 注册新的领域配置 | modules/chat/config.py:463 |
+
+## `modules.chat.core.a2a_task_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `A2ATaskService` | class | A2A 异步任务管理器（单例）。 | modules/chat/core/a2a_task_service.py:49 |
+| `A2ATaskService.cancel_task` | method | 取消任务。 | modules/chat/core/a2a_task_service.py:157 |
+| `A2ATaskService.create_task` | method | 创建任务并返回状态对象（status=pending）。 | modules/chat/core/a2a_task_service.py:121 |
+| `A2ATaskService.get_task` | method | 获取任务状态（优先 Redis，降级内存）。 | modules/chat/core/a2a_task_service.py:153 |
+| `A2ATaskService.list_tasks` | method | 列出任务（最新优先）。优先 Redis 索引，降级内存。 | modules/chat/core/a2a_task_service.py:184 |
+| `get_a2a_task_service` | function | 获取 A2A 任务服务单例。 | modules/chat/core/a2a_task_service.py:351 |
+
+## `modules.chat.core.a2a_webhook_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `A2AWebhookService` | class | A2A Webhook 订阅管理器（单例）。 | modules/chat/core/a2a_webhook_service.py:25 |
+| `A2AWebhookService.get_subscribers` | method | 获取订阅了指定事件的所有订阅者。 | modules/chat/core/a2a_webhook_service.py:102 |
+| `A2AWebhookService.list_subscriptions` | method | 列出所有活跃订阅。 | modules/chat/core/a2a_webhook_service.py:81 |
+| `A2AWebhookService.subscribe` | method | 注册 Webhook 订阅。 | modules/chat/core/a2a_webhook_service.py:42 |
+| `A2AWebhookService.unsubscribe` | method | 取消 Webhook 订阅。 | modules/chat/core/a2a_webhook_service.py:73 |
+| `get_a2a_webhook_service` | function | 获取 A2A Webhook 服务单例。 | modules/chat/core/a2a_webhook_service.py:108 |
+
+## `modules.chat.core.abstract.agent_runner`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AgentRunner` | class | Agent 运行器抽象协议 | modules/chat/core/abstract/agent_runner.py:13 |
+
+## `modules.chat.core.abstract.graph_node`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `GraphBuilder` | class | 图构建器抽象协议 | modules/chat/core/abstract/graph_node.py:68 |
+| `GraphBuilder.add_conditional_edge` | method | 添加条件边 | modules/chat/core/abstract/graph_node.py:79 |
+| `GraphBuilder.add_edge` | method | 添加确定性边 | modules/chat/core/abstract/graph_node.py:75 |
+| `GraphBuilder.add_node` | method | 添加节点 | modules/chat/core/abstract/graph_node.py:71 |
+| `GraphBuilder.compile` | method | 编译图，返回执行器 | modules/chat/core/abstract/graph_node.py:87 |
+| `GraphBuilder.set_entry_point` | method | 设置入口节点 | modules/chat/core/abstract/graph_node.py:83 |
+| `GraphExecutor` | class | 图执行器抽象协议 | modules/chat/core/abstract/graph_node.py:92 |
+| `GraphNode` | class | 图节点抽象协议 | modules/chat/core/abstract/graph_node.py:26 |
+| `GraphNode.name` | method | 节点名称 | modules/chat/core/abstract/graph_node.py:42 |
+| `GraphRouter` | class | 图路由抽象协议（条件边） | modules/chat/core/abstract/graph_node.py:47 |
+| `GraphRouter.name` | method | 路由名称 | modules/chat/core/abstract/graph_node.py:63 |
+| `GraphState` | class | 图状态抽象协议 | modules/chat/core/abstract/graph_node.py:13 |
+
+## `modules.chat.core.abstract.llm_client`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LLMClient` | class | LLM 客户端抽象协议 | modules/chat/core/abstract/llm_client.py:15 |
+| `TokenUsage` | class | Token 使用情况 | modules/chat/core/abstract/llm_client.py:76 |
+
+## `modules.chat.core.abstract.tool_executor`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ToolExecutor` | class | 工具执行器抽象协议 | modules/chat/core/abstract/tool_executor.py:22 |
+| `ToolExecutor.get_tool_description` | method | 获取工具描述 | modules/chat/core/abstract/tool_executor.py:47 |
+| `ToolExecutor.get_tool_names` | method | 获取所有可用工具名称 | modules/chat/core/abstract/tool_executor.py:38 |
+| `ToolResult` | class | 工具执行结果 | modules/chat/core/abstract/tool_executor.py:13 |
+
+## `modules.chat.core.adapter.adapter_factory`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AdapterFactory` | class | 适配器工厂 | modules/chat/core/adapter/adapter_factory.py:17 |
+| `AdapterFactory.create_agent_adapter` | method | 创建 Agent 适配器 | modules/chat/core/adapter/adapter_factory.py:52 |
+| `AdapterFactory.get_llm_adapter` | method | 获取 LLM 适配器 | modules/chat/core/adapter/adapter_factory.py:24 |
+| `AdapterFactory.get_tool_adapter` | method | 获取工具执行器适配器 | modules/chat/core/adapter/adapter_factory.py:42 |
+| `AdapterFactory.reset` | method | 重置适配器实例（用于测试或配置变更） | modules/chat/core/adapter/adapter_factory.py:59 |
+
+## `modules.chat.core.adapter.langchain_agent_adapter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LangChainAgentAdapter` | class | LangChain Agent 适配器 | modules/chat/core/adapter/langchain_agent_adapter.py:14 |
+
+## `modules.chat.core.adapter.langchain_llm_adapter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LangChainLLMAdapter` | class | LangChain LLM 适配器 | modules/chat/core/adapter/langchain_llm_adapter.py:16 |
+
+## `modules.chat.core.adapter.langchain_tool_adapter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LangChainToolAdapter` | class | LangChain Tool 适配器 | modules/chat/core/adapter/langchain_tool_adapter.py:14 |
+
+## `modules.chat.core.adapter.langgraph_adapter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LangGraphBuilderAdapter` | class | LangGraph 构建器适配器 | modules/chat/core/adapter/langgraph_adapter.py:58 |
+| `LangGraphExecutorAdapter` | class | LangGraph 执行器适配器 | modules/chat/core/adapter/langgraph_adapter.py:91 |
+| `LangGraphNodeAdapter` | class | LangGraph 节点适配器 | modules/chat/core/adapter/langgraph_adapter.py:28 |
+| `LangGraphRouterAdapter` | class | LangGraph 路由适配器 | modules/chat/core/adapter/langgraph_adapter.py:43 |
+| `LangGraphState` | class | LangGraph 状态实现 | modules/chat/core/adapter/langgraph_adapter.py:22 |
+| `LangGraphStateAdapter` | class | LangGraph 状态适配器 | modules/chat/core/adapter/langgraph_adapter.py:108 |
+
+## `modules.chat.core.adapter.mock_llm_adapter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MockLLMAdapter` | class | Mock LLM 适配器（支持延迟/错误率仿真） | modules/chat/core/adapter/mock_llm_adapter.py:20 |
+
+## `modules.chat.core.agent_card`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `build_agent_card` | function | 从 SkillRegistry + Config 动态生成增强版 Agent Card（带内存缓存）。 | modules/chat/core/agent_card.py:131 |
+| `warmup_agent_card` | function | 预热 Agent Card 缓存 —— 应在 lifespan startup 中调用。 | modules/chat/core/agent_card.py:229 |
+
+## `modules.chat.core.content_filter`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ContentFilterService` | class | 内容安全过滤服务（单例，纯规则引擎，零 LLM 成本） | modules/chat/core/content_filter.py:167 |
+| `ContentFilterService.filter_input` | method | 输入安全过滤 —— 轻量级，仅拦截： | modules/chat/core/content_filter.py:183 |
+| `ContentFilterService.filter_output` | method | 输出安全过滤 —— 强制合规底线，扫描 LLM 生成的最终回答 | modules/chat/core/content_filter.py:235 |
+| `ContentFilterService.get_instance` | method | 获取单例实例 | modules/chat/core/content_filter.py:173 |
+| `FilterResult` | class | 过滤结果 | modules/chat/core/content_filter.py:152 |
+
+## `modules.chat.core.document_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `DocumentService` | class | 文档服务 —— 语义切分 + Token 安全兜底 + 向量化 + 写入 Milvus | modules/chat/core/document_service.py:33 |
+| `DocumentService.estimate_tokens` | method | 估算文本的 token 数量。 | modules/chat/core/document_service.py:52 |
+
+## `modules.chat.core.embedding_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EmbeddingService` | class | 嵌入服务管理类（provider: local=sentence-transformers \| ollama=Ollama API） | modules/chat/core/embedding_service.py:388 |
+| `LocalEmbeddings` | class | 本地 BGE/Sentence-Transformers 嵌入（免费，毫秒级） | modules/chat/core/embedding_service.py:46 |
+| `LocalEmbeddings.embed_query` | method | 对单条查询文本做 embedding。 | modules/chat/core/embedding_service.py:128 |
+| `OllamaEmbeddings` | class | Ollama 进程外 embedding（零 ML 依赖，httpx 调 /api/embed） | modules/chat/core/embedding_service.py:184 |
+| `VLLMEmbeddings` | class | vLLM bge-m3 embedding（直连容器名，OpenAI 兼容 /v1/embeddings） | modules/chat/core/embedding_service.py:288 |
+
+## `modules.chat.core.experiment_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Assignment` | class | 用户分配结果 | modules/chat/core/experiment_service.py:233 |
+| `Assignment.to_metadata` | method | 生成 Langfuse metadata | modules/chat/core/experiment_service.py:252 |
+| `Assignment.to_tags` | method | 生成 Langfuse 标签 | modules/chat/core/experiment_service.py:244 |
+| `ExperimentDef` | class | 实验定义 | modules/chat/core/experiment_service.py:188 |
+| `ExperimentService` | class | A/B 实验服务（单例） | modules/chat/core/experiment_service.py:548 |
+| `ExperimentService.assign` | method | 为用户分配实验变体（主入口）。 | modules/chat/core/experiment_service.py:606 |
+| `ExperimentService.create_experiment` | method | 创建/更新实验配置 | modules/chat/core/experiment_service.py:642 |
+| `ExperimentService.delete_experiment` | method | 删除实验 | modules/chat/core/experiment_service.py:660 |
+| `ExperimentService.evaluate_safety` | method | 评估实验安全护栏 | modules/chat/core/experiment_service.py:689 |
+| `ExperimentService.force_refresh` | method | 强制刷新配置缓存 | modules/chat/core/experiment_service.py:682 |
+| `ExperimentService.get_experiment` | method | 获取实验定义 | modules/chat/core/experiment_service.py:648 |
+| `ExperimentService.initialize` | method | 初始化实验服务 | modules/chat/core/experiment_service.py:574 |
+| `ExperimentService.list_experiments` | method | 列出所有实验 | modules/chat/core/experiment_service.py:654 |
+| `ExperimentService.pause_experiment` | method | 暂停实验 | modules/chat/core/experiment_service.py:666 |
+| `ExperimentService.stop_experiment` | method | 停止实验 | modules/chat/core/experiment_service.py:674 |
+| `ExperimentService.validate_distribution` | method | 验证流量分配均匀性（用于面试追问） | modules/chat/core/experiment_service.py:698 |
+| `ExperimentStore` | class | Redis 实验配置存储 | modules/chat/core/experiment_service.py:388 |
+| `ExperimentStore.delete_experiment` | method | 删除实验 | modules/chat/core/experiment_service.py:425 |
+| `ExperimentStore.force_refresh` | method | 强制刷新缓存（管理 API 调用） | modules/chat/core/experiment_service.py:483 |
+| `ExperimentStore.get_active_experiments` | method | 获取所有 RUNNING 状态的实验（带缓存 + 热加载） | modules/chat/core/experiment_service.py:469 |
+| `ExperimentStore.get_experiment` | method | 获取单个实验定义 | modules/chat/core/experiment_service.py:476 |
+| `ExperimentStore.save_experiment` | method | 保存实验到 Redis | modules/chat/core/experiment_service.py:410 |
+| `PipelineOverrides` | class | 实验变量：管道路由组件的运行时覆盖配置 | modules/chat/core/experiment_service.py:115 |
+| `SafetyGuard` | class | 安全护栏：自动停止条件 | modules/chat/core/experiment_service.py:85 |
+| `SafetyGuardEvaluator` | class | 安全护栏评估器：监控关键指标，超阈值自动暂停/停止实验 | modules/chat/core/experiment_service.py:494 |
+| `SafetyGuardEvaluator.evaluate` | method | 评估实验的安全护栏。 | modules/chat/core/experiment_service.py:505 |
+| `SafetyGuardEvaluator.set_alert_callback` | method | 设置告警回调（如发送钉钉/企微通知） | modules/chat/core/experiment_service.py:501 |
+| `SafetyMetricType` | class | 安全护栏监控的指标类型 | modules/chat/core/experiment_service.py:74 |
+| `SampleSizeCalculator` | class | 样本量计算器 — 用于回答"统计显著怎么判？" | modules/chat/core/experiment_service.py:785 |
+| `SampleSizeCalculator.estimate_duration` | method | 估算实验需要的天数 | modules/chat/core/experiment_service.py:829 |
+| `SampleSizeCalculator.sample_size_per_variant` | method | 计算每个 variant 所需的最小样本量 | modules/chat/core/experiment_service.py:799 |
+| `StatisticalTest` | class | 统计检验工具 — 用于实验结论判定 | modules/chat/core/experiment_service.py:839 |
+| `StatisticalTest.z_test_proportions` | method | 双样本 Z 检验（比例） | modules/chat/core/experiment_service.py:843 |
+| `TrafficRouter` | class | 基于用户 ID 哈希的一致性流量分配（MurmurHash 风格） | modules/chat/core/experiment_service.py:268 |
+| `TrafficRouter.assign` | method | 为用户分配实验变体。 | modules/chat/core/experiment_service.py:291 |
+| `TrafficRouter.validate_distribution` | method | 验证流量分配均匀性（用于面试追问——"你测过分流均匀性吗？"） | modules/chat/core/experiment_service.py:340 |
+| `VariantDef` | class | 实验变体定义（对照组/实验组） | modules/chat/core/experiment_service.py:158 |
+
+## `modules.chat.core.forgetting_policy`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ForgettingPolicy` | class | 遗忘策略：基于时间衰减 + 重要性阈值 + 访问频率 | modules/chat/core/forgetting_policy.py:13 |
+| `ForgettingPolicy.should_archive` | method | 判断是否应归档（移出热存储） | modules/chat/core/forgetting_policy.py:26 |
+| `ForgettingPolicy.should_delete` | method | 判断是否应永久删除 | modules/chat/core/forgetting_policy.py:49 |
+
+## `modules.chat.core.graph_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `NebulaGraphService` | class | NebulaGraph 商品关系图服务（单例） | modules/chat/core/graph_service.py:100 |
+| `NebulaGraphService.build_graph_context` | method | 将图查询结果序列化为可注入 LLM prompt 的自然语言文本。 | modules/chat/core/graph_service.py:417 |
+| `NebulaGraphService.close` | method | 释放连接池引用，回收单例（应用关闭时调用）。 | modules/chat/core/graph_service.py:531 |
+
+## `modules.chat.core.intent_recognizer`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `IntentRecognizer` | class | 意图识别器 —— 本地 FAISS 向量匹配 + LLM 兜底 | modules/chat/core/intent_recognizer.py:110 |
+| `IntentRecognizer.assess_complexity` | method | 意图命中后，判断是否需要走 ReAct Agent 而非直接 tool 调用。 | modules/chat/core/intent_recognizer.py:207 |
+| `IntentRecognizer.warmup_sync` | method | 同步预热 FAISS 意图索引（用于 lifespan 中，不依赖事件循环） | modules/chat/core/intent_recognizer.py:138 |
+
+## `modules.chat.core.item_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ItemService` | class | 商品嵌入 & 搜索服务 | modules/chat/core/item_service.py:55 |
+| `ItemService.parse_text_file` | method | 解析纯文本文件内容 | modules/chat/core/item_service.py:79 |
+
+## `modules.chat.core.llm_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `GatewayNotConfigured` | class | 未配置 LLM 网关出口且未显式开启直连逃生阀（或被生产护栏拦截）。 | modules/chat/core/llm_service.py:58 |
+| `LLMService` | class | 大语言模型服务 | modules/chat/core/llm_service.py:184 |
+| `LLMService.check_gateway_health` | method | 查询 Gateway 健康状态（用于监控/告警）。 | modules/chat/core/llm_service.py:289 |
+| `LLMService.close` | method | 关闭服务 | modules/chat/core/llm_service.py:626 |
+| `LLMService.create_structured_llm` | method | 创建支持结构化输出的 LLM 实例 | modules/chat/core/llm_service.py:600 |
+| `LLMService.get_instance` | method | 获取单例实例 | modules/chat/core/llm_service.py:200 |
+| `LLMService.initialize` | method | 初始化 LLM 服务 | modules/chat/core/llm_service.py:206 |
+| `LLMService.qwen_llm` | method | 获取通义千问 LLM（懒加载）。 | modules/chat/core/llm_service.py:301 |
+| `LLMService.tool_selector_llm` | method | 获取工具选择器专用轻量 LLM（更快、更便宜）。 | modules/chat/core/llm_service.py:322 |
+| `TokenLimitExceeded` | class | Token 消耗超限异常。 | modules/chat/core/llm_service.py:132 |
+| `clear_rate_limit_context` | function | 清除 Token 限流上下文。 | modules/chat/core/llm_service.py:147 |
+| `resolve_llm_base_url` | function | 解析 LLM 出口地址，fail-closed。 | modules/chat/core/llm_service.py:81 |
+| `set_rate_limit_context` | function | 设置当前请求的 Token 限流上下文（在 router/中间件中调用）。 | modules/chat/core/llm_service.py:141 |
+
+## `modules.chat.core.local_model_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LocalModelService` | class | 本地小模型推理服务 | modules/chat/core/local_model_service.py:30 |
+| `LocalModelService.close` | method | 释放模型资源 | modules/chat/core/local_model_service.py:1144 |
+
+## `modules.chat.core.long_term_memory_archiver`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LongTermMemoryArchiver` | class | L3 长期记忆归档器 | modules/chat/core/long_term_memory_archiver.py:13 |
+
+## `modules.chat.core.mcp_client`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MCPClientManager` | class | MCP 客户端管理器 —— 管理到多个远程 MCP Server 的连接。 | modules/chat/core/mcp_client.py:54 |
+| `MCPClientManager.get_all_tools` | method | 返回所有已发现工具（名称 → 信息）。 | modules/chat/core/mcp_client.py:157 |
+| `MCPClientManager.get_tool_info` | method | 获取指定远程工具的描述信息。 | modules/chat/core/mcp_client.py:143 |
+| `MCPClientManager.get_tool_names` | method | 返回所有远程 MCP 工具名称列表。 | modules/chat/core/mcp_client.py:136 |
+| `MCPClientManager.has_tool` | method | 检查指定工具是否在远程 MCP Server 中可用。 | modules/chat/core/mcp_client.py:153 |
+| `MCPServerConnection` | class | 单个 MCP Server 的连接状态 | modules/chat/core/mcp_client.py:43 |
+| `MCPToolInfo` | class | 远程 MCP 工具的描述信息（从 tools/list 获取） | modules/chat/core/mcp_client.py:33 |
+
+## `modules.chat.core.mcp_server`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `create_mcp_server` | function | 创建 MCP Server 实例，自动注册所有 Skill 对应的 Tool。 | modules/chat/core/mcp_server.py:153 |
+| `get_mcp_server` | function | 获取 MCP Server 单例（懒加载）。 | modules/chat/core/mcp_server.py:219 |
+
+## `modules.chat.core.memory_extraction_trigger`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ExtractionContext` | class | 记忆提取上下文 | modules/chat/core/memory_extraction_trigger.py:13 |
+| `MemoryExtractionTrigger` | class | 记忆提取触发器 | modules/chat/core/memory_extraction_trigger.py:24 |
+| `MemoryExtractionTrigger.should_extract` | method | 判断是否应该提取记忆 | modules/chat/core/memory_extraction_trigger.py:75 |
+
+## `modules.chat.core.memory_extractor`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MemoryExtractor` | class | LLM 记忆提取器 | modules/chat/core/memory_extractor.py:45 |
+
+## `modules.chat.core.memory_milvus_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MemoryBlockService` | class | 记忆块 Milvus 服务（memory_blocks Collection） | modules/chat/core/memory_milvus_service.py:38 |
+| `MemoryBlockService.delete` | method | 按条件删除记忆块，返回删除数量 | modules/chat/core/memory_milvus_service.py:225 |
+| `MemoryBlockService.initialize` | method | 初始化 memory_blocks Collection | modules/chat/core/memory_milvus_service.py:59 |
+| `MemoryBlockService.insert_block` | method | 插入单个记忆块 | modules/chat/core/memory_milvus_service.py:157 |
+| `MemoryBlockService.search` | method | 向量检索记忆块 | modules/chat/core/memory_milvus_service.py:181 |
+| `MemoryBlockService.update_access` | method | 更新访问计数和最后访问时间 | modules/chat/core/memory_milvus_service.py:238 |
+| `MemoryBlockType` | class | 记忆块类型常量 | modules/chat/core/memory_milvus_service.py:18 |
+| `SearchFilter` | class | 记忆检索过滤条件 | modules/chat/core/memory_milvus_service.py:30 |
+
+## `modules.chat.core.memory_observability`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MemoryObservability` | class | 记忆系统观测埋点 | modules/chat/core/memory_observability.py:18 |
+
+## `modules.chat.core.memory_retrieval`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MemoryRetrieval` | class | 记忆检索融合服务 | modules/chat/core/memory_retrieval.py:77 |
+| `RetrievalContext` | class | 检索上下文：知识 + 记忆融合结果 | modules/chat/core/memory_retrieval.py:16 |
+| `RetrievalContext.to_prompt_context` | method | 生成 Prompt 注入文本 | modules/chat/core/memory_retrieval.py:29 |
+
+## `modules.chat.core.memory_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LongTermMemory` | class | 长期记忆服务：用户画像 + 历史记忆（L3） | modules/chat/core/memory_service.py:85 |
+| `ShortTermMemory` | class | 短期记忆服务：最近 7 天对话摘要（L2） | modules/chat/core/memory_service.py:15 |
+
+## `modules.chat.core.milvus_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `MetricType` | class | 度量类型枚举 | modules/chat/core/milvus_service.py:29 |
+| `MilvusService` | class | Milvus 向量数据库服务 | modules/chat/core/milvus_service.py:45 |
+| `MilvusService.close` | method | 关闭连接 | modules/chat/core/milvus_service.py:413 |
+| `MilvusService.collection` | method | 获取集合实例 | modules/chat/core/milvus_service.py:204 |
+| `MilvusService.flush` | method | 刷新数据到存储 | modules/chat/core/milvus_service.py:409 |
+| `MilvusService.get_instance` | method | 获取单例实例 | modules/chat/core/milvus_service.py:60 |
+| `MilvusService.hybrid_search` | method | 混合检索（Dense向量 + Sparse BM25） | modules/chat/core/milvus_service.py:281 |
+| `MilvusService.initialize` | method | 初始化 Milvus 连接和集合 | modules/chat/core/milvus_service.py:67 |
+| `MilvusService.insert_documents` | method | 批量插入文档 | modules/chat/core/milvus_service.py:381 |
+| `MilvusService.search_similar` | method | 搜索相似文档（纯向量检索） | modules/chat/core/milvus_service.py:231 |
+
+## `modules.chat.core.param_extractor`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `LocalParamExtractor` | class | 本地参数抽取器 —— 正则+关键词，无需 LLM | modules/chat/core/param_extractor.py:10 |
+| `LocalParamExtractor.extract` | method | 从用户消息中提取结构化参数。 | modules/chat/core/param_extractor.py:205 |
+
+## `modules.chat.core.pgvector_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `PgVectorService` | class | PostgreSQL pgvector 向量数据库服务 | modules/chat/core/pgvector_service.py:29 |
+| `PgVectorService.close` | method | 关闭连接池 | modules/chat/core/pgvector_service.py:457 |
+| `PgVectorService.collection` | method | 接口兼容 MilvusService 的 collection 属性，返回自身 | modules/chat/core/pgvector_service.py:465 |
+| `PgVectorService.flush` | method | pgvector 每次 insert 已自动 commit，此方法为接口兼容保留 | modules/chat/core/pgvector_service.py:453 |
+| `PgVectorService.hybrid_search` | method | 混合检索：Dense (HNSW余弦) + Sparse (ts_rank) → RRF 融合 | modules/chat/core/pgvector_service.py:346 |
+| `PgVectorService.initialize` | method | 初始化 PostgreSQL 连接、pgvector 扩展及数据表 | modules/chat/core/pgvector_service.py:66 |
+| `PgVectorService.insert_documents` | method | 批量插入文档 | modules/chat/core/pgvector_service.py:409 |
+| `PgVectorService.search_similar` | method | 纯向量检索（pgvector HNSW 余弦相似度） | modules/chat/core/pgvector_service.py:175 |
+
+## `modules.chat.core.redis_cache_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `RedisCacheService` | class | Redis 向量缓存服务（单例） | modules/chat/core/redis_cache_service.py:60 |
+| `RedisCacheService.add_chat_message` | method | 向 Redis 追加一条 Agent 对话消息，并裁剪到 max_turns 轮。 | modules/chat/core/redis_cache_service.py:591 |
+| `RedisCacheService.close` | method | 关闭 Redis 连接 | modules/chat/core/redis_cache_service.py:929 |
+| `RedisCacheService.delete_key` | method | 删除指定 key；Redis 不可用时返回 False。 | modules/chat/core/redis_cache_service.py:875 |
+| `RedisCacheService.get_chat_messages` | method | 从 Redis 获取 Agent 对话历史（role+content 格式）。 | modules/chat/core/redis_cache_service.py:628 |
+| `RedisCacheService.get_frequent_questions` | method | 获取高频问题 | modules/chat/core/redis_cache_service.py:659 |
+| `RedisCacheService.get_instance` | method | 获取单例实例 | modules/chat/core/redis_cache_service.py:74 |
+| `RedisCacheService.get_json` | method | 读取并反序列化 JSON 对象；不存在或异常返回 None。 | modules/chat/core/redis_cache_service.py:862 |
+| `RedisCacheService.get_recent_conversations` | method | 获取最近的对话历史 | modules/chat/core/redis_cache_service.py:548 |
+| `RedisCacheService.is_available` | method | 检查 Redis 是否可用 | modules/chat/core/redis_cache_service.py:233 |
+| `RedisCacheService.set_json` | method | 写入 JSON 序列化对象，可选 TTL（秒）。Redis 不可用时返回 False。 | modules/chat/core/redis_cache_service.py:851 |
+| `RedisCacheService.zadd_score` | method | 向有序集合写入分值映射（用于任务索引按创建时间排序）。 | modules/chat/core/redis_cache_service.py:886 |
+| `RedisCacheService.zcard` | method | 返回有序集合基数。 | modules/chat/core/redis_cache_service.py:909 |
+| `RedisCacheService.zrem` | method | 从有序集合移除成员。 | modules/chat/core/redis_cache_service.py:919 |
+| `RedisCacheService.zrevrange` | method | 逆序（分值从大到小）取区间成员。 | modules/chat/core/redis_cache_service.py:896 |
+| `get_redis_cache_service` | function | 获取 Redis 缓存服务单例 | modules/chat/core/redis_cache_service.py:944 |
+
+## `modules.chat.core.reranker_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `RerankerService` | class | BGE-Reranker 封装（懒加载单例） | modules/chat/core/reranker_service.py:29 |
+| `RerankerService.compute_scores` | method | 计算 query 与每篇文档的相关分数 | modules/chat/core/reranker_service.py:115 |
+| `RerankerService.get_instance` | method | 获取单例实例（线程安全） | modules/chat/core/reranker_service.py:61 |
+| `RerankerService.rerank` | method | 重排序 + 阈值截断 | modules/chat/core/reranker_service.py:241 |
+| `RerankerService.reset_instance` | method | 重置单例（用于测试或重新加载） | modules/chat/core/reranker_service.py:70 |
+
+## `modules.chat.core.schema_driven_extractor`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `SchemaDrivenExtractor` | class | Schema-driven 参数提取器：正则的 field 列表由 MCP schema 驱动，不硬编码。 | modules/chat/core/schema_driven_extractor.py:19 |
+| `SchemaDrivenExtractor.extract` | method | 从用户消息中提取参数，字段列表由 mcp_schema["properties"] 驱动。 | modules/chat/core/schema_driven_extractor.py:66 |
+| `SchemaDrivenExtractor.register_alias` | method | 注册新的字段名 → 语义类型 alias（字段改名时使用）。 | modules/chat/core/schema_driven_extractor.py:127 |
+| `SchemaDrivenExtractor.register_pattern` | method | 注册新的语义类型 → 正则（出现新的字段语义时使用）。 | modules/chat/core/schema_driven_extractor.py:132 |
+
+## `modules.chat.core.sentiment_service`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EmotionLevel` | class | 情绪等级（值越大越危险，>=4 触发升级） | modules/chat/core/sentiment_service.py:38 |
+| `EmotionResult` | class | 单条消息的情绪检测结果 | modules/chat/core/sentiment_service.py:56 |
+| `SentimentService` | class | 三级级联情绪检测器。 | modules/chat/core/sentiment_service.py:336 |
+| `SentimentService.clear_session` | method | 清除指定会话的情绪跟踪器。 | modules/chat/core/sentiment_service.py:419 |
+| `SentimentService.get_instance` | method | 获取单例（首次调用需要传入服务引用）。 | modules/chat/core/sentiment_service.py:358 |
+| `SentimentService.get_session` | method | 获取指定会话的情绪跟踪器（用于查询历史趋势）。 | modules/chat/core/sentiment_service.py:415 |
+| `SessionEmotionTracker` | class | 维护单个会话的情绪窗口。 | modules/chat/core/sentiment_service.py:229 |
+| `SessionEmotionTracker.mode` | method | 会话级情绪模式，用于驱动 prompt 模板选择。 | modules/chat/core/sentiment_service.py:275 |
+| `SessionEmotionTracker.should_escalate` | method | 是否应该触发人工升级： | modules/chat/core/sentiment_service.py:262 |
+| `SessionEmotionTracker.update` | method | 添加一条新消息的情绪结果并更新趋势。 | modules/chat/core/sentiment_service.py:244 |
+
+## `modules.chat.core.short_term_memory_cleaner`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ShortTermMemoryCleaner` | class | L2 短期记忆清理器 | modules/chat/core/short_term_memory_cleaner.py:13 |
+
+## `modules.chat.core.synonym_normalizer`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `InputNormalizer` | class | 输入归一化统一入口 | modules/chat/core/synonym_normalizer.py:419 |
+| `SynonymNormalizer` | class | 输入同义词归一化服务 | modules/chat/core/synonym_normalizer.py:275 |
+| `SynonymNormalizer.normalize` | method | 对用户输入执行同义词归一化 | modules/chat/core/synonym_normalizer.py:296 |
+| `normalize_text` | function | 文本预处理标准化（毫秒级，纯规则） | modules/chat/core/synonym_normalizer.py:229 |
+
+## `modules.chat.core.tool_registry`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `OrderServiceError` | class | 订单服务调用失败（未配置 / 网络不可达 / 非 2xx），供上层优雅降级。 | modules/chat/core/tool_registry.py:19 |
+| `ToolPermissionError` | class | 工具权限不足异常 | modules/chat/core/tool_registry.py:61 |
+| `ToolService` | class | 工具执行服务：Tool 定义 + 分发 + 远程 API 调用 | modules/chat/core/tool_registry.py:71 |
+| `register_tool` | function | 工具注册装饰器：将业务函数登记到全局工具注册表。 | modules/chat/core/tool_registry.py:34 |
+
+## `modules.chat.models`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Enterprise` | class | 企业信息模型 | modules/chat/models.py:8 |
+
+## `modules.chat.repositories`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EnterpriseRepository` | class | 企业信息数据访问层 | modules/chat/repositories.py:13 |
+
+## `modules.chat.schemas`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `A2AConversationListResponse` | class | A2A 对话列表响应。 | modules/chat/schemas.py:652 |
+| `A2AConversationSummary` | class | A2A 对话摘要。 | modules/chat/schemas.py:641 |
+| `A2AHealthResponse` | class | A2A 专用健康检查响应。 | modules/chat/schemas.py:659 |
+| `A2ATaskListResponse` | class | A2A 任务列表响应。 | modules/chat/schemas.py:600 |
+| `A2ATaskRequest` | class | A2A 异步任务提交请求。 | modules/chat/schemas.py:573 |
+| `A2ATaskStatusResponse` | class | A2A 任务状态查询响应。 | modules/chat/schemas.py:584 |
+| `AgentAuth` | class | Agent 认证方式声明（A2A 协议增强）。 | modules/chat/schemas.py:504 |
+| `AgentCapabilities` | class | Agent 能力声明（A2A 协议标准字段）。 | modules/chat/schemas.py:534 |
+| `AgentCard` | class | Agent Card —— A2A 协议的能力发现入口。 | modules/chat/schemas.py:546 |
+| `AgentConfig` | class | Agent通用配置 | modules/chat/schemas.py:109 |
+| `AgentEndpoint` | class | Agent 可用端点声明（A2A 协议增强）。 | modules/chat/schemas.py:523 |
+| `AgentRateLimitInfo` | class | Agent 速率限制信息（A2A 协议增强）。 | modules/chat/schemas.py:516 |
+| `AgentSkill` | class | Agent Card 中的单个技能声明。 | modules/chat/schemas.py:492 |
+| `BatchItemEmbedRequest` | class | 批量商品嵌入请求 | modules/chat/schemas.py:134 |
+| `ChatRequest` | class | 通用Agent聊天请求 | modules/chat/schemas.py:50 |
+| `ChatResponse` | class | 通用Agent聊天响应 | modules/chat/schemas.py:72 |
+| `CheckBalanceParams` | class | 查余额——从用户 query 中提取的参数 | modules/chat/schemas.py:258 |
+| `CheckShippingParams` | class | 查物流——从用户 query 中提取的参数 | modules/chat/schemas.py:228 |
+| `CouponInquiryParams` | class | 查优惠券——从用户 query 中提取的参数 | modules/chat/schemas.py:268 |
+| `ExperimentCreateRequest` | class | 创建/更新实验请求 | modules/chat/schemas.py:459 |
+| `ExperimentPauseRequest` | class | 暂停/恢复实验请求 | modules/chat/schemas.py:471 |
+| `ExperimentValidateRequest` | class | 分流均匀性验证请求 | modules/chat/schemas.py:478 |
+| `FileUploadMetadata` | class | 文件上传元数据 | modules/chat/schemas.py:37 |
+| `IntentResult` | class | 意图识别结果 | modules/chat/schemas.py:184 |
+| `ItemEmbedRequest` | class | 商品嵌入请求（单个） | modules/chat/schemas.py:127 |
+| `ItemEmbedResponse` | class | 商品嵌入响应 | modules/chat/schemas.py:145 |
+| `ItemSearchRequest` | class | 商品搜索请求 | modules/chat/schemas.py:155 |
+| `ItemSearchResponse` | class | 商品搜索响应 | modules/chat/schemas.py:171 |
+| `ItemSearchResult` | class | 商品搜索结果项 | modules/chat/schemas.py:162 |
+| `PlannedAction` | class | 单个被规划（选定）的工具调用意图。 | modules/chat/schemas.py:302 |
+| `QueryOrderParams` | class | 查订单——从用户 query 中提取的参数 | modules/chat/schemas.py:208 |
+| `RefundConfirmRequest` | class | 退款确认请求（人在回路） | modules/chat/schemas.py:101 |
+| `RequestReturnParams` | class | 退货退款——从用户 query 中提取的参数 | modules/chat/schemas.py:243 |
+| `SafetyGuardSchema` | class | 安全护栏请求 | modules/chat/schemas.py:447 |
+| `ToolPlan` | class | 工具执行计划：P0/P1/P2 三层规划收敛后的确定性产物。 | modules/chat/schemas.py:316 |
+| `ToolPlan.is_confident` | method | 是否达到「确定性执行、无需 LLM 自决停止」的阈值。 | modules/chat/schemas.py:340 |
+| `ToolPlan.to_tool_names` | method | 导出规划选中的工具名集合（含 always_include 的 knowledge_search 由调用方补充）。 | modules/chat/schemas.py:335 |
+| `ToolPlan.with_stop_condition` | method | 返回附加确定性终止信号的副本（用于上层根据置信度决定执行策略）。 | modules/chat/schemas.py:351 |
+| `VariantSchema` | class | 实验变体请求 | modules/chat/schemas.py:437 |
+| `WebhookSubscriptionRequest` | class | Webhook 订阅请求。 | modules/chat/schemas.py:612 |
+| `WebhookSubscriptionResponse` | class | Webhook 订阅响应。 | modules/chat/schemas.py:626 |
+
+## `modules.chat.services`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `ChatAgentService` | class | 智能客服服务 —— 服务初始化、依赖注入、对外委托 | modules/chat/services.py:42 |
+| `ChatAgentService.vector_service` | method | 统一向量服务属性（Milvus 或 PgVector） | modules/chat/services.py:73 |
+
+## `modules.items.models`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Enterprise` | class | 企业信息模型 | modules/items/models.py:8 |
+
+## `modules.items.repositories`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EnterpriseRepository` | class | 企业信息数据访问层 | modules/items/repositories.py:13 |
+
+## `modules.items.schemas`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `BasicInfo` | class | 基本信息 | modules/items/schemas.py:19 |
+| `BusinessStatus` | class | 经营状况 | modules/items/schemas.py:28 |
+| `EnterpriseQueryRequest` | class | 企业信息查询请求模型 | modules/items/schemas.py:6 |
+| `EnterpriseQueryResponse` | class | 企业信息查询响应模型 | modules/items/schemas.py:44 |
+| `RiskInfo` | class | 风险信息 | modules/items/schemas.py:36 |
+
+## `modules.items.services`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `EnterpriseService` | class | 企业信息查询服务 | modules/items/services.py:15 |
+
+## `modules.monitoring.langchain_callback`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `PrometheusCallbackHandler` | class | LangChain Prometheus 回调处理器 | modules/monitoring/langchain_callback.py:29 |
+| `PrometheusCallbackHandler.on_agent_action` | method | Agent 执行动作（工具调用） | modules/monitoring/langchain_callback.py:207 |
+| `PrometheusCallbackHandler.on_agent_finish` | method | Agent 完成 | modules/monitoring/langchain_callback.py:220 |
+| `PrometheusCallbackHandler.on_chain_end` | method | Chain 执行结束 | modules/monitoring/langchain_callback.py:294 |
+| `PrometheusCallbackHandler.on_chain_error` | method | Chain 执行错误 | modules/monitoring/langchain_callback.py:307 |
+| `PrometheusCallbackHandler.on_chain_start` | method | Chain 开始执行 | modules/monitoring/langchain_callback.py:278 |
+| `PrometheusCallbackHandler.on_embedding_end` | method | Embedding 结束 - 统计 token 和耗时 | modules/monitoring/langchain_callback.py:183 |
+| `PrometheusCallbackHandler.on_embedding_start` | method | Embedding 开始 | modules/monitoring/langchain_callback.py:173 |
+| `PrometheusCallbackHandler.on_llm_end` | method | LLM 调用结束 - 统计 Token | modules/monitoring/langchain_callback.py:66 |
+| `PrometheusCallbackHandler.on_llm_error` | method | LLM 调用错误 | modules/monitoring/langchain_callback.py:159 |
+| `PrometheusCallbackHandler.on_llm_start` | method | LLM 开始调用 | modules/monitoring/langchain_callback.py:50 |
+| `PrometheusCallbackHandler.on_retriever_end` | method | 检索器结束 | modules/monitoring/langchain_callback.py:334 |
+| `PrometheusCallbackHandler.on_retriever_start` | method | 检索器开始 | modules/monitoring/langchain_callback.py:322 |
+| `PrometheusCallbackHandler.on_tool_end` | method | 工具执行结束 | modules/monitoring/langchain_callback.py:249 |
+| `PrometheusCallbackHandler.on_tool_error` | method | 工具执行错误 | modules/monitoring/langchain_callback.py:263 |
+| `PrometheusCallbackHandler.on_tool_start` | method | 工具开始执行 | modules/monitoring/langchain_callback.py:233 |
+| `get_prometheus_callback` | function | 获取 Prometheus 回调处理器单例 | modules/monitoring/langchain_callback.py:352 |
+
+## `modules.monitoring.langfuse_callback`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `create_langfuse_handler` | function | 为单个请求创建 Langfuse CallbackHandler + propagate_attributes 上下文管理器。 | modules/monitoring/langfuse_callback.py:56 |
+| `flush_langfuse` | function | 刷新 Langfuse 客户端缓冲区，确保所有追踪数据已发送。 | modules/monitoring/langfuse_callback.py:113 |
+| `init_langfuse_masking` | function | 以统一脱敏钩子初始化 Langfuse 客户端（幂等）。 | modules/monitoring/langfuse_callback.py:34 |
+| `observe` | function | 条件性 Langfuse @observe 装饰器。 | modules/monitoring/langfuse_callback.py:143 |
+
+## `modules.monitoring.metrics`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `track_api_call` | function | API 调用追踪装饰器 | modules/monitoring/metrics.py:178 |
+| `track_db_query` | function | 数据库查询追踪装饰器 | modules/monitoring/metrics.py:242 |
+| `track_milvus_search` | function | Milvus 检索追踪装饰器 | modules/monitoring/metrics.py:277 |
+
+## `modules.monitoring.skywalking_client`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `init_skywalking` | function | 初始化 SkyWalking Agent（幂等调用）。 | modules/monitoring/skywalking_client.py:49 |
+| `shutdown_skywalking` | function | 关闭 SkyWalking Agent，确保缓冲区数据上报。 | modules/monitoring/skywalking_client.py:110 |
+| `traced` | function | 装饰器：为关键业务函数创建自定义 Span。 | modules/monitoring/skywalking_client.py:228 |
+
+## `modules.user.models`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `User` | class | 轻量用户模型 | modules/user/models.py:9 |
+| `UserProfile` | class | 用户画像模型（记忆架构 Phase 2 使用） | modules/user/models.py:27 |
+
+## `modules.user.repositories`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `UserRepository` | class | 用户数据访问 | modules/user/repositories.py:10 |
+
+## `modules.user.schemas`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `UserProfileResponse` | class | 用户画像响应 | modules/user/schemas.py:6 |
+
+## `modules.user.services`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `UserService` | class | 轻量用户服务 | modules/user/services.py:12 |
+
+## `shared.database`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `Base` | class | 数据库模型基类 | shared/database.py:7 |
+| `get_async_session` | function | 创建异步会话 | shared/database.py:22 |
+
+## `shared.exceptions`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `AuthenticationException` | class | 认证异常 | shared/exceptions.py:20 |
+| `AuthorizationException` | class | 授权异常 | shared/exceptions.py:27 |
+| `BusinessException` | class | 业务异常基类 | shared/exceptions.py:10 |
+| `DatabaseException` | class | 数据库异常 | shared/exceptions.py:48 |
+| `NotFoundException` | class | 资源不存在异常 | shared/exceptions.py:34 |
+| `ValidationException` | class | 数据验证异常 | shared/exceptions.py:41 |
+
+## `shared.logger`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `APILogger` | class | API业务日志记录器 | shared/logger.py:168 |
+| `APILogger.debug` | method | 记录调试日志（支持 printf 风格位置参数） | shared/logger.py:196 |
+| `APILogger.error` | method | 记录错误日志（支持 printf 风格位置参数） | shared/logger.py:188 |
+| `APILogger.info` | method | 记录信息日志（支持 printf 风格位置参数） | shared/logger.py:184 |
+| `APILogger.log_api_call` | method | 记录API调用 | shared/logger.py:200 |
+| `APILogger.log_business_event` | method | 记录业务事件 | shared/logger.py:214 |
+| `APILogger.log_database_operation` | method | 记录数据库操作 | shared/logger.py:210 |
+| `APILogger.warning` | method | 记录警告日志（支持 printf 风格位置参数） | shared/logger.py:192 |
+| `configure_logging` | function | 配置结构化日志 | shared/logger.py:32 |
+| `get_logger` | function | 获取日志记录器 | shared/logger.py:68 |
+
+## `shared.otel_tracing`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `PiiRedactionSpanProcessor` | class | 出站 PII 脱敏：在 span 被导出前，对 attributes 中的字符串值做脱敏。 | shared/otel_tracing.py:48 |
+| `get_current_trace_ids` | function | 从 OTel context 提取 (trace_id, span_id)。无活动 span 返回 (None, None)。 | shared/otel_tracing.py:126 |
+| `init_otel_tracing` | function | 幂等初始化全局 TracerProvider。失败静默降级（不阻断主链路）。 | shared/otel_tracing.py:88 |
+| `shutdown_otel_tracing` | function | 关闭 provider，flush 缓冲 span。 | shared/otel_tracing.py:115 |
+
+## `shared.redact`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `mask_for_langfuse` | function | 适配 Langfuse v4 SDK 的 ``mask`` 钩子（MaskFunction 协议）。 | shared/redact.py:181 |
+| `redact` | function | 对单段文本做轻量 PII 脱敏，返回脱敏后副本。 | shared/redact.py:109 |
+| `redact_dict` | function | 按键名脱敏（敏感字段整值替换），非敏感字段仅做文本 PII 扫描。 | shared/redact.py:149 |
+| `redact_obj` | function | 递归脱敏任意 JSON 结构（dict / list / str），原结构类型保持。 | shared/redact.py:135 |
+| `redact_processor` | function | structlog processor：对整个事件 dict 脱敏（键名 + 值扫描）。 | shared/redact.py:171 |
+
+## `shared.responses`
+
+| 组件 | 类型 | 摘要 | 定义位置 |
+|------|------|------|----------|
+| `BaseResponse` | class | 基础响应模型 | shared/responses.py:6 |
+| `ErrorResponse` | class | 错误响应模型 | shared/responses.py:23 |
+| `SuccessResponse` | class | 成功响应模型 | shared/responses.py:14 |
+| `error_response` | function | 创建错误响应 | shared/responses.py:37 |
+| `success_response` | function | 创建成功响应 | shared/responses.py:32 |
+
+## 调用关系摘要（影响面参考）
+
+> 下列为静态调用边，供「改某组件前评估影响面」参考。完整图请用 impact_analysis 工具。
+
+- `get_api_logger` → APILogger
+- `get_database_session` → Depends
+- `ClientInfo` → dataclass
+- `register_legacy_client` → ClientInfo, len
+- `lookup_client` → _MOCK_CLIENTS.get
+- `check_tool_permission` → ROLE_TOOL_PERMISSIONS.get, frozenset
+- `get_client_accessible_tools` → ROLE_TOOL_PERMISSIONS.get, frozenset
+- `set_current_client` → _current_client.set
+- `get_current_client` → _current_client.get
+- `clear_current_client` → _current_client.set
+- `ProbeServer` → threading.Thread, self._thread.start, logger.info, _ReusePortHTTPServer, logger.warning, self._server.shutdown, self._server.server_close
+- `start_probe_server` → ProbeServer, _probe_server.start
+- `RateLimiter` → threading.Lock, int, self._redis.pipeline, pipe.zremrangebyscore, pipe.zcard, pipe.zadd, pipe.expire, pipe.execute …(+28)
+- `RateLimiter.check` → self._check_redis, self._ensure_redis, self._check_memory, logger.debug
+- `RateLimiter.dependency` → request.url.path.rstrip, self.check, HTTPException, str
+- `RateLimiter.check_tokens` → self._check_tokens_redis, self._ensure_redis, self._check_tokens_memory, logger.debug
+- `RateLimiter.report_tokens` → int, self._redis.pipeline, pipe.zadd, pipe.expire, pipe.execute, self._ensure_redis, pipe.zrem, logger.debug …(+3)
+- `RateLimiter.token_dependency` → request.url.path.rstrip, self.check_tokens, HTTPException, str
+- `get_rate_limiter` → RateLimiter
+- `TokenEstimator` → threading.Lock, _estimate_by_chars, _encode_text_cached.cache_info, _encode_text_cached.cache_clear, self.estimate, logger.info, self._ensure_loaded, msg.get …(+14)
+- `TokenEstimator.get_instance` → cls
+- `TokenEstimator.estimate` → _estimate_by_chars, self._ensure_loaded, _encode_text_cached
+- `TokenEstimator.estimate_messages` → msg.get, self.estimate
+- `TokenEstimator.estimate_system_prompt` → self.estimate
+- `TokenEstimator.cache_info` → _encode_text_cached.cache_info, max
+- `TokenEstimator.clear_cache` → _encode_text_cached.cache_clear
+- `TokenEstimator.truncate_to_tokens` → self.estimate, logger.info, logger.warning, _truncate_text_to_max_tokens, int, len
+- `get_token_estimator` → TokenEstimator.get_instance
+- `estimate_tokens` → get_token_estimator().estimate, get_token_estimator
+- `register_conversation_event` → datetime.now(timezone.utc).isoformat, _conversations_store.get, conv['messages'].append, len, datetime.now
+- `ChatConfig` → _DIMS.items, model.endswith
+- `ChatConfig.embedding_dimension` → _DIMS.items, model.endswith
+- `AgentStepConfig` → ConfigDict
+- `AgentConfig` → Field, ConfigDict, AgentStepConfig
+- `get_agent_config` → DOMAIN_CONFIGS.get, _create_general_config
+- `get_available_domains` → DOMAIN_CONFIGS.values
+- `Enterprise` → Column, String
+- `EnterpriseRepository` → result.scalars().all, logger.log_database_operation, list, select(Enterprise).where, result.scalar_one_or_none, conditions.append, select, self.db.execute …(+9)
+- `FileUploadMetadata` → Field
+- `ChatRequest` → Field
+- `ChatResponse` → Field
+- `RefundConfirmRequest` → Field
+- `AgentConfig` → Field
+- `ItemEmbedRequest` → Field
+- `BatchItemEmbedRequest` → Field
+- `ItemEmbedResponse` → Field
+- `ItemSearchRequest` → Field
+- `ItemSearchResult` → Field
+- `ItemSearchResponse` → Field
+- `IntentResult` → Field
+- `QueryOrderParams` → Field
+- `CheckShippingParams` → Field
+- `RequestReturnParams` → Field
+- `CheckBalanceParams` → Field
+- `CouponInquiryParams` → Field
+- `PlannedAction` → Field
+- `ToolPlan` → Field, ToolPlan, len, list
+- `ToolPlan.is_confident` → len
+- `ToolPlan.with_stop_condition` → ToolPlan, list
+- `VariantSchema` → Field
+- `SafetyGuardSchema` → Field
+- `ExperimentCreateRequest` → Field
+- `ExperimentPauseRequest` → Field
+- `ExperimentValidateRequest` → Field
+- `AgentSkill` → Field
+- `AgentAuth` → Field, ConfigDict
+- `AgentRateLimitInfo` → Field
+- `AgentEndpoint` → Field
+- `AgentCapabilities` → Field, ConfigDict
+- `AgentCard` → Field, ConfigDict
+- `A2ATaskRequest` → Field
+- `A2ATaskStatusResponse` → Field
+- `A2ATaskListResponse` → Field
+- `WebhookSubscriptionRequest` → Field
+- `WebhookSubscriptionResponse` → Field
+- `A2AConversationSummary` → Field
+- `A2AConversationListResponse` → Field
+- `A2AHealthResponse` → Field
+- `ChatAgentService` → ToolService, self._embedding_service.get_embeddings, logger.info, logger.log_business_event, EmbeddingService.get_instance, _create_vector_service, LLMService.get_instance, self._vector_service.close …(+27)
+- `ChatAgentService.vector_service` → _create_vector_service
+- `CommandToolService` → ApprovalGate, self._gate.approve, self._gate.reject
+- `AgentContext` → field
+- `ParallelComposite` → zip, self.merger.merge, ResultMerger, asyncio.gather, isinstance, perspectives.append, logger.warning, child.execute …(+1)
+- `SerialComposite` → child.execute, logger.warning, str
+- `ResultMerger` → hasattr, len, max, getattr
+- `ConversationSummarizer` → self._format_messages, get_token_estimator, estimator.estimate, logger.info, _SUMMARIZE_PROMPT.format, '\n'.join, LLMService.get_instance, int …(+8)
+- `get_token_estimator` → _get
+- `FactCollectorAgent` → tasks.append, enumerate, ctx.facts.update, AgentPerspective, sum, asyncio.gather, isinstance, len …(+9)
+- `BuyerAnalysisAgent` → self._format_facts, self._emotion_context, facts.items, '\n'.join, raw.strip, text.startswith, text.endswith, self._safe_json_parse …(+19)
+- `SellerAnalysisAgent` → self._format_facts, self._emotion_context, facts.items, '\n'.join, raw.strip, text.startswith, text.endswith, self._safe_json_parse …(+20)
+- `MediatorAgent` → ctx.metadata.get, self._format_facts, self._emotion_context, facts.items, '\n'.join, raw.strip, text.startswith, text.endswith …(+29)
+- `AgentPerspective` → field
+- `DisputeCoordinator` → FactCollectorAgent, BuyerAnalysisAgent, SellerAnalysisAgent, MediatorAgent, ParallelComposite, SerialComposite, _time.perf_counter, logger.info …(+25)
+- `should_use_dispute_coordinator` → message.lower, sum
+- `build_dispute_graph` → StateGraph, workflow.add_node, workflow.add_edge, workflow.add_conditional_edges, workflow.set_entry_point, _FactCollectorNode, _BuyerAnalysisNode, _SellerAnalysisNode …(+2)
+- `DisputeLangGraph` → build_dispute_graph(tool_service, llm_service).compile, build_dispute_graph, self._graph.ainvoke, result.get, logger.error, str
+- `GeneralAgentExecutor` → GUIDANCE_TEMPLATES.get('default', '').format, get_prometheus_callback, time.time, get_agent_config, self.redis_cache_service.get_chat_messages, self.redis_cache_service.add_chat_message, os.getenv('NEBULA_GRAPH_ENABLED', 'true').lower, NebulaGraphService.get_instance …(+34)
+- `AgentOrchestrator` → InputNormalizer, self._embedding_service.get_embeddings, getattr, _time.perf_counter, get_token_estimator, token_estimator.truncate_to_tokens, ReActAgent, create_langfuse_handler …(+42)
+- `persist_turn` → getattr, redis._client.incr, redis._client.expire, user_message.strip, redis.add_chat_message, assistant_message.strip, asyncio.create_task, logger.debug …(+1)
+- `Pipeline` → steps_results.append, any, '\n\n'.join, quality_evaluation.get, UnderstandStep, ReviewStep, RetrieveStep, GenerateStep …(+17)
+- `PromptTemplateManager` → cls.get, ChatPromptTemplate.from_template
+- `PromptTemplateManager.get_prompt_obj` → cls.get, ChatPromptTemplate.from_template
+- `ReActAgent` → _skill_registry, CommandToolService, self._build_tools, set, self._skill_registry.tool_descriptions.get, _make_business_args_schema, tool, _get_intent_tool_map …(+94)
+- `get_graph` → LLMService, llm_svc.initialize, _skill_registry, registry.tool_descriptions.items, tool, stub_tools.append, create_agent, graph.with_config …(+3)
+- `is_scenario_covered` → any
+- `extract_identifier` → _re.search, (tool_input or {}).get, json.loads, m.group, str, data.get
+- `build_shipping_summary` → data.get, extract_identifier, '\n'.join, t.get, isinstance
+- `build_order_summary` → data.get, isinstance, order.get
+- `build_balance_summary` → data.get
+- `build_coupon_summary` → data.get, c.get, lines.append, isinstance, '\n'.join
+- `build_summary_from_observation` → builders.get, json.loads, builder, str, isinstance, data.get, build_shipping_summary, build_order_summary …(+2)
+- `apply_scenario_reply` → is_scenario_covered, str, any, _looks_like_ack, build_missing_id_reply, extract_identifier, build_not_found_reply, build_summary_from_observation
+- `parse_messages` → isinstance, getattr, str, pending_calls.pop, intermediate_steps.append, tc.get
+- `format_intermediate_steps` → enumerate, steps.append, str, len
+- `Rule` → set
+- `EmbeddingToolMatcher` → asyncio.Lock, np.array(await self._emb_service.embed_query(user_query), dtype=np.float32).reshape, faiss.normalize_L2, min, self._index.search, zip, scored.sort, logger.info …(+19)
+- `AgentStepResult` → Field
+- `SafetyCheckResult` → Field
+- `QuestionRewriteResult` → Field
+- `RetrievalResult` → Field
+- `AgentStreamEvent` → Field
+- `SafetyCheckSchema` → Field
+- `ComplianceCheckSchema` → Field
+- `QuestionClassifySchema` → Field
+- `QuestionRewriteSchema` → Field
+- `AnswerQualitySchema` → Field
+- `get_structured_schema` → STRUCTURED_OUTPUT_SCHEMAS.get
+- `SkillDef` → field
+- `SkillRegistry` → set, all_names.add
+- `SkillRegistry.intent_tool_map` → set, all_names.add
+- `SkillLoader` → sorted, SkillRegistry, logger.info, model.model_fields.items, path.read_text, FRONTMATTER_RE.match, raw[m.end():].strip, str(meta.get('name') or '').strip …(+34)
+- `SkillLoader.load` → sorted, SkillRegistry, logger.info, self._root.exists, logger.warning, self._root.iterdir, item.is_dir, md_file.exists …(+5)
+- `get_skill_registry` → SkillLoader, _loader.load
+- `ToolContext` → field
+- `ApprovalGate` → logger.info, ToolResult, _APPROVAL_MEM.get, command.requires_approval, command.execute, self._store_approval, self._get_approval, approval.get …(+16)
+- `RefundCommand` → ctx.params.get, ToolResult, logger.info, logger.warning, self._order_service_url.rstrip, httpx.AsyncClient, resp.raise_for_status, logger.error …(+2)
+- `QueryOrderCommand` → ToolResult, ToolService._tool_query_order
+- `CheckShippingCommand` → ToolResult, ToolService._tool_check_shipping
+- `CheckBalanceCommand` → ToolResult, ToolService._tool_check_balance
+- `CouponInquiryCommand` → ToolResult, ToolService._tool_coupon_inquiry
+- `BaseStep` → AgentStepResult, str
+- `UnderstandStep` → getattr, time.time, self._skip_result, PromptTemplateManager.get, QuestionRewriteResult, int, logger.info, AgentStepResult …(+10)
+- `ReviewStep` → getattr, time.time, SafetyCheckResult, PromptTemplateManager.get, _build_safety_result, int, logger.info, AgentStepResult …(+11)
+- `RetrieveStep` → getattr, time.time, self._build_rag_context, '\n---\n'.join, set, enumerate, int, logger.info …(+30)
+- `GenerateStep` → getattr, time.time, ctx.redis_cache_service.get_chat_messages, ConversationSummarizer, _format_prompt, _get_token_estimator, estimator_tk.estimate, _quick_evaluate_answer_quality …(+57)
+- `FlowCompiler` → validate_flow, StateGraph, enumerate, list, conditional_routes.items, _entry, CompiledFlow, self.compile(flow).get_graph …(+22)
+- `load_flow_file` → Path, FlowFile.model_validate, validate_flow, p.is_file, FileNotFoundError, yaml.safe_load, p.read_text, FlowValidationError
+- `CompiledFlow` → workflow.compile, MemorySaver, state.get, self._graph.ainvoke, Command
+- `StateField` → Field
+- `GraphState` → Field
+- `ReadFrom` → Field
+- `WriteTo` → Field
+- `HardcodeDecl` → Field
+- `NodeConfig` → Field
+- `Condition` → Field
+- `GuardDef` → Field
+- `SubgraphFlow` → Field, next
+- `FlowFile` → Field, next
+- `validate_flow` → set, _validate_edges, _validate_read_from, _validate_skill_references, _validate_required_guards, _validate_skill_node_types, _validate_subgraphs, flow.node_ids …(+2)
+- `NormalizeHandler` → state.get, state.get('messages', [{}])[-1].get
+- `IntentHandler` → state.get
+- `GuardHandler` → logger.info
+- `DirectToolHandler` → dict, _build_hardcode_preset, logger.info, ValueError, state.get('intent', {}).get, self._tool_service.dispatch, inputs.get, state.get …(+2)
+- `ReactHandler` → dict, preset.update, state.get, intent_state.get, ChatRequest, IntentResult, ReActRunContext, ReActAgent …(+6)
+- `LLMCallHandler` → state.get, system_parts.append, self._build_messages, logger.info, inputs.get, params_nested, template.format, isinstance …(+10)
+- `RagPipelineHandler` → state.get('intent', {}).get, ChatRequest, GeneralAgentExecutor, ValueError, state.get, state.get('messages', [{}])[-1].get, executor.execute
+- `DisputeHandler` → state.get('intent', {}).get, (inputs.get('params') or state.get('params') or {}).get, ChatRequest, DisputeCoordinator, ValueError, state.get, state.get('messages', [{}])[-1].get, coordinator.resolve …(+1)
+- `HumanApprovalHandler` → dict, params.get, state.get, state.get('intent', {}).get, _ApprovalCommand, ToolContext, ApprovalGate, ContentFilterService.get_instance …(+10)
+- `build_handler` → logger.warning, GuardHandler, getattr, NormalizeHandler, IntentHandler, DirectToolHandler, ReactHandler, LLMCallHandler …(+10)
+- `RagRewriteHandler` → _build_agent_context, UnderstandStep, any, dict, step.execute, (result.output_data or {}).get, logger.warning, q.startswith …(+2)
+- `RagReviewHandler` → _build_agent_context, ReviewStep, dict, safety.model_dump, bool, step.execute, state.get
+- `RagRetrieveHandler` → _build_agent_context, RetrieveStep, dict, len, ValueError, _ensure_embedding, step.execute, '\n\n'.join …(+3)
+- `RagGenerateHandler` → _build_agent_context, dict, SafetyCheckResult, rag.get, GenerateStep, step.execute, state.get, safety_data.get
+- `A2ATaskService` → datetime.now(timezone.utc).isoformat, self._redis, self._tasks.get, self._now_iso, A2ATaskStatusResponse, self._persist_task, logger.info, self._load_task …(+47)
+- `A2ATaskService.create_task` → self._now_iso, A2ATaskStatusResponse, self._persist_task, logger.info, len, next, self._tasks.pop, self._running_futures.pop …(+2)
+- `A2ATaskService.get_task` → self._load_task
+- `A2ATaskService.cancel_task` → self._load_task, self._running_futures.pop, self._now_iso, self._persist_task, logger.info, future.cancel, future.done
+- `A2ATaskService.list_tasks` → self._redis, sorted, A2ATaskListResponse, redis.zrevrange, redis.zcard, self._tasks.values, redis.get_json, redis.zrem …(+5)
+- `get_a2a_task_service` → A2ATaskService.get_instance
+- `A2AWebhookService` → datetime.now(timezone.utc).isoformat, self._now_iso, (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat, WebhookSubscriptionResponse, logger.info, datetime.now, self._subscriptions.items, self.list_subscriptions …(+7)
+- `A2AWebhookService.subscribe` → self._now_iso, (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat, WebhookSubscriptionResponse, logger.info, datetime.now, timedelta, uuid.uuid4
+- `A2AWebhookService.unsubscribe` → self._subscriptions.pop, logger.info
+- `A2AWebhookService.list_subscriptions` → datetime.now, self._subscriptions.items, self._subscriptions.pop, datetime.fromisoformat, active.append, expired.append
+- `A2AWebhookService.get_subscribers` → self.list_subscriptions
+- `get_a2a_webhook_service` → A2AWebhookService.get_instance
+- `build_agent_card` → _resolve_agent_url, AgentCapabilities, AgentAuth, AgentRateLimitInfo, AgentCard, getattr, get_skill_registry, endpoints.append …(+4)
+- `warmup_agent_card` → __import__('time').perf_counter, build_agent_card, logger.info, __import__, len
+- `FilterResult` → Field
+- `ContentFilterService` → self._detect_length_anomaly, FilterResult, OUTPUT_BLOCK_KEYWORDS.get, domain_kw.get, cls, pattern.search, len, risk_categories.append …(+8)
+- `ContentFilterService.get_instance` → cls
+- `ContentFilterService.filter_input` → self._detect_length_anomaly, FilterResult, pattern.search, risk_categories.append, ', '.join
+- `ContentFilterService.filter_output` → OUTPUT_BLOCK_KEYWORDS.get, domain_kw.get, FilterResult, hit_block.append, hit_replace.append, filtered.replace, ', '.join, ','.join
+- `DocumentService` → sum, int, min, buf.strip, self._hard_pre_split, SemanticChunker, range, self._milvus_service.insert_documents …(+37)
+- `DocumentService.estimate_tokens` → sum, int, min, get_token_estimator, len, estimator.estimate, ord
+- `LocalEmbeddings` → observe, threading.Lock, self._load_model, time.time, asyncio.get_event_loop, logger.info, __import__('sentence_transformers').SentenceTransformer, self.model.encode …(+16)
+- `LocalEmbeddings.embed_query` → observe, time.time, self.model.encode, vectors[0].tolist, _get_current_span, embedding_request_counter.labels(provider='local', status='success').inc, embedding_request_duration.labels(provider='local').observe, isinstance …(+6)
+- `OllamaEmbeddings` → observe, (base_url or chat_config.ollama_base_url).rstrip, asyncio.new_event_loop, time.time, self._normalize, httpx.AsyncClient, resp.raise_for_status, resp.json …(+13)
+- `VLLMEmbeddings` → observe, (base_url or chat_config.vllm_embedding_base_url).rstrip, sorted, asyncio.new_event_loop, time.time, httpx.AsyncClient, resp.raise_for_status, resp.json …(+13)
+- `EmbeddingService` → observe, time.time, RuntimeError, cls.__new__, cls._instance.__init__, logger.info, OllamaEmbeddings, self.get_embeddings().aembed_documents …(+6)
+- `SafetyGuard` → cls, SafetyMetricType, d.get
+- `PipelineOverrides` → cls, self.__dict__.items, d.items
+- `VariantDef` → field, cls, self.pipeline_overrides.to_dict, VariantType, float, PipelineOverrides.from_dict, d.get
+- `ExperimentDef` → field, cls, v.to_dict, g.to_dict, d.get, ExperimentStatus, VariantDef.from_dict, SafetyGuard.from_dict
+- `TrafficRouter` → TrafficRouter._hash_user, len, counts.items, ord, int, TrafficRouter.assign, max, Assignment …(+1)
+- `TrafficRouter.assign` → TrafficRouter._hash_user, int, Assignment
+- `TrafficRouter.validate_distribution` → len, counts.items, TrafficRouter.assign, max, expected_ratios.get
+- `ExperimentStore` → threading.Lock, time.strftime, time.time, self._redis.set, self._redis.sadd, self._redis.incr, self._redis.delete, self._redis.srem …(+17)
+- `ExperimentStore.save_experiment` → time.strftime, self._redis.set, self._redis.sadd, self._redis.incr, json.dumps, logger.error, experiment.to_dict
+- `ExperimentStore.delete_experiment` → self._redis.delete, self._redis.srem, self._redis.incr, logger.error
+- `ExperimentStore.get_active_experiments` → self._needs_refresh, self._load_all, self._cache.values
+- `ExperimentStore.get_experiment` → self._needs_refresh, self._cache.get, self._load_all
+- `ExperimentStore.force_refresh` → self._load_all
+- `SafetyGuardEvaluator` → metrics.get, triggered.append, logger.warning
+- `SafetyGuardEvaluator.evaluate` → metrics.get, triggered.append, logger.warning
+- `ExperimentService` → ExperimentStore, TrafficRouter, SafetyGuardEvaluator, _ExperimentMetricsCollector, logger.info, self._store.save_experiment, self._store.get_experiment, list …(+13)
+- `ExperimentService.initialize` → ExperimentStore, TrafficRouter, SafetyGuardEvaluator, _ExperimentMetricsCollector, logger.info, redis.Redis, redis_client.ping, logger.warning
+- `ExperimentService.assign` → self._store.get_active_experiments, self._router.assign, logger.info
+- `ExperimentService.create_experiment` → self._store.save_experiment
+- `ExperimentService.get_experiment` → self._store.get_experiment
+- `ExperimentService.list_experiments` → list, self._store.get_active_experiments
+- `ExperimentService.delete_experiment` → self._store.delete_experiment
+- `ExperimentService.pause_experiment` → self.get_experiment, self._store.save_experiment
+- `ExperimentService.stop_experiment` → self.get_experiment, self._store.save_experiment
+- `ExperimentService.force_refresh` → self._store.force_refresh
+- `ExperimentService.evaluate_safety` → self.get_experiment, self._safety_guard.evaluate
+- `ExperimentService.validate_distribution` → self.get_experiment, assignment.validate_distribution
+- `SampleSizeCalculator` → max, int, float, math.ceil
+- `SampleSizeCalculator.sample_size_per_variant` → max, int, math.ceil
+- `SampleSizeCalculator.estimate_duration` → float
+- `StatisticalTest` → math.sqrt, round, _normal_cdf, abs
+- `StatisticalTest.z_test_proportions` → math.sqrt, round, _normal_cdf, abs
+- `ForgettingPolicy` → datetime.now, self._parse_time, block.get, list, milvus_service.collection.query, expired_ids.extend, (now - timedelta(days=self.archive_days)).isoformat, set …(+4)
+- `ForgettingPolicy.should_archive` → datetime.now, self._parse_time, block.get
+- `ForgettingPolicy.should_delete` → datetime.now, self._parse_time, block.get
+- `NebulaGraphService` → os.getenv, int, self._execute_nql_with_retry, asyncio.get_event_loop, isinstance, grouped.items, '\n'.join, re.findall …(+52)
+- `NebulaGraphService.build_graph_context` → grouped.items, '\n'.join, r.get, grouped[rtype].append, lines.append, ', '.join
+- `NebulaGraphService.close` → logger.info
+- `IntentRecognizer` → observe, logger.info, getattr, _perf_time.perf_counter, print, INTENT_PARAM_SCHEMAS.get, PARAM_EXTRACTION_PROMPTS.get, IntentResult …(+49)
+- `IntentRecognizer.warmup_sync` → embedding_service.get_embeddings, INTENT_EXAMPLES.items, emb.embed_documents, np.array, faiss.IndexFlatIP, index.add, logger.info, logger.warning …(+3)
+- `IntentRecognizer.assess_complexity` → logger.info, reasons.append, '; '.join, round
+- `ItemService` → EmbeddingService.get_instance, self._embedding_svc.get_embeddings, os.path.splitext, file_content.decode, RuntimeError, file_name.lower, ValidationException, len …(+39)
+- `ItemService.parse_text_file` → os.path.splitext, file_content.decode, file_name.lower, ValidationException, ', '.join, sorted
+- `resolve_llm_base_url` → (os.getenv('LLM_GATEWAY_URL') or '').strip, _direct_egress_allowed, _direct_egress_counter.labels(allowed='0').inc, (os.getenv('ENVIRONMENT') or os.getenv('APP_ENV') or '').strip().lower, GatewayNotConfigured, _direct_egress_counter.labels(allowed='1').inc, logger.warning, logger.error …(+5)
+- `TokenLimitExceeded` → super().__init__, super
+- `set_rate_limit_context` → _rate_limit_key_ctx.set, _token_limit_enabled_ctx.set
+- `clear_rate_limit_context` → _rate_limit_key_ctx.set, _token_limit_enabled_ctx.set
+- `LLMService` → _retry_on_network_error, _time.perf_counter, getattr, random.uniform, _token_limit_enabled_ctx.get, range, self.qwen_llm.with_structured_output, messages.append …(+51)
+- `LLMService.get_instance` → cls
+- `LLMService.initialize` → resolve_llm_base_url, asyncio.get_running_loop, loop.create_task, logger.error, ChatOpenAI, logger.info, self._check_gateway_health_task, asyncio.run …(+1)
+- `LLMService.check_gateway_health` → type, round, resolve_llm_base_url, time.time
+- `LLMService.qwen_llm` → ChatOpenAI, ValueError, resolve_llm_base_url
+- `LLMService.tool_selector_llm` → getattr, ChatOpenAI, logger.info, resolve_llm_base_url
+- `LLMService.create_structured_llm` → self.qwen_llm.with_structured_output
+- `LocalModelService` → re.compile, observe, logger.info, (chat_config.local_model_backend or 'vllm').strip().lower, cls._using_remote, (chat_config.vllm_base_url or 'http://vllm:8000/v1').rstrip, base.endswith, cls._remote_endpoint …(+101)
+- `LocalModelService.close` → self._executor.shutdown, gc.collect, logger.info, hasattr
+- `LongTermMemoryArchiver` → datetime.now, MemoryBlockService.get_instance, timedelta, self._milvus.collection.query, logger.info, logger.error, self._milvus.collection.update, logger.warning …(+2)
+- `MCPToolInfo` → field
+- `MCPServerConnection` → field
+- `MCPClientManager` → self._parse_server_configs, list, self._servers.clear, self._tool_to_server.clear, self._servers.values, self._tool_to_server.get, self._servers.get, conn.tools.get …(+36)
+- `MCPClientManager.get_tool_names` → self._servers.values, names.extend, conn.tools.keys
+- `MCPClientManager.get_tool_info` → self._tool_to_server.get, self._servers.get, conn.tools.get
+- `MCPClientManager.get_all_tools` → self._servers.values, result.update
+- `create_mcp_server` → FastMCP, get_skill_registry, logger.info, ToolService, get_client_accessible_tools, _build_input_schema, _make_tool_fn, mcp.add_tool
+- `get_mcp_server` → create_mcp_server
+- `MemoryExtractionTrigger` → self._has_important_info, any, MemoryExtractor, self.should_extract, self._get_extractor, EmbeddingService.get_instance, MemoryBlockService.get_instance, LongTermMemory …(+5)
+- `MemoryExtractionTrigger.should_extract` → self._has_important_info
+- `MemoryExtractor` → '\n'.join, MEMORY_EXTRACTION_PROMPT.format, self._parse_response, logger.debug, msg.get, lines.append, re.search, json.loads …(+11)
+- `MemoryBlockService` → CollectionSchema, Collection, collection.create_index, logger.info, datetime.now().isoformat, self.collection.insert, self.collection.flush, ' and '.join …(+26)
+- `MemoryBlockService.initialize` → self._collection.load, logger.info, connections.has_connection, connections.connect, utility.has_collection, self._create_collection, Collection, self._ensure_indexes …(+2)
+- `MemoryBlockService.insert_block` → datetime.now().isoformat, self.collection.insert, self.collection.flush, block.get, str, uuid.uuid4, datetime.now
+- `MemoryBlockService.search` → ' and '.join, self.collection.search, filters.append, blocks.append, entity.get, max
+- `MemoryBlockService.delete` → self.collection.query, self.collection.delete, self.collection.flush, len
+- `MemoryBlockService.update_access` → datetime.now().isoformat, self.collection.update, datetime.now
+- `MemoryObservability` → memory_recall_counter.labels(layer=layer).inc, memory_recall_duration.labels(layer=layer).observe, memory_context_size.labels(layer=layer).observe, memory_block_counter.labels(block_type=block_type).inc, forgetting_job_counter.labels(action=action).inc, forgetting_job_duration.observe, logger.log_business_event, memory_recall_counter.labels …(+4)
+- `RetrievalContext` → '\n'.join, parts.append, profile.get, parts.extend, obs.record_context_size, self._format_profile, self._format_short_term, self._format_long_term …(+4)
+- `RetrievalContext.to_prompt_context` → '\n'.join, parts.extend, obs.record_context_size, self._format_profile, self._format_short_term, self._format_long_term, self._format_knowledge, len
+- `MemoryRetrieval` → RetrievalContext, self._milvus.hybrid_search, logger.warning, time.perf_counter, obs.record_recall, self._short_term.recall_recent, self._long_term.recall_relevant, len
+- `ShortTermMemory` → MemoryBlockService.get_instance, datetime.now, self._milvus.insert_block, obs.record_block_created, logger.info, datetime.now().isoformat, SearchFilter, self._milvus.search …(+6)
+- `LongTermMemory` → profile.get, logger.debug, datetime.now().isoformat, SearchFilter, self.milvus.search, obs.record_recall, self.get_or_create_profile, self._update_profile …(+7)
+- `MilvusService` → fields.get, Function, CollectionSchema, Collection, collection.create_index, collection.load, logger.info, utility.has_collection …(+39)
+- `MilvusService.get_instance` → cls.__new__, cls._instance.__init__
+- `MilvusService.initialize` → connections.connect, self._initialize_collection, logger.info, logger.error, str
+- `MilvusService.collection` → self.initialize
+- `MilvusService.search_similar` → self._validate_search_params, self._create_search_params, self.collection.search, ValueError, logger.error, documents.append, hit.entity.get, Document …(+1)
+- `MilvusService.hybrid_search` → AnnSearchRequest, RRFRanker, self.collection.hybrid_search, logger.debug, ValueError, logger.error, documents.append, hit.entity.get …(+4)
+- `MilvusService.insert_documents` → self._validate_insert_params, self.collection.insert, logger.error, zip, str
+- `MilvusService.flush` → self.collection.flush
+- `MilvusService.close` → connections.disconnect, self._collection.release
+- `LocalParamExtractor` → re.compile, cls._ORDER_ID_RE.search, cls._ORDER_ID_FALLBACK_RE.search, cls._PHONE_FULL_RE.search, cls._PHONE_LAST4_RE.search, cls._TRACKING_RE.search, mapping.items, cls._extract_order_id …(+16)
+- `LocalParamExtractor.extract` → cls._ensure_semantic_map, params_schema.items, cls._ensure_extractors, cls._EXTRACTORS.get, param_def.get, cls._SEMANTIC_MAP.get, extractor, fn …(+1)
+- `PgVectorService` → conn.commit, self._pool.getconn, self._build_tsquery, re.findall, ' | '.join, enumerate, sorted, set …(+39)
+- `PgVectorService.initialize` → SimpleConnectionPool, self._pool.getconn, logger.info, self._init_schema, self._pool.putconn, logger.error, str
+- `PgVectorService.search_similar` → self._validate_search_params, self._get_conn, self._put_conn, documents.append, logger.error, conn.cursor, cur.execute, cur.fetchall …(+3)
+- `PgVectorService.hybrid_search` → self._get_conn, ValueError, self._sparse_search, self._rrf_fusion, logger.debug, self._put_conn, logger.error, conn.cursor …(+4)
+- `PgVectorService.insert_documents` → self._validate_insert_params, self._get_conn, conn.commit, logger.debug, self._put_conn, logger.error, conn.cursor, execute_values …(+4)
+- `PgVectorService.close` → self._pool.closeall
+- `RedisCacheService` → (self._get_config().embedding_cache_version or 'v1').strip, re.sub, question.strip, question.strip().lower, np.array(vector, dtype=np.float64).tobytes, np.frombuffer(data, dtype=np.float64).tolist, np.array, float …(+91)
+- `RedisCacheService.get_instance` → cls
+- `RedisCacheService.is_available` → redis_available.set, bool, self._client.ping
+- `RedisCacheService.get_recent_conversations` → CONVERSATION_HISTORY_KEY.format, self._client.lrange, logger.error, json.loads, conversations.append, str
+- `RedisCacheService.add_chat_message` → self.CHAT_HISTORY_KEY.format, json.dumps, self._client.pipeline, pipe.rpush, pipe.ltrim, pipe.expire, pipe.execute, logger.error …(+1)
+- `RedisCacheService.get_chat_messages` → self.CHAT_HISTORY_KEY.format, self._client.lrange, logger.error, json.loads, isinstance, messages.append, str
+- `RedisCacheService.get_frequent_questions` → self._client.zrevrange, self._client.hgetall, logger.error, isinstance, question.decode, frequent_questions.append, self._get_question_hash, cached[b'question'].decode …(+3)
+- `RedisCacheService.set_json` → self._client.set, json.dumps, logger.error, str
+- `RedisCacheService.get_json` → self._client.get, json.loads, logger.error, str
+- `RedisCacheService.delete_key` → self._client.delete, logger.error, str
+- `RedisCacheService.zadd_score` → int, self._client.zadd, logger.error, str
+- `RedisCacheService.zrevrange` → logger.error, isinstance, m.decode, self._client.zrevrange, str
+- `RedisCacheService.zcard` → int, self._client.zcard, logger.error, str
+- `RedisCacheService.zrem` → int, self._client.zrem, logger.error, str
+- `RedisCacheService.close` → self._client.close, logger.info, logger.error, str
+- `get_redis_cache_service` → RedisCacheService.get_instance
+- `RerankerService` → threading.Lock, observe, (chat_config.reranker_provider or 'local').strip().lower, self._compute_scores_local, (chat_config.vllm_rerank_base_url or '').rstrip, data.get, _get_current_span, self._ensure_initialized …(+26)
+- `RerankerService.get_instance` → cls
+- `RerankerService.compute_scores` → observe, self._compute_scores_local, self._compute_scores_vllm
+- `RerankerService.rerank` → observe, self.compute_scores, sorted, _get_current_span, logger.debug, isinstance, _span.set_attribute, len …(+3)
+- `SchemaDrivenExtractor` → re.compile, cls._FIELD_ALIASES.get, cls._PATTERNS.get, pattern.search, m.group, isinstance, list, cls._extract_field …(+4)
+- `SchemaDrivenExtractor.extract` → list, cls._extract_field, mcp_schema['properties'].keys, cls._FIELD_ALIASES.keys
+- `SchemaDrivenExtractor.register_pattern` → isinstance, re.compile
+- `EmotionResult` → field
+- `SessionEmotionTracker` → field, self.window.append, max, list, len, deque
+- `SessionEmotionTracker.update` → self.window.append, max, list, len
+- `SessionEmotionTracker.should_escalate` → list
+- `SentimentService` → self._sessions.get, self._sessions.pop, self._l1_classify, EmotionResult, text.lower, _has_negation, type(self._local_model)._using_remote, raw.strip …(+41)
+- `SentimentService.get_instance` → cls
+- `SentimentService.get_session` → self._sessions.get
+- `SentimentService.clear_session` → self._sessions.pop
+- `ShortTermMemoryCleaner` → datetime.now, MemoryBlockService.get_instance, self._milvus.collection.query, self._milvus.collection.delete, self._milvus.collection.flush, logger.info, len, logger.error …(+1)
+- `normalize_text` → ''.join, re.sub, text.strip, ord, result.append, chr
+- `SynonymNormalizer` → normalize_text, self._variant_lookup.get, len, logger.info, re.match
+- `SynonymNormalizer.normalize` → normalize_text, self._variant_lookup.get, len, logger.info, re.match
+- `InputNormalizer` → SynonymNormalizer, getattr, self._synonym_normalizer.normalize, len, normalize_via_llm
+- `ToolPermissionError` → super().__init__, super
+- `ToolService` → register_tool, self._registry.update, logger.debug, params.get, json.dumps, getattr, endpoint_map.get, self._ensure_registry …(+31)
+- `AdapterFactory` → LangChainAgentAdapter, getattr, LangChainToolAdapter, MockLLMAdapter, LangChainLLMAdapter, ToolService, LLMService.get_instance
+- `AdapterFactory.get_llm_adapter` → getattr, MockLLMAdapter, LangChainLLMAdapter, LLMService.get_instance
+- `AdapterFactory.get_tool_adapter` → LangChainToolAdapter, ToolService
+- `AdapterFactory.create_agent_adapter` → LangChainAgentAdapter
+- `LangChainAgentAdapter` → self._agent.run
+- `LangChainLLMAdapter` → EmbeddingService.get_instance, self._llm_service.chat_qwen, self._llm_service.chat_qwen_structured, embedding_service.embed_query, embedding_service.aembed_documents
+- `LangChainToolAdapter` → self._tool_service._ensure_registry, list, self._tool_service._registry.get, ToolResult, self._tool_service._registry.keys, self._tool_service.dispatch, str
+- `LangGraphNodeAdapter` → self._func, state.to_dict
+- `LangGraphRouterAdapter` → self._func, state.to_dict
+- `LangGraphBuilderAdapter` → StateGraph, self._builder.add_node, self._builder.add_edge, self._builder.add_conditional_edges, self._builder.set_entry_point, self._builder.compile, LangGraphExecutorAdapter, node.execute …(+2)
+- `LangGraphExecutorAdapter` → LangGraphStateAdapter, self._app.astream, self._app.ainvoke, isinstance, event.items
+- `LangGraphStateAdapter` → self._data.get, dict, cls
+- `MockLLMAdapter` → getattr, output_schema, asyncio.get_running_loop, random.random, TimeoutError, asyncio.sleep, time.sleep, random.uniform
+- `Enterprise` → Column, String
+- `EnterpriseRepository` → result.scalars().all, logger.log_database_operation, list, select(Enterprise).where, result.scalar_one_or_none, conditions.append, select, self.db.execute …(+9)
+- `EnterpriseQueryRequest` → Field
+- `BasicInfo` → Field
+- `BusinessStatus` → Field
+- `RiskInfo` → Field
+- `EnterpriseQueryResponse` → Field
+- `EnterpriseService` → logger.log_business_event, ValidationException, str
+- `PrometheusCallbackHandler` → super().__init__, time.time, exception_counter.labels(type=type(error).__name__, module=self.module).inc, api_call_counter.labels(module=self.module, method='llm', status='error').inc, hasattr, api_call_counter.labels(module=self.module, method=f'tool:{action.tool}', status='success').inc, agent_conversation_counter.labels(status='success').inc, exception_counter.labels(type=type(error).__name__, module=getattr(self, '_current_tool', 'tool')).inc …(+34)
+- `PrometheusCallbackHandler.on_llm_start` → time.time, serialized.get
+- `PrometheusCallbackHandler.on_llm_end` → api_call_counter.labels(module=self.module, method='llm', status='success').inc, api_duration_histogram.labels(module=self.module).observe, response.llm_output.get, _callback_logger.debug, _callback_logger.warning, time.time, token_usage.get, token_usage.get('usage', {}).get …(+11)
+- `PrometheusCallbackHandler.on_llm_error` → exception_counter.labels(type=type(error).__name__, module=self.module).inc, api_call_counter.labels(module=self.module, method='llm', status='error').inc, exception_counter.labels, api_call_counter.labels, type
+- `PrometheusCallbackHandler.on_embedding_start` → time.time
+- `PrometheusCallbackHandler.on_embedding_end` → hasattr, embedding_request_counter.labels(provider='volcengine', status='success').inc, embedding_request_duration.labels(provider='volcengine').observe, time.time, isinstance, embedding_request_counter.labels, embedding_request_duration.labels, outputs.get …(+2)
+- `PrometheusCallbackHandler.on_agent_action` → api_call_counter.labels(module=self.module, method=f'tool:{action.tool}', status='success').inc, api_call_counter.labels
+- `PrometheusCallbackHandler.on_agent_finish` → agent_conversation_counter.labels(status='success').inc, agent_conversation_counter.labels
+- `PrometheusCallbackHandler.on_tool_start` → time.time, serialized.get
+- `PrometheusCallbackHandler.on_tool_end` → hasattr, getattr, api_duration_histogram.labels(module=f'tool:{tool_name}').observe, time.time, api_duration_histogram.labels
+- `PrometheusCallbackHandler.on_tool_error` → exception_counter.labels(type=type(error).__name__, module=getattr(self, '_current_tool', 'tool')).inc, exception_counter.labels, getattr, type
+- `PrometheusCallbackHandler.on_chain_start` → time.time, serialized.get
+- `PrometheusCallbackHandler.on_chain_end` → hasattr, api_duration_histogram.labels(module=f'chain:{self._current_chain}').observe, time.time, api_duration_histogram.labels
+- `PrometheusCallbackHandler.on_chain_error` → exception_counter.labels(type=type(error).__name__, module=f'chain:{self._current_chain}').inc, exception_counter.labels, type
+- `PrometheusCallbackHandler.on_retriever_start` → time.time
+- `PrometheusCallbackHandler.on_retriever_end` → hasattr, api_duration_histogram.labels(module='retriever').observe, time.time, api_duration_histogram.labels
+- `get_prometheus_callback` → PrometheusCallbackHandler
+- `init_langfuse_masking` → getattr, setattr, Langfuse, _logger.info, os.getenv, _logger.warning, str
+- `create_langfuse_handler` → os.getenv, CallbackHandler, propagate_attributes, _logger.info, _logger.error, str
+- `flush_langfuse` → get_client, client.flush, _logger.info, _logger.warning, str
+- `observe` → _langfuse_observe
+- `track_api_call` → wraps, inspect.iscoroutinefunction, time.time, list, hasattr, api_call_counter.labels(module=module, endpoint=endpoint, method=method, status=status).inc, api_duration_histogram.labels(module=module, endpoint=endpoint).observe, func …(+7)
+- `track_db_query` → wraps, inspect.iscoroutinefunction, time.time, db_query_counter.labels(operation=operation, table=table).inc, db_query_duration.labels(operation=operation, table=table).observe, func, db_query_counter.labels, db_query_duration.labels
+- `track_milvus_search` → wraps, inspect.iscoroutinefunction, time.time, milvus_search_counter.labels(collection=collection).inc, milvus_search_duration.labels(collection=collection).observe, func, milvus_search_counter.labels, milvus_search_duration.labels
+- `init_skywalking` → logger.info, os.environ.setdefault, config.init, agent.start, logger.warning, logger.error
+- `shutdown_skywalking` → logger.info, getattr, logger.warning, hasattr, _agent.stop
+- `traced` → wraps, asyncio.iscoroutinefunction, get_context, func, context.new_exit_span
+- `User` → Column, String
+- `UserProfile` → Column, String
+- `UserRepository` → select(User).where, result.scalar_one_or_none, User, self.db.add, update(User).where(User.id == user_id).values, select(UserProfile).where, UserProfile, self.db.execute …(+6)
+- `UserProfileResponse` → Field
+- `UserService` → bool, datetime.now, select(User).where, result.scalar_one_or_none, select(UserProfile).where, self._is_valid_user_id, ValueError, self._touch_user …(+10)
+- `get_async_session` → AsyncSession
+- `BusinessException` → super().__init__, super
+- `AuthenticationException` → super().__init__, super
+- `AuthorizationException` → super().__init__, super
+- `NotFoundException` → super().__init__, super
+- `ValidationException` → super().__init__, super
+- `DatabaseException` → super().__init__, super
+- `configure_logging` → logging.basicConfig, structlog.configure, getattr, structlog.stdlib.LoggerFactory, config.LOG_LEVEL.upper, structlog.processors.TimeStamper, structlog.processors.StackInfoRenderer, structlog.processors.UnicodeDecoder …(+2)
+- `get_logger` → structlog.get_logger
+- `APILogger` → get_logger, self.logger.info, self.logger.error, self.logger.warning, self.logger.debug, self._fmt
+- `APILogger.info` → self.logger.info, self._fmt
+- `APILogger.error` → self.logger.error, self._fmt
+- `APILogger.warning` → self.logger.warning, self._fmt
+- `APILogger.debug` → self.logger.debug, self._fmt
+- `APILogger.log_api_call` → self.logger.info
+- `APILogger.log_database_operation` → self.logger.info
+- `APILogger.log_business_event` → self.logger.info
+- `PiiRedactionSpanProcessor` → getattr, attrs.items, isinstance, self._redact, all
+- `init_otel_tracing` → Resource.create, TracerProvider, provider.add_span_processor, trace.set_tracer_provider, PiiRedactionSpanProcessor, BatchSpanProcessor, OTLPSpanExporter, os.getenv
+- `shutdown_otel_tracing` → _provider.shutdown
+- `get_current_trace_ids` → trace.get_current_span, span.get_span_context, format
+- `redact` → _EMAIL.sub, _PHONE.sub, _IDCARD.sub, _BANKCARD.sub, _SECRET.sub, _IPV4_PUBLIC.sub, _TRACE_ID.sub, isinstance
+- `redact_obj` → isinstance, _redact_scalar, redact_obj, obj.items
+- `redact_dict` → isinstance, _redact_scalar, obj.items, str(k).lower().replace('-', '_').replace, redact_dict, str(k).lower().replace, str(k).lower, str
+- `redact_processor` → redact_dict
+- `mask_for_langfuse` → redact_dict
+- `success_response` → SuccessResponse(data=data, message=message, code=code).model_dump, SuccessResponse
+- `error_response` → ErrorResponse(message=message, error_detail=error_detail, code=code).model_dump, ErrorResponse

@@ -20,20 +20,26 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-# 复用训练同款模板/工具列表渲染（保证 训练=评测 同构）
-from scripts.gen_tool_selection_sft_data import build_system, render_tool_list
+# scripts 目录无 __init__.py，直接用 importlib 加载模块（避免包结构问题）
+import importlib.util
+_gen_spec = importlib.util.spec_from_file_location(
+    "gen_tool_selection_sft_data",
+    os.path.join(os.path.dirname(ROOT), "train", "sft", "gen_tool_selection_sft_data.py"),
+)
+_gen_mod = importlib.util.module_from_spec(_gen_spec)
+_gen_spec.loader.exec_module(_gen_mod)
+build_system = _gen_mod.build_system
+render_tool_list = _gen_mod.render_tool_list
 
 CONTRACT_TMPL = '{{"name": "{tool}"}}'  # 与训练 assistant 输出一致
 
 
 def load_model(model_path: str, device: str):
-    tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=False)
+    tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_path, torch_dtype=torch.bfloat16,
-        device_map="auto" if device == "cuda" else "cpu", trust_remote_code=False)
+        device_map="auto" if device == "cuda" else "cpu", trust_remote_code=True)
     model.eval()
-    # Qwen3 默认 thinking 开启会输出 <think> 块，干扰 JSON 解析；
-    # 评测端必须与训练端一致关闭（坑④：模板一致性）。非 Qwen3 模板无此参数则跳过。
     tok._supports_thinking_ctrl = "enable_thinking" in (tok.chat_template or "")
     return model, tok
 
@@ -152,10 +158,10 @@ def majority(votes):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="./models/Qwen2.5-1.5B-Instruct-tool-select")
+    ap.add_argument("--model", default="./models/Qwen3-1.7B-unified")
     ap.add_argument("--data", default=os.path.join(ROOT, "data/lscale_S.json"))
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--out", default="outputs/eval_tool_select_group5_6.json")
     ap.add_argument("--max-new", type=int, default=48)
     ap.add_argument("--limit", type=int, default=0, help="只评测前 N 条（分块/冒烟用，0=全部）")

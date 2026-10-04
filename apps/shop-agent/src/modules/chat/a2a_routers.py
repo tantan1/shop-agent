@@ -313,6 +313,7 @@ async def a2a_provide_task_input(
         task_id=task_id,
         confirm=request.confirm,
         remark=request.remark,
+        trace_id=request.trace_id,
     )
 
     if not ok:

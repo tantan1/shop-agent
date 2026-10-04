@@ -1,10 +1,10 @@
 """
-ReAct Agent 工具选择器（P0 + P1 + P2 三层过滤）。
+ReAct Agent 工具语义匹配器与工具选择器 middleware（P1 FAISS 语义匹配 + 云端兜底选择器）。
 """
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import faiss
 import numpy as np
@@ -12,15 +12,9 @@ from langchain.agents.middleware import LLMToolSelectorMiddleware
 from pydantic import BaseModel, Field, create_model
 
 from src.modules.chat.agent.skill_loader import get_skill_registry
-from src.modules.chat.core.local_model_service import LocalModelService
-from src.modules.chat.schemas import PlannedAction, ToolPlan
 from src.shared.logger import APILogger
 
 logger = APILogger("react_agent_selection")
-
-# P2 工具的上下限
-_P2_MIN_TOOLS = 1
-_P2_MAX_TOOLS = 3
 
 # 工具选择器专用 prompt
 _TOOL_SELECTOR_PROMPT = """\
@@ -55,62 +49,6 @@ def _get_tool_selector_middleware(llm_service) -> LLMToolSelectorMiddleware:
     )
     return _TOOL_SELECTOR_MIDDLEWARE
 
-
-async def _local_p1_tool_select(
-    user_query: str,
-    tool_names: set[str],
-    tool_descriptions: dict[str, str],
-    *,
-    p2_ranked: list[str] | None = None,
-) -> ToolPlan:
-    """P2 本地模型工具选择：从候选工具中选出最相关的，产出结构化 ToolPlan。
-
-    设计（T5 think/act 解耦）：本函数只负责「规划」（thinking），不执行任何工具；
-    选中的工具以 PlannedAction(source="p2") 形式进入 ToolPlan，由上层执行器消费。
-    """
-    if len(tool_names) <= 2:
-        # 候选已足够收敛，P2 无需介入，直接以 P1 结果收敛为 plan
-        return ToolPlan(
-            actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in tool_names],
-            source="p1",
-        )
-
-    local_svc = LocalModelService.get_instance()
-    names_list = list(tool_names)
-    selected = await local_svc.chat_classify(
-        user_query=user_query,
-        tool_names=names_list,
-        tool_descriptions=tool_descriptions,
-        system_prompt=_TOOL_SELECTOR_PROMPT,
-    )
-    result = {n for n in selected if n in tool_names}
-    if not result:
-        return ToolPlan(
-            actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in tool_names],
-            source="p1",
-        )
-
-    if p2_ranked and len(p2_ranked) >= 2:
-        p2_top1 = p2_ranked[0]
-        if p2_top1 in tool_names and p2_top1 not in result:
-            logger.warning(
-                "P2 丢弃了 P1 top-1 工具，疑似小模型误判，追加回结果集",
-                p2_top1=p2_top1,
-                p1_selected=sorted(result),
-                p2_ranked=p2_ranked[:3],
-            )
-            result.add(p2_top1)
-
-    if len(result) > _P2_MAX_TOOLS:
-        ranked = [n for n in (p2_ranked or []) if n in result]
-        result = set(ranked[:_P2_MAX_TOOLS])
-
-    return ToolPlan(
-        actions=[PlannedAction(name=n, source="p2", confidence=1.0) for n in result],
-        source="p2",
-    )
-
-
 class EmbeddingToolMatcher:
     """基于 FAISS HNSW 图索引的工具语义匹配器。"""
 
@@ -130,6 +68,12 @@ class EmbeddingToolMatcher:
         self._ready = False
         self._init_failed = False
         self._init_lock = asyncio.Lock()
+        # 查询 embedding 缓存：同一问句语义一致，避免重复编码（load test / 高频重复问题收益显著）
+        self._query_cache: Dict[str, Any] = {}
+        self._query_cache_max = 2048
+        # 单例化后（见 react_agent._get_tool_matcher）_query_cache 跨请求共享，
+        # 加锁保护读写，避免并发 dict resize 竞争
+        self._cache_lock = asyncio.Lock()
 
     async def _ensure_index(self):
         """预计算所有工具描述的 embedding 向量并构建 FAISS 索引。"""
@@ -161,8 +105,9 @@ class EmbeddingToolMatcher:
 
             M = 16
             self._index = faiss.IndexHNSWFlat(vecs_np.shape[1], M)
-            self._index.hnsw.efConstruction = 64
-            self._index.hnsw.efSearch = 32
+            # 提速：生产工具集仅数十向量，HNSW 低 ef 已足够召回，显著降低 search 耗时
+            self._index.hnsw.efConstruction = 32
+            self._index.hnsw.efSearch = 16
 
             self._index.add(vecs_np)
             self._ready = True
@@ -172,14 +117,45 @@ class EmbeddingToolMatcher:
                 dim=vecs_np.shape[1],
             )
 
+    async def warmup(self) -> None:
+        """预热 FAISS 索引（构建工具 embedding + 建图）。
+
+        在 Agent 启动时调用一次，把首次 ``rank()`` 的建索引尖峰从用户请求路径移除；
+        失败时置 ``_init_failed``，后续 ``rank()`` 自愈重试，不影响整体流程。
+        """
+        try:
+            await self._ensure_index()
+        except Exception as e:
+            logger.warning(f"工具匹配器预热失败（rank 时将重试）: {e}")
+
     async def rank(
         self,
         user_query: str,
         candidate_names: Set[str],
         intent_action: str | None,
         top_k: int = 3,
+        query_embedding: Any | None = None,
     ) -> List[str]:
-        """对候选工具做语义重排，返回 Top-K 名称列表。"""
+        """对候选工具做语义重排，返回 Top-K 名称列表（见 ``rank_with_scores``）。"""
+        scored = await self.rank_with_scores(
+            user_query, candidate_names, intent_action, top_k, query_embedding
+        )
+        return [name for name, _ in scored]
+
+    async def rank_with_scores(
+        self,
+        user_query: str,
+        candidate_names: Set[str],
+        intent_action: str | None,
+        top_k: int = 3,
+        query_embedding: Any | None = None,
+    ) -> List[Tuple[str, float]]:
+        """同 ``rank``，但额外返回每个候选的语义相似度分数（余弦，∈[0,1]，设计 1）。
+
+        相似度源自 FAISS HNSW 的 L2 距离换算（归一化向量下 ``cos = 1 - dist/2``）；
+        命中意图规则再做 boost 后截断到 1.0，符合置信度语义。无索引 / 无候选时返回
+        ``(name, 0.0)`` 占位，表示"无真实语义信号"。
+        """
         await self._ensure_index()
 
         if self._index is None or self._index.ntotal == 0:
@@ -188,13 +164,27 @@ class EmbeddingToolMatcher:
             else:
                 logger.warning("FAISS 索引为空，回退到 candidate_names")
             fallback = list(candidate_names)
-            return fallback[:top_k]
+            return [(n, 0.0) for n in fallback[:top_k]]
 
-        query_vec = np.array(
-            await self._emb_service.embed_query(user_query),
-            dtype=np.float32,
-        ).reshape(1, -1)
-        faiss.normalize_L2(query_vec)
+        if query_embedding is not None:
+            query_vec = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
+            faiss.normalize_L2(query_vec)
+        else:
+            async with self._cache_lock:
+                cached = self._query_cache.get(user_query)
+                if cached is not None:
+                    query_vec = cached
+                else:
+                    q = np.array(
+                        await self._emb_service.embed_query(user_query),
+                        dtype=np.float32,
+                    ).reshape(1, -1)
+                    faiss.normalize_L2(q)
+                    query_vec = q
+                    self._query_cache[user_query] = q
+                    if len(self._query_cache) > self._query_cache_max:
+                        # FIFO 淘汰：弹出最早插入的键
+                        self._query_cache.pop(next(iter(self._query_cache)))
 
         search_k = min(self._index.ntotal, max(top_k, top_k * 3))
         if len(candidate_names) > 10:
@@ -202,7 +192,7 @@ class EmbeddingToolMatcher:
         scores, indices = self._index.search(query_vec, search_k)
 
         intent_tools = self._intent_tool_map.get(intent_action, set()) if intent_action else set()
-        scored: List[tuple[str, float]] = []
+        scored: List[Tuple[str, float]] = []
         for idx, dist in zip(indices[0], scores[0], strict=False):
             if idx < 0 or idx >= len(self._tool_names):
                 continue
@@ -211,22 +201,22 @@ class EmbeddingToolMatcher:
                 continue
 
             score = max(0.0, 1.0 - float(dist) / 2.0)
-
             if name in intent_tools:
                 score *= self._intent_boost
+            score = min(1.0, score)
 
             scored.append((name, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        top_names = [name for name, _ in scored[:top_k]]
+        top = scored[:top_k]
 
         logger.info(
             "Embedding 工具重排完成",
             candidates=len(candidate_names),
-            top_k=len(top_names),
-            scores=[(name, round(score, 4)) for name, score in scored[:top_k]],
+            top_k=len(top),
+            scores=[(name, round(score, 4)) for name, score in top],
         )
-        return top_names
+        return top
 
 
 def _make_business_args_schema(

@@ -10,6 +10,7 @@ from src.modules.chat.agent.schemas import AgentStepResult
 from src.modules.chat.agent.steps.base import AgentContext, BaseStep
 from src.modules.chat.core.reranker_service import RerankerService
 from src.shared.logger import APILogger
+from src.shared.otel_tracing import bind_context
 
 logger = APILogger("step3_retrieve")
 
@@ -186,9 +187,13 @@ class RetrieveStep(BaseStep):
             doc_contents = [doc["content"] for doc in all_documents]
             reranker = RerankerService.get_instance()
             loop = asyncio.get_event_loop()
+            # contextvars 不跨线程传播，直接丢进 executor 会让 @observe 失去父上下文、
+            # 变成独立的根 trace。bind_context 在**当前线程**捕获上下文并闭包带走，
+            # 到工作线程执行时才生效（不能用 lambda 包一层，那样会在工作线程才 copy）。
             ranked = await loop.run_in_executor(
                 None,
-                lambda: reranker.rerank(
+                bind_context(
+                    reranker.rerank,
                     query=ctx.request.message,
                     documents=doc_contents,
                     top_k=rerank_top_k,

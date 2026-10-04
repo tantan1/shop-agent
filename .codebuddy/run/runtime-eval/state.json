@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "state": {
+    "schema": 1,
+    "task": "runtime-eval",
+    "user_request": "构建 shop-agent 运行时可观测性评估层 benchmark/runtime_eval：定义 trace schema、在线埋点采集、确定性判据、Driver 与汇总报告，用于对 shop-agent 做在线可观测性评估",
+    "phase": "merge",
+    "scope_ref": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\scope.md",
+    "artifacts": {
+      "scope": {
+        "stage": "scope",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\scope.md"
+      },
+      "design": {
+        "stage": "design",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\design.md"
+      },
+      "code": {
+        "stage": "code",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\code.diff"
+      },
+      "review": {
+        "stage": "review",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\review.md"
+      },
+      "redteam": {
+        "stage": "redteam",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\redteam.md"
+      },
+      "test": {
+        "stage": "test",
+        "path": "E:\\workspace\\shop-agent\\.codebuddy\\run\\runtime-eval\\tests.py"
+      }
+    },
+    "blocking_issues": [],
+    "retries": 0,
+    "needs_human": false,
+    "dispatched": [
+      "scope@0",
+      "design@0",
+      "code@0",
+      "review@0",
+      "redteam@0",
+      "test@0"
+    ],
+    "log": [
+      "归档阶段 scope",
+      "归档阶段 design",
+      "归档阶段 code",
+      "归档阶段 review",
+      "审查通过（无 [BLOCKING]）",
+      "归档阶段 redteam",
+      "归档阶段 test",
+      "[第1层提示] 检测到 OpenAPI 契约，建议走 schemathesis 等确定性契约工具生成测试（第1层免审）；如改测试需声明并分离 PR。"
+    ]
+  },
+  "hook": {
+    "stop_forced": 0,
+    "await_design_approval": false,
+    "await_merge_approval": true
+  }
+}

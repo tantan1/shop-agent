@@ -45,15 +45,16 @@ class MemoryBlockService:
     COLLECTION_NAME = "memory_blocks"
 
     def __init__(self):
-        if MemoryBlockService._instance is not None:
+        # 仅允许通过 get_instance() 创建单例；重复实例化直接返回已有实例，
+        # 避免 __init__ 守卫与 get_instance 自身初始化相互冲突导致 RuntimeError。
+        if MemoryBlockService._instance is not None and MemoryBlockService._instance is not self:
             raise RuntimeError("请使用 get_instance() 获取 MemoryBlockService 实例")
         MemoryBlockService._instance = self
 
     @classmethod
     def get_instance(cls) -> "MemoryBlockService":
         if cls._instance is None:
-            cls._instance = cls.__new__(cls)
-            cls._instance.__init__()
+            cls._instance = cls()
         return cls._instance
 
     def initialize(self) -> None:
@@ -72,7 +73,7 @@ class MemoryBlockService:
 
             collection_name = self.COLLECTION_NAME
             if not utility.has_collection(collection_name):
-                self._create_collection(collection_name)
+                self._collection = self._create_collection(collection_name)
             else:
                 self._collection = Collection(collection_name)
                 self._ensure_indexes(self._collection)

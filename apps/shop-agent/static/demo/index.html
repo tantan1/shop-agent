@@ -76,6 +76,7 @@
       <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
       <textarea id="input" placeholder="输入你的问题…（Enter 发送，Shift+Enter 换行）"></textarea>
       <button id="sendBtn">发送</button>
+      <button id="correctBtn" title="标记上一次工具选择错误并指定正确工具（设计 4 d4-5）">🛠 纠正</button>
     </div>
   </div>
   <div class="side-panel">
@@ -89,6 +90,7 @@ const messagesEl = document.getElementById('messages');
 const stepsEl = document.getElementById('stepsPanel');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('sendBtn');
+const correctBtn = document.getElementById('correctBtn');
 const apiKeyEl = document.getElementById('apiKey');
 const fileInput = document.getElementById('fileInput');
 const uploadBtn = document.getElementById('uploadBtn');
@@ -252,6 +254,46 @@ inputEl.addEventListener('keydown', (e) => {
     sendMessage(text);
   }
 });
+
+// ── 设计 4 d4-5：通用纠正按钮 ──────────────────────────────────────────────
+function showCorrectBar() {
+  if (!conversationId) { alert('请先发起一次对话'); return; }
+  closeCorrectBar();
+  const div = document.createElement('div');
+  div.className = 'approve-bar';
+  div.id = 'correctBar';
+  div.innerHTML =
+    '🔧 纠正上一次工具选择：<br>' +
+    '错误工具 <input id="origTool" placeholder="如 request-return（可选）" style="width:150px">' +
+    ' 正确工具 <input id="correctTool" placeholder="如 order_query（必填）" style="width:150px">' +
+    ' <button class="yes" onclick="submitCorrection()">提交</button>' +
+    '<button class="no" onclick="closeCorrectBar()">取消</button>';
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function closeCorrectBar() { const b = document.getElementById('correctBar'); if (b) b.remove(); }
+async function submitCorrection() {
+  const correctTool = document.getElementById('correctTool').value.trim();
+  if (!correctTool) { alert('请填写正确工具名'); return; }
+  const origTool = document.getElementById('origTool').value.trim() || null;
+  closeCorrectBar();
+  const apiKey = apiKeyEl.value.trim();
+  if (!apiKey) { alert('请先填写 API Key'); return; }
+  try {
+    const resp = await fetch('/agent/api/v1/chatagent/agent/correction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ conversation_id: conversationId, original_tool: origTool, correct_tool: correctTool }),
+    });
+    const json = await resp.json();
+    const d = json.data || {};
+    addMessage('agent',
+      d.recorded
+        ? '✅ 纠正已记录，将用于训练回流（trace_id: ' + (d.trace_id || 'n/a') + '）'
+        : '⚠️ 纠正未记录（门控可能关闭或 Langfuse 未配置）', {});
+  } catch (e) { addMessage('agent', '纠正提交失败：' + e.message); }
+}
+correctBtn.addEventListener('click', showCorrectBar);
 </script>
 </body>
 </html>

@@ -1,0 +1,21 @@
+{
+  "task": "payment-amount-validation",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\payment-amount-validation\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\payment-amount-validation\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\payment-amount-validation\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\payment-amount-validation\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\payment-amount-validation\\tests.py"
+  }
+}

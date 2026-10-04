@@ -1,0 +1,1 @@
+red-team 2 个 BLOCKING 已修复：redact.py 归一化带分隔符 PII 并整体 mask；extract.py fallback 中英文归一化匹配；collector.py 强制 https。新增 B1/B2 回归测试，20 测试全过，tests_static 零侵入通过。无遗留 BLOCKING。

@@ -11,7 +11,6 @@ from src.modules.chat.config import chat_config  # noqa: E402
 from src.modules.chat.schemas import (  # noqa: E402
     BatchInsertRequest,
     BatchItemEmbedRequest,
-    ChatQueryRequest,
     ChatRequest,
     ExperimentCreateRequest,
     ExperimentPauseRequest,
@@ -22,6 +21,7 @@ from src.modules.chat.schemas import (  # noqa: E402
     ItemSearchRequest,
     ItemSearchResponse,
     RefundConfirmRequest,
+    CorrectionRequest,
 )
 from src.modules.chat.services import ChatAgentService  # noqa: E402
 from src.modules.monitoring.metrics import agent_chat_counter  # noqa: E402
@@ -34,17 +34,6 @@ router = APIRouter(prefix="/chatagent", tags=["智能客服与文档管理"])
 async def get_chatagent_service(db: AsyncSession = Depends(get_db)) -> ChatAgentService:  # noqa: B008
     """获取智能客服依赖"""
     return ChatAgentService(db)
-
-
-@router.post("/chat", summary="通义千问RAG对话")
-async def chat(
-    request: ChatQueryRequest,
-    _: None = Depends(verify_api_key),
-    chatagent_service: ChatAgentService = Depends(get_chatagent_service),  # noqa: B008
-):
-    """使用TongyiChat进行RAG对话，基于Milvus中的文档增强回答"""
-    response = await chatagent_service.chat(request)
-    return success_response(data=response.model_dump())
 
 
 @router.post("/documents", summary="插入单个文档")
@@ -480,6 +469,31 @@ async def refund_confirm(
     """
     response = await chatagent_service.confirm_refund(request)
     return success_response(data=response.model_dump())
+
+
+@router.post("/agent/correction", summary="通用纠正回灌（设计 4 d4-5：demo 纠正按钮）")
+async def agent_correction(
+    request: CorrectionRequest,
+    _: None = Depends(verify_api_key),
+):
+    """人工纠正归一化入口：任意来源（demo 按钮 / 运营台）标记某次工具选择错误并指定正确工具，
+    统一走 ``record_correction`` 落到 Langfuse，供后续训练回流。
+
+    - 正样本：提供 correct_tool（original_tool 可选）。
+    - 负样本：correct_tool 留空且提供 rejected_tools 时，仅记录被否定工具。
+    """
+    from src.modules.monitoring.langfuse_mlops import record_correction
+
+    tid = record_correction(
+        type="demo",
+        conversation_id=request.conversation_id,
+        trace_id=request.trace_id,
+        original_tool=request.original_tool,
+        correct_tool=request.correct_tool,
+        rejected_tools=request.rejected_tools,
+        content=request.content,
+    )
+    return success_response(data={"trace_id": tid, "recorded": tid is not None})
 
 
 @router.post("/agent/test", summary="test")

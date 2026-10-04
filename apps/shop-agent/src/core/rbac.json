@@ -1,0 +1,37 @@
+{
+  "all_tools": [
+    "query-order",
+    "check-shipping",
+    "request-return",
+    "check-balance",
+    "coupon-inquiry",
+    "knowledge_search"
+  ],
+  "roles": {
+    "admin": {"tools": ["*"]},
+    "operator": {
+      "tools": [
+        "query-order",
+        "check-shipping",
+        "request-return",
+        "check-balance",
+        "coupon-inquiry",
+        "knowledge_search"
+      ]
+    },
+    "viewer": {
+      "tools": [
+        "query-order",
+        "check-shipping",
+        "check-balance",
+        "coupon-inquiry",
+        "knowledge_search"
+      ]
+    }
+  },
+  "clients": {
+    "ak_admin_2024": {"client_id": "order-service", "role": "admin", "client_name": "订单管理后台"},
+    "ak_operator_2024": {"client_id": "cs-console", "role": "operator", "client_name": "客服工作台"},
+    "ak_viewer_2024": {"client_id": "analytics-dashboard", "role": "viewer", "client_name": "数据分析看板"}
+  }
+}

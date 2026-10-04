@@ -22,7 +22,7 @@ class UserRepository:
         user = User(
             id=user_id,
             user_type=user_type,
-            metadata=metadata or {},
+            user_metadata=metadata or {},
         )
         self.db.add(user)
         await self.db.flush()
@@ -46,7 +46,9 @@ class UserRepository:
         return profile
 
     async def update_profile_preferences(self, user_id: str, preferences: dict) -> UserProfile:
-        profile = await self.get_or_create_profile(user_id)
+        profile = await self.get_profile(user_id)
+        if profile is None:
+            profile = await self.create_profile(user_id)
         profile.preferences = {**profile.preferences, **preferences}
         await self.db.flush()
         return profile

@@ -316,6 +316,12 @@ class A2ATaskService:
             self._persist_task(task)
             logger.info("A2A 任务完成", task_id=task_id)
 
+            # ── 自动灌入 MLOps 复核任务：把本次系统调用流程（用户 query + 模型输出 +
+            #    工具调用轨迹）作为 sample_content，使标注界面无需手工粘贴即可看到内容 ──
+            asyncio.create_task(
+                self._auto_capture_review(task_id=task_id, message=message, chat_response=chat_response)
+            )
+
             # ── 回调 Webhook：订阅表 + 任务自带 callback_url ──
             await self._notify_event(
                 event="task.completed",
@@ -336,6 +342,13 @@ class A2ATaskService:
             self._persist_task(task)
             logger.error("A2A 任务失败", task_id=task_id, error=str(e))
 
+            # 失败任务同样值得复核：把用户 query + 报错作为 sample_content 灌入。
+            asyncio.create_task(
+                self._auto_capture_review(
+                    task_id=task_id, message=message, chat_response=None, error=str(e)[:500]
+                )
+            )
+
             # ── 回调 Webhook：订阅表 + 任务自带 callback_url ──
             await self._notify_event(
                 event="task.failed",
@@ -345,6 +358,80 @@ class A2ATaskService:
 
         finally:
             self._running_futures.pop(task_id, None)
+
+    # ── 自动灌入 MLOps 复核任务 ─────────────────────────────────────────────
+
+    async def _auto_capture_review(
+        self,
+        task_id: str,
+        message: str,
+        chat_response: Optional["ChatResponse"],
+        error: Optional[str] = None,
+    ) -> None:
+        """A2A 任务完成后，把本次系统调用流程自动灌入 MLOps 复核任务。
+
+        这是「待标注内容」的自动来源：用户 query + 模型输出 + 工具调用轨迹（trace）。
+        标注界面无需手工粘贴即可看到要复核的内容。
+
+        最佳努力（best-effort）：任何异常都吞掉，绝不影响 A2A 任务本身。
+        """
+        try:
+            content, metric_snapshot = self._format_review_content(message, chat_response, error)
+
+            from src.modules.monitoring import langfuse_mlops
+
+            await asyncio.to_thread(
+                langfuse_mlops.capture_review,
+                content=content,
+                category="tool_exec_failed" if error else "a2a_review",
+                metadata=metric_snapshot,
+                session_id=task_id,
+            )
+            logger.info("Langfuse 复核已自动捕获", a2a_task_id=task_id)
+        except Exception as e:
+            logger.warning(
+                "MLOps 自动捕获失败（已忽略，不影响 A2A 任务）",
+                a2a_task_id=task_id,
+                error=str(e),
+            )
+
+    @staticmethod
+    def _format_review_content(
+        message: str,
+        chat_response: Optional["ChatResponse"],
+        error: Optional[str] = None,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """把一次系统调用流程整理成「待标注内容」文本 + 结构化 metric_snapshot。"""
+        lines: List[str] = []
+        lines.append("【用户】" + (message or ""))
+
+        if chat_response is not None:
+            lines.append("【模型】" + (getattr(chat_response, "message", "") or ""))
+            steps = getattr(chat_response, "steps", []) or []
+            if steps:
+                lines.append("【执行轨迹】")
+                for s in steps:
+                    if isinstance(s, dict):
+                        lines.append(" - " + json.dumps(s, ensure_ascii=False))
+                    else:
+                        lines.append(" - " + str(s))
+            docs = getattr(chat_response, "documents_used", []) or []
+            if docs:
+                lines.append("【引用文档】" + ", ".join(str(d) for d in docs))
+            metric_snapshot: Dict[str, Any] = {
+                "status": getattr(chat_response, "status", "completed"),
+                "safety_passed": getattr(chat_response, "safety_passed", True),
+                "domain": getattr(chat_response, "domain", "ecommerce"),
+                "steps": steps,
+                "documents_used": docs,
+            }
+        else:
+            lines.append("【状态】任务执行失败")
+            if error:
+                lines.append("【错误】" + error)
+            metric_snapshot = {"status": "failed", "error": error}
+
+        return "\n".join(lines), metric_snapshot
 
     async def _execute_agent_chat(
         self,
@@ -396,6 +483,7 @@ class A2ATaskService:
         confirm: bool = True,
         remark: Optional[str] = None,
         callback_url: Optional[str] = None,
+        trace_id: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[A2ATaskStatusResponse]]:
         """恢复处于 input-required 的任务（人工审批回执）。
 
@@ -427,6 +515,7 @@ class A2ATaskService:
                     confirm=confirm,
                     tool_service=ToolService(),
                     approval_store=PostgresApprovalStore(db),
+                    trace_id=trace_id,
                 )
         except Exception as e:
             logger.error("A2A 任务恢复执行失败", task_id=task_id, error=str(e))

@@ -1,0 +1,24 @@
+[
+  {
+    "conversations": [
+      {
+        "from": "system",
+        "content": "你是工具选择助手。"
+      },
+      {
+        "from": "human",
+        "content": "hi"
+      },
+      {
+        "from": "gpt",
+        "content": "{\"name\": \"search\"}"
+      }
+    ],
+    "correct_tool": "search",
+    "scale": "M",
+    "selection_source": null,
+    "candidate_tools": null,
+    "available_tools": null,
+    "trace_id": "T1"
+  }
+]

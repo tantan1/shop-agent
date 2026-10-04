@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.github/**)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Edit(**/config.py)",
+      "Write(**/config.py)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf *)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf /)",
+      "Bash(git push --force *)",
+      "Bash(git push origin:*)",
+      "Bash(chmod 777 *)",
+      "Bash(docker *)",
+      "Bash(pip install *)",
+      "Bash(npm install *)"
+    ],
+    "ask": [],
+    "allow": [
+      "Read(**)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(python -m pytest *)",
+      "Bash(python scripts/*)",
+      "Bash(pip list)"
+    ]
+  }
+}

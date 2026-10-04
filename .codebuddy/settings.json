@@ -33,5 +33,27 @@
       "Bash(pip list)",
       "Read(**)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "command": "python scripts/orchestrator_hook.py on-pre-task",
+        "timeout": 15
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Task",
+        "command": "python scripts/orchestrator_hook.py on-post-task",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "command": "python scripts/orchestrator_hook.py on-stop",
+        "timeout": 15
+      }
+    ]
   }
 }

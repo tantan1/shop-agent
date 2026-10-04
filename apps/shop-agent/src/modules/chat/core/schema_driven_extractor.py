@@ -25,7 +25,7 @@ class SchemaDrivenExtractor:
             r"(?:订单号|订单编号|订单ID|订单\s*状态|我的订单|订单|#)"
             r"\s*"
             r"([A-Za-z]{0,4}\d{8,})"
-            r"|(?<!\d)([A-Z]{2,4}\d{10,})(?!\d)"
+            r"|(?<!\d)([A-Za-z]{2,4}\d{10,})(?!\d)"
         ),
         "phone": re.compile(r"(?<!\d)(1[3-9]\d{9})(?!\d)"),
         "tracking": re.compile(

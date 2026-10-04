@@ -14,6 +14,7 @@ from src.core.permissions import (  # noqa: E402
     check_tool_permission,
     get_current_client,
 )
+from src.ports import audit  # noqa: E402
 
 
 class OrderServiceError(Exception):
@@ -111,8 +112,12 @@ class McpToolCommand:
     async def undo(self, ctx) -> "ToolResult":
         from src.modules.chat.agent.tool_commands import ToolResult
 
-        # MCP 远程撤销需服务端支持，默认标记不支持
-        return ToolResult(status="failed", error=f"{self.command_name} 不支持撤销")
+        # 先拦截后执行模型：dispatch 阶段未真实调用远程服务，reject 时本就无副作用可撤销。
+        # 直接返回「已拒绝」语义，避免上层拿到无意义的「不支持撤销」/「查询操作无需撤销」。
+        return ToolResult(
+            status="success",
+            message=f"操作已拒绝，未执行远程调用（{self.command_name}）。",
+        )
 
 
 class ToolService:
@@ -437,6 +442,15 @@ class ToolService:
         if config.PERMISSION_ENABLED:
             client = get_current_client()
             if client is not None and not check_tool_permission(client, action):
+                # A 维度：审计越权拦截（端口 stub，本地 JSONL）
+                audit.log(
+                    "authz.denied",
+                    principal=client.api_key_prefix or client.client_id,
+                    action=action,
+                    resource=action,
+                    decision="deny",
+                    detail={"role": client.role.value},
+                )
                 raise ToolPermissionError(
                     tool_name=action,
                     role=client.role.value,
@@ -589,6 +603,9 @@ class ToolService:
     @staticmethod
     def _format_remote_api_response(action: str, data: Dict[str, Any]) -> str:
         """将远程API响应格式化为自然语言"""
+        if action == "coupon-inquiry":
+            return ToolService._format_coupon_list(data)
+
         if isinstance(data, dict):
             if "message" in data:
                 return data["message"]
@@ -608,11 +625,28 @@ class ToolService:
             "check-balance": lambda d: (
                 f"账户信息：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
             ),
-            "coupon-inquiry": lambda d: (
-                f"优惠券信息：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
-            ),
         }
         if action in formatters:
             return formatters[action](data)
 
         return json.dumps(data, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _format_coupon_list(data: Dict[str, Any]) -> str:
+        """解析优惠券信封响应 {message, data: {coupons: [...]}} 为自然语言。"""
+        payload = data.get("data") if isinstance(data, dict) else None
+        coupons = payload.get("coupons", []) if isinstance(payload, dict) else []
+        if not coupons:
+            return (data.get("message") if isinstance(data, dict) else None) or "未查询到可用优惠券。"
+
+        lines = ["为您找到以下优惠券："]
+        for i, c in enumerate(coupons, 1):
+            name, ctype, expire = c.get("name", ""), c.get("type", ""), c.get("expire", "")
+            if c.get("discount") is not None and c.get("threshold"):
+                desc = f"满{float(c['threshold']):.0f}减{float(c['discount']):.0f}元"
+            elif c.get("discount_rate"):
+                desc = f"{c['discount_rate']}折"
+            else:
+                desc = ctype
+            lines.append(f"{i}. {name}（{desc}），有效期至 {expire}")
+        return "\n".join(lines)

@@ -165,6 +165,9 @@ def build_messages(intent: str, query: str) -> list:
 
 
 def load_model(model_path: str, device: str):
+    import json
+    import os
+
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -178,12 +181,24 @@ def load_model(model_path: str, device: str):
         tokenizer.pad_token = tokenizer.eos_token
     kwargs: Dict[str, Any] = {"trust_remote_code": True}
     if device == "cuda":
-        kwargs["dtype"] = torch.float16
+        kwargs["torch_dtype"] = torch.float16
         kwargs["device_map"] = "auto"
     else:
-        kwargs["dtype"] = torch.float32
-    print(f"  [load] model from {model_path} (dtype={kwargs.get('dtype')})", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path, **kwargs)
+        kwargs["torch_dtype"] = torch.float32
+
+    # 支持未 merge 的 PEFT(LoRA) 适配器目录：先加载基座，再挂载适配器。
+    # 这样 smoke 训练（不 merge）产出的 adapter 也能被评测直接加载。
+    adapter_cfg = os.path.join(model_path, "adapter_config.json")
+    if os.path.exists(adapter_cfg):
+        print(f"  [load] 检测到 PEFT 适配器，按 LoRA 加载: {model_path}", flush=True)
+        base_name = json.load(open(adapter_cfg, encoding="utf-8"))["base_model_name_or_path"]
+        base = AutoModelForCausalLM.from_pretrained(base_name, **kwargs)
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(base, model_path)
+    else:
+        print(f"  [load] model from {model_path} (dtype={kwargs.get('dtype')})", flush=True)
+        model = AutoModelForCausalLM.from_pretrained(model_path, **kwargs)
     model.eval()
     return model, tokenizer
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .types import GatewayMode
@@ -86,10 +87,24 @@ class Settings(BaseSettings):
 
     # 03 成本治理：租户解析 / 限流 / 预算熔断
     tenant_api_keys: str = ""  # 逗号分隔 `tenant:key`，用于 API Key → tenant 映射
+    redis_url: str = ""  # 限流桶分布式后端；空=进程内降级（单实例/本地/单测）
     rate_limit_global_rps: float = 1000.0   # 全局令牌桶 refill 速率（请求/秒）
     rate_limit_tenant_rps: float = 10.0    # 单租户令牌桶 refill 速率
     rate_limit_burst: int = 20             # 桶容量（突发）
     budget_tenant_tokens: int = 0          # 单租户 token 预算（0=不熔断）
+
+    @model_validator(mode="after")
+    def _enforce_cost_guardrail(self) -> "Settings":
+        """成本治理（G/H）：未设租户 token 预算则成本护栏关闭，启动告警。"""
+        if self.budget_tenant_tokens <= 0:
+            import warnings
+
+            warnings.warn(
+                "budget_tenant_tokens<=0：单租户 token 预算未设上限，成本护栏关闭。"
+                "生产部署应设置非零预算（如 100000）以启用熔断。",
+                stacklevel=2,
+            )
+        return self
 
     # 05 失控循环防护（最小版）
     loop_guard_max: int = 8               # 窗口内同指纹最大命中数（<=0 关闭）
@@ -168,7 +183,9 @@ class Settings(BaseSettings):
             # （如 azure/openai/bedrock 未配置时，LiteLLM 初始化 AsyncAzureOpenAI
             # 会抛 Missing credentials）。真实链路（百炼 qwen / 本地 vLLM）仍保留。
             base_missing = not api_base or str(api_base).startswith("http://_unset_")
-            key_required = provider in ("azure", "openai", "bedrock")
+            # 仅真实云厂商（azure/bedrock）强制凭证；本地 vLLM 与 mock 上游是 OpenAI 兼容
+            # 自定义 api_base，无需 api_key，不应被跳过（否则 qwen3-unified/mock 永远不注册）。
+            key_required = provider in ("azure", "bedrock")
             if base_missing or (key_required and not api_key):
                 return
             # 显式 custom_llm_provider 避免 LiteLLM 对未知模型名（如 qwen3-unified）做
@@ -182,9 +199,11 @@ class Settings(BaseSettings):
                 params["api_key"] = api_key
             deployments.append({"model_name": model_name, "litellm_params": params})
 
-        # 本地统一模型（含本地小模型任务键）：openai 兼容 vLLM，裸模型名 qwen3-unified
+        # 本地统一模型（含本地小模型任务键）：openai 兼容 vLLM
+        # litellm model 必须等于 vLLM --served-model-name（qwen3-unified），
+        # 用容器内路径 /models/qwen3-unified 会被 vLLM 404 并触发 Router 冷却。
         for alias in (_V, "tool_select", "param", "local/*", "models/*"):
-            _add(alias, _V, self.vllm_base_url, "openai")
+            _add(alias, "qwen3-unified", self.vllm_base_url, "openai")
         # mock 上游：openai 兼容 mock 服务
         _add("mock", "mock", self.mock_base_url, "openai")
         _add("mock*", "mock", self.mock_base_url, "openai")

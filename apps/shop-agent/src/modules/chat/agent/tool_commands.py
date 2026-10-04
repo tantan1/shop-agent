@@ -228,8 +228,22 @@ class ApprovalGate:
                 if data is not None:
                     # Redis 中只有 command_name，需要重建 command 对象
                     if "command" not in data:
+                        from src.modules.chat.core.tool_registry import (
+                            MCP_SENSITIVE_TOOLS,
+                            McpToolCommand,
+                        )
+
                         cmd_name = data.get("command_name")
-                        data["command"] = _COMMAND_REGISTRY.get(cmd_name) if cmd_name else None
+                        action = (data.get("context") or {}).get("action") or cmd_name
+                        if action in MCP_SENSITIVE_TOOLS:
+                            # MCP 敏感工具走 McpToolCommand（先拦截后执行模型），
+                            # 不能经本地 _COMMAND_REGISTRY 重建为同名本地命令，
+                            # 否则 approve 不会真正 call_tool 远程服务（退款等副作用丢失）。
+                            data["command"] = McpToolCommand(
+                                action, (data.get("context") or {}).get("params", {})
+                            )
+                        else:
+                            data["command"] = _COMMAND_REGISTRY.get(cmd_name) if cmd_name else None
                     # 重建 ToolContext（Redis 中存储的是 dict）
                     ctx_data = data.get("context", {})
                     if isinstance(ctx_data, dict):

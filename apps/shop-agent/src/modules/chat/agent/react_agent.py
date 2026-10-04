@@ -23,11 +23,12 @@ Agent Rules 注入（仿 Claude Code rules/ 机制）：
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, List
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
@@ -52,13 +53,13 @@ from src.modules.chat.agent.react_agent_rules import _filter_rules, _load_rules
 from src.modules.chat.agent.react_agent_selection import (
     EmbeddingToolMatcher,
     _get_tool_selector_middleware,
-    _local_p1_tool_select,
     _make_business_args_schema,
 )
 from src.modules.chat.agent.skill_loader import (
     SkillRegistry,
     get_skill_registry,
 )
+from src.core.config import config as app_settings
 from src.modules.chat.core.content_filter import ContentFilterService
 from src.modules.chat.core.sentiment_service import (
     EMOTION_TONE_PROMPTS,
@@ -68,10 +69,14 @@ from src.modules.chat.schemas import (
     ChatRequest,
     ChatResponse,
     IntentResult,
-    PlannedAction,
     ToolPlan,
+    STAGE_P0_RULE,
+    STAGE_P1_FAISS,
+    STAGE_P2_LINEAR,
+    STAGE_P3_LLM,
 )
 from src.modules.monitoring.langfuse_callback import create_langfuse_handler
+from src.ports.pii import redact as redact_pii
 from src.shared.logger import APILogger
 
 if TYPE_CHECKING:
@@ -98,6 +103,27 @@ def _skill_registry() -> SkillRegistry:
     return _SKILL_REGISTRY
 
 
+# I 维度修复：EmbeddingToolMatcher 内部持有 FAISS 索引，构建开销大。
+# 按 embedding_service 实例做进程级单例缓存，避免每请求重建索引导致
+# CPU/内存随并发线性膨胀。仅缓存对象引用；索引本身在 warmup/rank 时懒构建，
+# 由 matcher 内部 _init_lock + _ready 幂等守卫，故此处同步返回共享对象即安全。
+_TOOL_MATCHER_CACHE: dict = {}
+
+
+def _get_tool_matcher(tool_descriptions: dict, embedding_service) -> EmbeddingToolMatcher | None:
+    """获取进程级共享的 EmbeddingToolMatcher 单例（按 embedding_service 实例）。"""
+    if embedding_service is None:
+        return None
+    key = id(embedding_service)
+    cached = _TOOL_MATCHER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    # 双重检查：对象构造本身廉价（不建索引），并发下最多多构造一次，最终统一复用首个实例
+    matcher = EmbeddingToolMatcher(tool_descriptions, embedding_service)
+    _TOOL_MATCHER_CACHE[key] = matcher
+    return matcher
+
+
 _ORDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$")
 
 
@@ -110,10 +136,6 @@ def _is_valid_order_id(order_id: str | None) -> bool:
     if not order_id or not isinstance(order_id, str):
         return False
     return bool(_ORDER_ID_RE.match(order_id.strip()))
-
-
-def _get_intent_tool_map() -> dict[str, set[str]]:
-    return _skill_registry().intent_tool_map
 
 
 @dataclass
@@ -151,6 +173,130 @@ class SuccessResponseContext:
     react_start: float
 
 
+def _flush_langfuse_tool_select(tid: str, timeout: float = 8.0) -> None:
+    """显式 flush Langfuse span，确保根 observation 在服务进程内也能同步落盘。
+
+    Langfuse v4 的 ``client.flush()`` 会走到 OTel ``BatchSpanProcessor.force_flush()``，把已结束的 span
+    同步 export。放后台线程并 ``join(timeout)``：既不让网络 export 阻塞对话主流程太久，又能保证线程真正跑完
+    （daemon 线程不会被提前回收），flush 是否成功都记入日志，便于端到端验证。
+    """
+    import threading
+
+    def _do_flush() -> None:
+        from src.modules.monitoring.langfuse_mlops import _client
+
+        _c = _client()
+        if _c is None:
+            logger.warning("Langfuse flush 跳过：client 未初始化", trace_id=tid)
+            return
+        try:
+            _c.flush()
+        except Exception as fe:
+            # flush 失败必须可见：沉默会让人误以为已落盘（之前的 daemon 线程 except pass 正是漏选定位难的根因）
+            logger.error("Langfuse flush 失败（trace 未落盘）", trace_id=tid, error=str(fe))
+            return
+        logger.info("Langfuse 工具选择 trace 已 flush", trace_id=tid)
+
+    try:
+        t = threading.Thread(target=_do_flush, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+        if t.is_alive():
+            logger.warning(
+                "Langfuse flush 超时（仍在后台进行，trace 可能稍后落盘）",
+                trace_id=tid,
+                timeout=timeout,
+            )
+    except Exception as e:
+        logger.warning("Langfuse flush 异常（不影响主流程）", trace_id=tid, error=str(e))
+
+
+def _mlops_capture_tool_select(
+    user_query: str,
+    all_tool_names: list,
+    plan=None,
+    error: str = None,
+) -> None:
+    """把一次（可疑的）工具选择自动灌入 MLOps 复核任务，供人工标注「应该是什么工具」。
+
+    触发判定（运行时无真值，仅捕获可疑项）：
+      - 流水线报错 / 未选出任何工具          → category=tool_select_error
+      - 收敛到 need_llm（置信不足/候选过多）  → category=tool_select_uncertain
+      - 主工具置信度 < 阈值                  → category=tool_select_low_conf
+      - MLOPS_TOOL_SELECT_MONITOR_ALL=True    → category=tool_select（全量）
+
+    best-effort：任何异常都吞掉，绝不影响对话主流程。
+
+    落盘保证：Langfuse v4 走 OTel ``BatchSpanProcessor``，根 observation 在 ``start_as_current_observation``
+    的 ``with`` 块退出后即入队，但长驻服务进程的后台 exporter 不会立即 export（默认周期数秒），且进程不退出
+    时也不会触发 shutdown 强制落盘。故捕获后必须显式 ``client.flush()``（→ ``tracer_provider.force_flush()``
+    同步导出已结束的 span）。放后台线程并 ``join(timeout)``：既不让 flush 阻塞对话主流程太久，又能确保线程跑完
+    （daemon 线程不会被提前回收），flush 结果记入日志便于端到端验证是否真落盘。
+    """
+    try:
+        from src.modules.monitoring import langfuse_mlops
+
+        tid = langfuse_mlops.capture_tool_select(
+            user_query=user_query,
+            all_tool_names=all_tool_names,
+            plan=plan,
+            error=error,
+        )
+        if tid is not None:
+            logger.info("Langfuse 工具选择复核已捕获", query=(user_query or "")[:40], trace_id=tid)
+            _flush_langfuse_tool_select(tid)
+    except Exception as e:
+        logger.warning(
+            "工具选择监控捕获失败（已忽略，不影响主流程）",
+            query=(user_query or "")[:40],
+            error=str(e),
+        )
+
+
+async def _mlops_capture_exec_failed(
+    user_query: str,
+    tool_name: str,
+    selection_source: str,
+    error: str,
+    conversation_id: str,
+) -> None:
+    """执行失败回灌（设计 2 a2）：四层流水线本地 dispatch 抛异常 → capture_review(category=tool_exec_failed)。
+
+    best-effort：任何异常都吞掉，绝不影响对话主流程。
+    """
+    try:
+        from src.modules.monitoring import langfuse_mlops
+
+        langfuse_mlops.capture_review(
+            content=f"工具执行失败 [{tool_name}]：{error[:200]}",
+            category="tool_exec_failed",
+            metadata={
+                "query": user_query,
+                "selected": tool_name,
+                "selection_source": selection_source,
+                "error": error[:500],
+            },
+            session_id=conversation_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("工具执行失败回灌失败（已忽略）", tool=tool_name, error=str(e))
+
+
+# ── 设计 4 C1：跨轮纠正检测 ────────────────────────────────────────────────
+# 按 conversation_id 记忆上一轮工具选择计划；下一轮若该计划与本轮不相交且用户语料
+# 含否定词，则判定为「推翻上一轮选择」，归一化记录为纠正（rephrase）。
+_PREV_PLAN_BY_CONV: dict = {}
+_NEGATION_TOKENS = (
+    "不对", "错了", "不是", "应该是", "应该", "其实是",
+    "重新", "改", "纠正", "说反", "弄错", "我意思是", "搞错了",
+)
+
+
+def _has_negation(text: str) -> bool:
+    t = text or ""
+    return any(tok in t for tok in _NEGATION_TOKENS)
+
+
 class ReActAgent:
     """真正的 ReAct Agent —— 具备 tool-calling 迭代循环 + 意图前置工具过滤"""
 
@@ -178,6 +324,18 @@ class ReActAgent:
 
         self._skill_registry = _skill_registry()
 
+        # I 维度修复：EmbeddingToolMatcher(FAISS 索引) 构建开销大，按 embedding_service
+        # 实例做进程级单例，避免每请求重建索引导致 CPU/内存随并发线性膨胀。
+        # 索引本身在 warmup/rank 时懒构建，已由 matcher 内部 _init_lock + _ready 幂等守卫，
+        # 故此处同步返回共享对象即可，无需重复加锁。
+        self._tool_matcher: EmbeddingToolMatcher | None = None
+        if self._embedding_service and not self._skill_filter:
+            self._tool_matcher = _get_tool_matcher(
+                self._skill_registry.tool_descriptions, self._embedding_service
+            )
+        # FAISS 索引预热一次性标记（首次进入工具选择时异步预热，消除首请求建索引尖峰）
+        self._matcher_warmed = False
+
         from src.modules.chat.agent.command_tool_service import CommandToolService
         self._command_tool_service = CommandToolService(
             tool_service=self._tool_service,
@@ -185,13 +343,6 @@ class ReActAgent:
         )
 
         self._all_tools = self._build_tools()
-
-        # 单 skill 收敛场景下工具集已确定，无需构建 Embedding 精选器（省一次初始化）
-        self._tool_matcher: EmbeddingToolMatcher | None = None
-        if self._embedding_service and not self._skill_filter:
-            self._tool_matcher = EmbeddingToolMatcher(
-                self._skill_registry.tool_descriptions, self._embedding_service
-            )
 
         self._pending_approval: tuple[str, str, str] | None = None
         # T5: 最近一次 P0/P1/P2 规划收敛出的结构化 ToolPlan（确定性终止信号载体）
@@ -361,79 +512,102 @@ class ReActAgent:
 
         return knowledge_search
 
-    async def _select_tools_for_intent(self, action: str | None, user_query: str) -> list:
-        """三层工具精选流水线：P0 意图规则过滤 → P1 Embedding 语义重排 → P2 本地模型确认。
+    async def _select_tools_for_intent(self, actions: List[str], user_query: str) -> list:
+        """四级工具精选流水线（新 Pipeline）：P0 规则 → P1 FAISS → P2 线性头 → P3 LLM 兜底。
 
-        T5 think/act 解耦：三层规划只负责「选工具」（thinking），收敛为结构化
-        ToolPlan；执行（act）由下游消费 ToolPlan 驱动。本方法兼容旧下游——仍返回
-        LangChain tool 对象列表，但内部统一以 ToolPlan 组织，并据置信度决定是否
-        给出 plan_complete 终止信号（供后续执行器直接 dispatch 使用）。
+        T5 think/act 解耦：四层规划只负责「选工具」（thinking），由 ``ToolSelectPipeline``
+        统一做候选收窄与降级，末级收窄集组装为 ``ToolPlan``；执行（act）由下游消费 ToolPlan 驱动。
+        本方法兼容旧下游——仍返回 LangChain tool 对象列表。
+
+        各 Stage 忠实复用既有逻辑（见 ``core/tool_select_stages.py``）：
+        - P0 ``RuleFilterStage``  → ``SkillRegistry.intent_tool_map``
+        - P1 ``FaissRecallStage`` → ``EmbeddingToolMatcher``
+        - P2 ``LinearHeadStage``  → 训练好的 PyTorch 线性头（``ToolHeadClassifier`` / ``outputs/tool_head_M.pt``）
+        - P3 ``LlmFallbackStage`` → ``LLMService.tool_selector_llm``
         """
-        intent_map = _get_intent_tool_map()
-        tool_names: set[str] = intent_map.get(
-            action or "unknown",
-            intent_map["unknown"],
+        # 触发 tool_select_stages 模块导入（含 register_stage 登记），并取具体 Stage 类
+        from src.modules.chat.core.local_model_service import LocalModelService
+        from src.modules.chat.core.tool_head_classifier import ToolHeadClassifier
+        from src.modules.chat.core.tool_select_pipeline import (
+            PipelinePolicy,
+            ToolSelectPipeline,
+        )
+        from src.modules.chat.core.embedding_service import EmbeddingService
+        from src.modules.chat.core.tool_select_stages import (
+            FaissRecallStage,
+            LinearHeadStage,
+            LlmFallbackStage,
+            RuleFilterStage,
         )
 
-        # ── P0 规划：意图规则直接产出 PlannedAction(source="p0") ──
-        plan = ToolPlan(
-            actions=[PlannedAction(name=n, source="p0", confidence=1.0) for n in tool_names],
-            source="p0",
-        )
-        logger.info(
-            "P0 意图过滤完成",
-            action=action,
-            candidates=len(tool_names),
-            tool_names=sorted(tool_names),
+        all_tool_names = [getattr(t, "name", "") for t in self._all_tools]
+        deps = {
+            "intent_actions": actions,
+            "tool_matcher": self._tool_matcher,
+            "local_model_service": LocalModelService.get_instance(),
+            "tool_head_classifier": ToolHeadClassifier.get_instance(),
+            "llm_service": self._llm_service,
+            "skill_registry": self._skill_registry,
+            "tool_descriptions": self._skill_registry.tool_descriptions,
+            # 流水线入口一次性预计算 query embedding，供 P1/P2 复用（避免重复打 vLLM）
+            "embeddings": EmbeddingService.get_instance(),
+        }
+        pipeline = ToolSelectPipeline(
+            stages=[
+                RuleFilterStage(),
+                FaissRecallStage(
+                    top_k=5 if (not actions or "unknown" in actions) else 4
+                ),
+                LinearHeadStage(),
+                LlmFallbackStage(),
+            ],
+            all_tools=all_tool_names,
+            deps=deps,
+            policy=PipelinePolicy(
+                thresholds={
+                    STAGE_P0_RULE: 1.0,
+                    STAGE_P1_FAISS: 0.9,
+                    STAGE_P2_LINEAR: 0.85,
+                    STAGE_P3_LLM: 1.0,
+                },
+                fallback={"on_stage_failure": "skip"},
+                timeouts={
+                    STAGE_P0_RULE: 1000,
+                    STAGE_P1_FAISS: 2000,
+                    STAGE_P2_LINEAR: 5000,
+                    STAGE_P3_LLM: 10000,
+                },
+                # 收敛阈值=2：候选收窄到 ≤2 即提前结束（与 emit_final_scope_as_plan 的
+                # plan_complete 判定一致），让 P1/P2 成为退出层、避免 100% 触发 P3 LLM。
+                convergence_threshold=2,
+                emit_final_scope_as_plan=True,
+            ),
         )
 
-        # ── P1 规划：Embedding 语义重排，更新 plan（保留 P0 中落选工具的来源）──
-        p2_ranked: list[str] = []
-        if self._tool_matcher and len(tool_names) > 1:
+        # 预热 FAISS 索引：把首请求建索引的尖峰从用户路径移除（失败不影响本次，下次重试）
+        if self._tool_matcher is not None and not self._matcher_warmed:
+            self._matcher_warmed = True
             try:
-                p2_top_k = 5 if (action is None or action == "unknown") else 4
-                ranked_names = await self._tool_matcher.rank(
-                    user_query=user_query,
-                    candidate_names=tool_names,
-                    intent_action=action,
-                    top_k=p2_top_k,
-                )
-                if ranked_names:
-                    p2_ranked = list(ranked_names)
-                    # P1 重排结果覆盖为更高优先级规划（置信度统一 1.0，细节分由 matcher 内部使用）
-                    plan = ToolPlan(
-                        actions=[PlannedAction(name=n, source="p1", confidence=1.0) for n in p2_ranked],
-                        source="p1",
-                    )
-                else:
-                    logger.warning("P1 重排返回空结果，保持 P0 候选集")
-            except Exception as e:
-                logger.warning(f"Embedding 重排失败，回退到 P0 结果: {e}")
+                await asyncio.wait_for(self._tool_matcher.warmup(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("FAISS 索引预热超时，将在首次请求时异步构建")
+            except Exception:
+                pass
 
-        # ── P2 规划：本地小模型确认，产出 source="p2" 的 ToolPlan ──
-        current_names = plan.to_tool_names()
-        if self._tool_matcher and len(current_names) > 2:
-            tool_descs = self._skill_registry.tool_descriptions
-            try:
-                p2_plan = await _local_p1_tool_select(
-                    user_query=user_query,
-                    tool_names=current_names,
-                    tool_descriptions=tool_descs,
-                    p2_ranked=p2_ranked,
-                )
-                if p2_plan.actions:
-                    plan = p2_plan
-                    logger.info(
-                        "P2 本地模型工具选择完成",
-                        before=sorted(current_names),
-                        after=sorted(plan.to_tool_names()),
-                    )
-            except Exception as e:
-                logger.warning(f"P2 本地模型工具选择失败，保留 P1 结果: {e}")
+        try:
+            plan = await pipeline.select(user_query)
+        except Exception as _e:
+            logger.error("工具选择流水线执行失败", query=user_query[:80], error=str(_e))
+            # 监控：流水线本身报错 → 记录为错误类复核任务（best-effort，不影响主流程）
+            _mlops_capture_tool_select(user_query, all_tool_names, plan=None, error=str(_e)[:500])
+            raise
+        self._last_tool_plan = plan
 
-        # ── 确定性终止信号：高置信度规划 → plan_complete（执行器可直接 dispatch）──
-        stop_condition = "plan_complete" if plan.is_confident else "need_llm"
-        plan = plan.with_stop_condition(stop_condition)
+        # ── 监控：可疑工具选择自动灌入 MLOps 复核任务 ──
+        # 同步调用（在 @observe 请求上下文内执行，确保 observation 随主 trace 落盘；
+        # 原先 asyncio.create_task 会在响应返回、上下文拆除后才运行，导致 start_as_current_observation
+        # 挂到已关闭的父 observation 上被丢弃，监控静默失效）。
+        _mlops_capture_tool_select(user_query, all_tool_names, plan=plan)
 
         # ── 兼容消费：将 ToolPlan 还原为 LangChain tool 对象列表 ──
         selected_names = plan.to_tool_names()
@@ -447,16 +621,14 @@ class ReActAgent:
                 filtered.append(t)
 
         logger.info(
-            "P0+P1+P2 工具过滤最终结果",
-            action=action,
+            "P0+P1+P2+P3 工具过滤最终结果",
+            actions=actions,
             total_tools=len(self._all_tools),
             filtered=len(filtered),
             source=plan.source,
             stop_condition=plan.stop_condition,
             tool_names=sorted([getattr(t, "name", "") for t in filtered]),
         )
-        # 附加 ToolPlan 到返回值（透传给需要确定性执行的下层，向后兼容：list 仍可直接遍历）
-        self._last_tool_plan = plan
         return filtered
 
     def _build_graph(
@@ -468,8 +640,30 @@ class ReActAgent:
     ):
         """构建 LangChain create_agent。"""
         from langchain.agents import create_agent
+        from src.modules.chat.config import chat_config
 
-        llm = self._llm_service.qwen_llm
+        # Mock 模式：使用 MockChatModel 返回结构化工具调用
+        if getattr(chat_config, "LLM_ADAPTER_TYPE", "langchain") == "mock":
+            from src.modules.chat.core.adapter.mock_chat_model import MockChatModel
+
+            llm = MockChatModel()
+        else:
+            base_llm = self._llm_service.qwen_llm
+            # Qwen 模型包装器：将 content 中的 JSON 转为标准 tool_calls
+            model_name = getattr(base_llm, "model_name", "")
+            if "qwen" in model_name.lower() or "qwen3" in model_name.lower():
+                from src.modules.chat.core.adapter.qwen_tool_calling_chat_model import QwenToolCallingChatModel
+                
+                llm = QwenToolCallingChatModel(
+                    model=base_llm.model_name,
+                    api_key=base_llm.openai_api_key,
+                    base_url=base_llm.openai_api_base,
+                    temperature=base_llm.temperature,
+                    max_tokens=base_llm.max_tokens,
+                    extra_body=base_llm.extra_body,
+                )
+            else:
+                llm = base_llm
         if llm is None:
             raise RuntimeError("LLM 未初始化，无法构建 Agent")
         selected_tools = tools if tools is not None else self._all_tools
@@ -563,7 +757,10 @@ class ReActAgent:
             name = action.name
             try:
                 t0 = time.monotonic()
-                raw = await self._tool_service.dispatch(name, preset_params or None)
+                raw = await asyncio.wait_for(
+                    self._tool_service.dispatch(name, preset_params or None),
+                    timeout=app_settings.AGENT_TIMEOUT,
+                )
                 t_dur = int((time.monotonic() - t0) * 1000)
                 logger.info(
                     "确定性执行 ToolPlan 动作",
@@ -583,6 +780,17 @@ class ReActAgent:
                     "output": f"工具 {name} 执行失败：{str(e)[:120]}",
                     "status": "failed",
                 })
+                # 监控（设计 2 a2）：四层流水线本地执行失败回灌——原先只打日志、错误被吞进回复，
+                # 现补 capture_review(category=tool_exec_failed)，best-effort 不阻塞主流程。
+                asyncio.create_task(
+                    _mlops_capture_exec_failed(
+                        user_query=ctx.request.message,
+                        tool_name=name,
+                        selection_source=action.source,
+                        error=str(e),
+                        conversation_id=ctx.conversation_id,
+                    )
+                )
 
         combined = "\n\n".join(
             f"[{o['action']}]\n{o['output']}" for o in tool_outputs
@@ -601,7 +809,7 @@ class ReActAgent:
                         "你是电商客服助手。下面是为用户查询得到的工具返回结果，"
                         "请用简洁、自然的中文口语化转述给用户，不要输出工具名或原始 JSON 标记。"
                         "若结果提示信息不足，可友好地补充询问。\n\n"
-                        f"用户问题：{ctx.request.message}\n\n工具结果：\n{combined}"
+                        f"用户问题：{redact_pii(ctx.request.message)}\n\n工具结果：\n{combined}"
                     )
                     polish = await llm.ainvoke(polish_prompt)
                     final_output = getattr(polish, "content", None) or combined
@@ -665,8 +873,12 @@ class ReActAgent:
         dispatch 计划中的工具、再用 LLM 仅做结果润色——执行（act）完全由 plan 驱动，
         模型不再决定「何时停」。否则回退到原 ReAct 自主循环。
         """
+        # 记录当前请求上下文，供工具闭包（如退款工具派发）读取（修复空 conversation_id/domain）
+        self._current_conversation_id = ctx.conversation_id
+        self._current_domain = ctx.domain
+
         selected_tools = await self._select_tools_for_intent(
-            ctx.intent_result.action, user_query=ctx.request.message
+            ctx.intent_result.actions, user_query=ctx.request.message
         )
 
         blocked = self._check_input_safety(ctx.request, ctx.domain, ctx.intent_steps, ctx.conversation_id)
@@ -675,6 +887,12 @@ class ReActAgent:
 
         # ── 执行侧解耦：高置信规划 → 确定性直接执行，绕过 ReAct 循环 ──
         plan = self._last_tool_plan
+        # 设计 4 C1：跨轮纠正检测（在覆盖 _last_tool_plan 前先读上一轮快照）
+        self._capture_cross_turn_correction(ctx.conversation_id, ctx.request.message, plan)
+        if ctx.conversation_id:
+            _PREV_PLAN_BY_CONV[ctx.conversation_id] = plan
+            if len(_PREV_PLAN_BY_CONV) > 5000:  # 防内存无限增长
+                _PREV_PLAN_BY_CONV.clear()
         if plan is not None and plan.stop_condition == "plan_complete":
             hitl_actions = {s.name for s in self._skill_registry.skills if s.hitl}
             if not (plan.to_tool_names() & hitl_actions):
@@ -707,9 +925,12 @@ class ReActAgent:
             if langfuse_handler:
                 config["callbacks"] = [langfuse_handler]
 
-            result = await agent_graph.ainvoke(
-                {"messages": [HumanMessage(content=enhanced_message)]},
-                config=config,
+            result = await asyncio.wait_for(
+                agent_graph.ainvoke(
+                    {"messages": [HumanMessage(content=enhanced_message)]},
+                    config=config,
+                ),
+                timeout=app_settings.AGENT_TIMEOUT,
             )
 
             interrupt_response = self._handle_pending_approval(
@@ -743,6 +964,49 @@ class ReActAgent:
                 react_start=react_start,
             )
         )
+
+    def _capture_cross_turn_correction(
+        self, conversation_id: str, message: str, plan: "ToolPlan | None"
+    ) -> None:
+        """设计 4 C1：检测用户跨轮推翻上一轮工具选择，并归一化记录（best-effort）。
+
+        判定：上一轮计划与本轮计划工具集不相交（推翻）或相同（同一工具被否定），
+        且本轮用户语料含否定词 → 记录为 rephrase 纠正。负样本仅记 rejected_tools。
+        """
+        if not conversation_id or plan is None:
+            return
+        prev = _PREV_PLAN_BY_CONV.get(conversation_id)
+        if prev is None or not prev.actions:
+            return
+        new_tools = plan.to_tool_names()
+        prev_tools = prev.to_tool_names()
+        if not new_tools:
+            return
+        if not _has_negation(message):
+            return
+        try:
+            from src.modules.monitoring.langfuse_mlops import record_correction
+
+            if prev_tools.isdisjoint(new_tools):
+                record_correction(
+                    type="rephrase",
+                    conversation_id=conversation_id,
+                    original_tool=prev.actions[0].name,
+                    correct_tool=plan.actions[0].name if plan.actions else None,
+                    selection_source=plan.source,
+                    content=message,
+                )
+            elif prev_tools == new_tools:
+                record_correction(
+                    type="rephrase",
+                    conversation_id=conversation_id,
+                    original_tool=plan.actions[0].name,
+                    rejected_tools=[a.name for a in plan.actions],
+                    selection_source=plan.source,
+                    content=message,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("C1 跨轮纠正检测记录失败（已忽略）", error=str(e))
 
     def _check_input_safety(
         self, request: ChatRequest, domain: str, intent_steps: list, conversation_id: str
@@ -827,9 +1091,12 @@ class ReActAgent:
                 f"{confirmed_order_id}，严禁使用历史对话中出现的任何其他订单号。"
             )
 
+        # 提示词沿用可读的 simple / multi_step 措辞（避免改动模型可见文本），
+        # 但取值改由新的 plan.mode 派生，不再直接读 deprecated 的 complexity。
+        complexity_label = "multi_step" if intent_result.mode == "react" else "simple"
         intent_context = (
             f"用户意图: {intent_result.action}, "
-            f"复杂程度: {intent_result.complexity}. "
+            f"复杂程度: {complexity_label}. "
             f"{params_str}{confirm_str}"
         )
         agent_graph = self._build_graph(
@@ -839,7 +1106,8 @@ class ReActAgent:
             extra_system_context=intent_context,
         )
 
-        enhanced_message = f"用户问题: {request.message}"
+        # A 维度：构造 LLM 上下文前对用户自由文本做 PII 脱敏，避免明文 PII 进入模型上下文
+        enhanced_message = f"用户问题: {redact_pii(request.message)}"
         if confirmed_order_id:
             enhanced_message += (
                 f"\n\n(本次已确认订单号={confirmed_order_id}，请务必使用此订单号，"
@@ -873,7 +1141,8 @@ class ReActAgent:
                 metadata={
                     "domain": domain,
                     "action": intent_result.action,
-                    "complexity": intent_result.complexity,
+                    "mode": intent_result.mode,
+                    "complexity": ("multi_step" if intent_result.mode == "react" else "simple"),
                 },
             )
             if result:
@@ -1000,7 +1269,8 @@ class ReActAgent:
             success=True,
             domain=success_ctx.domain,
             action=success_ctx.intent_result.action,
-            complexity=success_ctx.intent_result.complexity,
+            mode=success_ctx.intent_result.mode,
+            complexity=("multi_step" if success_ctx.intent_result.mode == "react" else "simple"),
             conversation_id=success_ctx.conversation_id,
             message_length=len(success_ctx.request.message),
             response_length=len(final_output),
@@ -1024,6 +1294,7 @@ class ReActAgent:
         confirm: bool,
         tool_service: "ToolService | None" = None,
         approval_store=None,
+        trace_id: str | None = None,
     ) -> "ChatResponse | None":
         """恢复被人在回路中断的退款执行（命令模式）。"""
         from src.modules.chat.agent.command_tool_service import CommandToolService
@@ -1050,6 +1321,19 @@ class ReActAgent:
             logger.log_business_event(
                 "退款审批-拒绝", conversation_id=conversation_id, order_id=order_id
             )
+            # 设计 4 C3：审批拒绝归一化记录（用户拒绝由工具选择产出的待执行动作）
+            try:
+                from src.modules.monitoring.langfuse_mlops import record_correction
+
+                record_correction(
+                    type="reject",
+                    conversation_id=conversation_id,
+                    original_tool="request-return",
+                    trace_id=trace_id,
+                    content=f"订单 {order_id} 退款审批被用户拒绝",
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("C3 审批拒绝纠正记录失败（已忽略）", error=str(e))
             return ChatResponse(
                 message=f"退款申请已被取消（订单号: {order_id}）。如有需要，请重新发起申请。",
                 conversation_id=conversation_id,
@@ -1196,12 +1480,34 @@ class ReActAgent:
 def get_graph():
     """LangGraph Studio 入口：返回带 MemorySaver 的编译后 graph。"""
     from langchain_core.tools import tool
-
+    from src.modules.chat.config import chat_config
     from src.modules.chat.core.llm_service import LLMService
 
     llm_svc = LLMService()
     llm_svc.initialize()
-    llm = llm_svc.qwen_llm
+
+    # Mock 模式：使用 MockChatModel 返回结构化工具调用
+    if getattr(chat_config, "LLM_ADAPTER_TYPE", "langchain") == "mock":
+        from src.modules.chat.core.adapter.mock_chat_model import MockChatModel
+
+        llm = MockChatModel()
+    else:
+        base_llm = llm_svc.qwen_llm
+        # Qwen 模型包装器：将 content 中的 JSON 转为标准 tool_calls
+        model_name = getattr(base_llm, "model_name", "")
+        if "qwen" in model_name.lower() or "qwen3" in model_name.lower():
+            from src.modules.chat.core.adapter.qwen_tool_calling_chat_model import QwenToolCallingChatModel
+            
+            llm = QwenToolCallingChatModel(
+                model=base_llm.model_name,
+                api_key=base_llm.openai_api_key,
+                base_url=base_llm.openai_api_base,
+                temperature=base_llm.temperature,
+                max_tokens=base_llm.max_tokens,
+                extra_body=base_llm.extra_body,
+            )
+        else:
+            llm = base_llm
     if llm is None:
         raise RuntimeError("LLM 未初始化，请检查 TONGYI_API_KEY 配置")
 

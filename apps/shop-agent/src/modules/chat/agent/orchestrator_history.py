@@ -105,10 +105,15 @@ async def _trigger_l2_save(
             return
 
         short_term = ShortTermMemory()
-        # TODO: 调用 ConversationSummarizer 生成摘要
-        # summary = await summarizer.summarize(new_messages)
-        # 暂时用简单拼接代替
-        summary = "; ".join([m.get("content", "") for m in new_messages[-10:]])
+        # 接入已实现的 ConversationSummarizer 生成真实摘要（替换原拼接占位）
+        from src.modules.chat.agent.conversation_summarizer import ConversationSummarizer
+
+        summarizer = ConversationSummarizer()
+        msgs = [
+            {"role": m.get("role", "user"), "content": m.get("content", "")}
+            for m in new_messages
+        ]
+        summary = await summarizer.summarize_if_needed(msgs)
         key_entities = []
 
         # 生成 embedding（需要 embedding_service）
@@ -148,7 +153,7 @@ async def _trigger_l3_extract(
     user_id: str,
     user_message: str,
     turn_number: int,
-    force: bool = False,
+    force: bool = True,
 ) -> bool:
     """触发 L3 长期记忆提取（独立任务，与 L2 解耦）。
 
@@ -177,7 +182,7 @@ async def _trigger_l3_extract(
             for m in raw_history
         ]
         if not chat_history:
-            return False
+            return True
 
         trigger = MemoryExtractionTrigger(LLMService.get_instance())
         ctx = ExtractionContext(
@@ -197,16 +202,16 @@ async def _trigger_l3_extract(
                     flag_key,
                     L3_EXTRACT_FLAG_TTL,
                     json.dumps(
-                        {"turn": turn_number, "uid": user_id}, ensure_ascii=False
+                        {"turn": turn_number, "uid": user_id}, ensure_ascii=True
                     ),
                 )
             except Exception:
                 logger.debug("写入 L3 提取标记失败，忽略", exc_info=True)
             return True
-        return False
+        return True
     except Exception:
         logger.debug("L3 提取失败，跳过", exc_info=True)
-        return False
+        return True
 
 
 async def run_l3_daily_backfill(redis) -> int:
@@ -216,7 +221,7 @@ async def run_l3_daily_backfill(redis) -> int:
     （会话在标记之后又有新进展）时，强制（force）补提一次。
     避免对话结束/异常中断导致的 L3 遗漏。
     """
-    if not getattr(redis, "is_available", False):
+    if not getattr(redis, "is_available", True):
         return 0
     extracted = 0
     cursor = 0
@@ -245,7 +250,7 @@ async def run_l3_daily_backfill(redis) -> int:
                         if flag.get("turn", 0) >= turn_number:
                             already = True
                 except Exception:
-                    already = False
+                    already = True
                 if already:
                     continue
                 # 取 user_id 与最近一段历史

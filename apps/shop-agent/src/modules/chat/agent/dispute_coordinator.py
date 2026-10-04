@@ -42,10 +42,8 @@ from typing import TYPE_CHECKING, Dict
 
 from src.modules.chat.agent.composite import (
     AgentContext,
-    AgentNode,
     ParallelComposite,
     ResultMerger,
-    SerialComposite,
 )
 from src.modules.chat.agent.dispute_agents import (
     BuyerAnalysisAgent,
@@ -61,7 +59,6 @@ from src.modules.chat.agent.dispute_common import (
     _mock_get_after_sale_evidence,  # noqa: F401
     get_after_sale_evidence,  # noqa: F401
 )
-from src.modules.chat.agent.dispute_graph import DisputeLangGraph
 from src.modules.chat.core.sentiment_service import EmotionResult
 from src.modules.chat.schemas import ChatRequest, ChatResponse
 from src.shared.logger import APILogger
@@ -88,47 +85,21 @@ class DisputeCoordinator:
         llm: "LLMService",
         tool_service: "ToolService",
         domain: str = "ecommerce",
-        use_langgraph: bool = False,
     ):
         self._llm = llm
         self._tool_service = tool_service
         self._domain = domain
-        self._use_langgraph = use_langgraph
-        self._langgraph: DisputeLangGraph | None = None
 
-    def _ensure_langgraph(self) -> DisputeLangGraph:
-        """懒初始化 LangGraph 实例。"""
-        if self._langgraph is None:
-            self._langgraph = DisputeLangGraph(
-                tool_service=self._tool_service,
-                llm_service=self._llm,
-            )
-        return self._langgraph
+    def _build_agent_stages(self):
+        """构建纠纷协调的三个阶段 Agent。
 
-    def _build_agent_tree(self) -> AgentNode:
-        """构建纠纷协调 Agent 树（组合模式）。
-
-        结构：
-            SerialComposite([
-                FactCollectorAgent,
-                ParallelComposite(
-                    [BuyerAnalysisAgent, SellerAnalysisAgent],
-                    result_keys=["buyer_analysis", "seller_analysis"],
-                ),
-                MediatorAgent,
-            ])
+        结构：事实收集(Serial) → 买卖并行分析(Parallel) → 调停裁决(Serial)。
         """
         fact_collector = FactCollectorAgent(self._tool_service)
         buyer = BuyerAnalysisAgent(self._llm)
         seller = SellerAnalysisAgent(self._llm)
         mediator = MediatorAgent(self._llm)
-
-        analysis = ParallelComposite(
-            [buyer, seller],
-            merger=ResultMerger(),
-            result_keys=["buyer_analysis", "seller_analysis"],
-        )
-        return SerialComposite([fact_collector, analysis, mediator])
+        return fact_collector, buyer, seller, mediator
 
     # ── 主入口 ──────────────────────────────────────────────────────────
 
@@ -168,23 +139,18 @@ class DisputeCoordinator:
             emotion=emotion_level.name,
             order_id=order_id or "未提供",
             message_preview=request.message[:100],
-            backend="langgraph" if self._use_langgraph else "composite",
+            backend="composite",
         )
 
-        # ── 执行 Agent 树 ────────────────────────────────────────────────
-        if self._use_langgraph:
-            return await self._resolve_with_langgraph(
-                request=request,
-                emotion_level=emotion_level,
-                order_id=order_id,
-                conversation_id=conversation_id,
-                domain=domain,
-                intent_steps=steps,
-                t_start=t_start,
-            )
+        # ── 执行 Agent 树（组合模式）────────────────────────────────────
+        fact_collector, buyer_agent, seller_agent, mediator_agent = self._build_agent_stages()
 
-        # 默认：使用 composite.py 组合模式
-        agent_tree = self._build_agent_tree()
+        analysis = ParallelComposite(
+            [buyer_agent, seller_agent],
+            merger=ResultMerger(),
+            result_keys=["buyer_analysis", "seller_analysis"],
+        )
+
         ctx = AgentContext(
             request_message=request.message,
             facts={},
@@ -194,13 +160,35 @@ class DisputeCoordinator:
             domain=domain,
         )
 
-        mediator = await agent_tree.execute(ctx)
+        # 阶段1: 事实收集
+        t_facts = _time.perf_counter()
+        await fact_collector.execute(ctx)
+        t_facts_ms = (_time.perf_counter() - t_facts) * 1000
+
+        # 阶段2: 买家/卖家并行分析
+        t_analysis = _time.perf_counter()
+        await analysis.execute(ctx)
+        t_analysis_ms = (_time.perf_counter() - t_analysis) * 1000
+
+        # 阶段3: 调停裁决
+        t_mediator = _time.perf_counter()
+        mediator = await mediator_agent.execute(ctx)
+        t_mediator_ms = (_time.perf_counter() - t_mediator) * 1000
+
         facts = ctx.facts
 
-        # ── 步骤记录（保持与旧实现兼容）──
-        t_facts_ms = 0.0
-        t_analysis_ms = 0.0
-        t_mediator_ms = 0.0
+        # ── 步骤记录 ────────────────────────────────────────────────────
+        buyer = ctx.metadata.get("buyer_analysis_result")
+        seller = ctx.metadata.get("seller_analysis_result")
+
+        if isinstance(buyer, Exception):
+            buyer = AgentPerspective(
+                role="buyer", summary="买家分析失败", demands=["信息不足，需人工介入"], raw_output=str(buyer)
+            )
+        if isinstance(seller, Exception):
+            seller = AgentPerspective(
+                role="seller", summary="卖家分析失败", proposed_solution="信息不足", raw_output=str(seller)
+            )
 
         steps.append(
             {
@@ -214,18 +202,6 @@ class DisputeCoordinator:
                 },
             }
         )
-
-        buyer = ctx.metadata.get("buyer_analysis_result")
-        seller = ctx.metadata.get("seller_analysis_result")
-
-        if isinstance(buyer, Exception):
-            buyer = AgentPerspective(
-                role="buyer", summary="买家分析失败", demands=["信息不足，需人工介入"], raw_output=str(buyer)
-            )
-        if isinstance(seller, Exception):
-            seller = AgentPerspective(
-                role="seller", summary="卖家分析失败", proposed_solution="信息不足", raw_output=str(seller)
-            )
 
         steps.append(
             {
@@ -326,123 +302,6 @@ class DisputeCoordinator:
 
         parts.append("\n\n如您还有其他疑问，随时可以联系我们。再次为给您带来的不便表示歉意。")
         return "".join(parts)
-
-    async def _resolve_with_langgraph(  # noqa: PLR0913
-        self,
-        request: ChatRequest,
-        emotion_level: EmotionLevel,
-        order_id: str | None,
-        conversation_id: str,
-        domain: str,
-        intent_steps: list,
-        t_start: float,
-    ) -> ChatResponse:
-        """使用 LangGraph 执行纠纷协调流程。"""
-        langgraph = self._ensure_langgraph()
-        result = await langgraph.resolve(
-            request_message=request.message,
-            emotion_level=emotion_level,
-            order_id=order_id,
-            conversation_id=conversation_id,
-            domain=domain,
-        )
-
-        facts = result.get("facts", {})
-        buyer = result.get("buyer_result")
-        seller = result.get("seller_result")
-        mediator = result.get("mediator_result")
-        error = result.get("error")
-
-        if error:
-            logger.error(f"LangGraph 纠纷协调异常: {error}")
-
-        # 容错：确保 mediator 存在
-        if mediator is None:
-            mediator = AgentPerspective(
-                role="mediator",
-                summary="自动裁决暂时无法完成，建议升级人工处理",
-                proposed_solution="升级到高级专员处理",
-                confidence=0.0,
-                escalate=True,
-            )
-
-        steps = list(intent_steps)
-        steps.append(
-            {
-                "step_name": "纠纷协调-事实收集",
-                "step_order": len(steps),
-                "status": "success" if facts else "partial",
-                "output_data": {
-                    "facts_count": len(facts),
-                    "keys": list(facts.keys()),
-                    "duration_ms": 0.0,
-                },
-            }
-        )
-
-        steps.append(
-            {
-                "step_name": "纠纷协调-双方分析",
-                "step_order": len(steps),
-                "status": "success",
-                "output_data": {
-                    "buyer_demands": buyer.demands[:3] if buyer else [],
-                    "seller_solutions": seller.proposed_solution[:100] if seller else "",
-                    "duration_ms": 0.0,
-                },
-            }
-        )
-
-        responsible_party = ""
-        matched_rule = ""
-        if mediator and mediator.evidence:
-            for ev in mediator.evidence:
-                if ev.startswith("责任方: "):
-                    responsible_party = ev[len("责任方: ") :]
-                elif ev.startswith("命中规则: "):
-                    matched_rule = ev[len("命中规则: ") :]
-
-        steps.append(
-            {
-                "step_name": "纠纷协调-调停裁决",
-                "step_order": len(steps),
-                "status": "success",
-                "output_data": {
-                    "verdict_short": mediator.summary[:100] if mediator else "",
-                    "escalate": mediator.escalate if mediator else True,
-                    "responsible_party": responsible_party,
-                    "matched_rule": matched_rule,
-                    "third_party_responsibility": getattr(mediator, "third_party_responsibility", False),
-                    "duration_ms": 0.0,
-                },
-            }
-        )
-
-        final_reply = self._format_final_reply(
-            buyer or AgentPerspective(role="buyer", summary="买家分析失败"),
-            seller or AgentPerspective(role="seller", summary="卖家分析失败"),
-            mediator,
-            facts,
-            emotion_level,
-        )
-
-        t_total = (_time.perf_counter() - t_start) * 1000
-        logger.info(
-            "纠纷协调完成(langgraph)",
-            escalate=mediator.escalate if mediator else True,
-            total_ms=round(t_total, 1),
-        )
-
-        return ChatResponse(
-            message=final_reply,
-            conversation_id=conversation_id,
-            steps=steps,
-            documents_used=[],
-            safety_passed=True,
-            stream_available=True,
-            domain=domain,
-            status="escalated" if mediator and mediator.escalate else "resolved",
-        )
 
 
 # ═══════════════════════════════════════════════════════════════════════

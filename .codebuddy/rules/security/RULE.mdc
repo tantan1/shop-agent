@@ -22,6 +22,15 @@ alwaysApply: false
 - 使用参数化查询
 - 禁止字符串拼接 SQL
 - MyBatis 使用 #{} 而非 ${}
+- Python(SQLAlchemy/sqlx)：使用绑定参数 `$1`/`?` 或 ORM 查询构造器，禁止 f-string 拼接 SQL
+- 本项目 `order-service`(Rust) 用 `sqlx` `.bind()` + `$N` 占位符；`shop-agent` 用 ORM 参数化
+
+## LLM / Agent 安全（本项目核心）
+- **Prompt 注入防护**：所有用户/外部内容经 LLM 网关三道检测（输入/输出/工具参数），业务不重做检测、信任网关（详见 `llm-agent` rule 与 `docs/platform-engineering/10`）
+- **敏感信息不进 prompt**：PII 由网关脱敏层集中擦除（见 `docs/platform-engineering/06`）；业务侧回传/日志前二次确认
+- **工具调用越权**：Agent 可调用的工具须白名单化；涉及资金/不可逆操作（退款、退货）必须卡人工审批（人在回路）
+- **API Key / Token 管理**：LLM 供应商密钥只在网关配置，业务代码不持有；密钥轮换走配置中心，不硬编码
+- **输出泄露**：供应商回传内容在网关出向做出站校验，防间接注入与数据外泄
 
 ## 敏感数据
 - 密码使用 BCrypt 加密

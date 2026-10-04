@@ -38,6 +38,7 @@ from src.modules.chat.routers import router as chat_router  # noqa: E402
 from src.modules.chat.routers_mockapi import router as mockapi_router  # noqa: E402
 from src.modules.items.routers import router as reports_router  # noqa: E402
 from src.modules.monitoring.metrics import app_info  # noqa: E402
+from src.modules.monitoring.langfuse_mlops_router import router as langfuse_mlops_router  # noqa: E402
 from src.modules.monitoring.router import router as monitoring_router  # noqa: E402
 from src.modules.monitoring.skywalking_client import (  # noqa: E402
     init_skywalking,
@@ -53,6 +54,7 @@ from src.shared.exceptions import (  # noqa: E402
 from src.shared.logger import configure_logging, logging_middleware  # noqa: E402
 from src.shared.otel_tracing import (  # noqa: E402
     init_otel_tracing,
+    instrument_httpx_clients,
     shutdown_otel_tracing,
 )
 from src.shared.responses import success_response  # noqa: E402
@@ -110,9 +112,13 @@ async def lifespan(app_instance: FastAPI):
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa: E402
 
         FastAPIInstrumentor.instrument_app(app)
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor  # noqa: E402
-
-        HTTPXClientInstrumentor().instrument()
+        # 关键：uvicorn 的 lifespan 启动会先触发 Starlette 构建中间件栈，而本插桩发生在
+        # lifespan 内部（晚于栈构建），若不重置，带 excluded_urls 的 OTel 中间件永远进不了
+        # 服务栈 → 探活/监控端点照样产生 trace。置 None 让下次请求重建栈以纳入插桩。
+        app.middleware_stack = None
+        # 出站 HTTP：同时覆盖 httpx 与 httpx2。openai SDK 3.x 走 httpx2，
+        # 只插桩 httpx 会导致 LLM 出站请求无 span 且不注入 traceparent（断链）。
+        instrument_httpx_clients()
     except Exception as e:
         print(f"[startup] OTel instrumentation 跳过: {e}")
 
@@ -132,6 +138,19 @@ async def lifespan(app_instance: FastAPI):
 
     # 预热模型（避免首次请求等待模型加载）
     # 注意: lifespan 内事件循环已在运行，不能使用 loop.run_until_complete()
+    # 预热期抑制 @observe：warmup 调用发生在任何请求之前、无请求上下文，
+    # 其 span 会成为孤儿根 trace 污染 Langfuse（每次启动固定 3 条）。
+    try:
+        from src.modules.monitoring.langfuse_callback import (  # noqa: E402
+            set_observe_suppressed,
+        )
+        from src.shared.otel_tracing import set_span_suppression  # noqa: E402
+
+        set_observe_suppressed(True)  # @observe 侧
+        set_span_suppression(True)  # OTel span 侧（预热期的 HTTP 客户端 span）
+    except Exception as e:
+        print(f"[startup] 预热期 trace 抑制开启失败（忽略）: {e}")
+
     try:
         from src.modules.chat.core.embedding_service import EmbeddingService  # noqa: E402
 
@@ -185,6 +204,30 @@ async def lifespan(app_instance: FastAPI):
                 print("[startup] 本地小模型预热跳过（加载失败）")
     except Exception as e:
         print(f"[startup] 本地小模型预热跳过: {e}")
+
+    # 预热 P2 线性头分类器（避免首次工具选择 ~27s 模型加载）
+    try:
+        from src.modules.chat.core.tool_head_classifier import ToolHeadClassifier  # noqa: E402
+
+        head_clf = ToolHeadClassifier.get_instance()
+        # 模型加载是同步阻塞的，放入线程池
+        import concurrent.futures  # noqa: E402
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            loaded = pool.submit(head_clf.warmup).result()
+        if loaded:
+            print("[startup] P2 线性头分类器预热完成")
+        else:
+            print("[startup] P2 线性头分类器预热跳过（加载失败或 torch 不可用）")
+    except Exception as e:
+        print(f"[startup] P2 线性头分类器预热跳过: {e}")
+
+    # 预热结束，恢复正常埋点
+    try:
+        set_observe_suppressed(False)
+        set_span_suppression(False)
+    except Exception:
+        pass
 
     # ── MCP Server 挂载（如果 MCP_ENABLED=true） ──
     try:
@@ -307,9 +350,11 @@ app.include_router(mockapi_router, prefix=config.API_V1_PREFIX)
 app.include_router(monitoring_router, prefix=config.API_V1_PREFIX)
 app.include_router(a2a_router)  # A2A 端点不带 API 前缀，直接 /a2a/*
 app.include_router(digital_human_router, prefix=config.API_V1_PREFIX)
+app.include_router(langfuse_mlops_router, prefix=config.API_V1_PREFIX)
 
 # 演示页面静态托管（同源，无 CORS 问题）
 app.mount("/demo", StaticFiles(directory="static/demo", html=True), name="demo")
+# 标注控制台已迁移到 Langfuse UI（自研 static/mlops 已删除）
 
 
 @app.get("/health", include_in_schema=False)

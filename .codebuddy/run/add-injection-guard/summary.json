@@ -1,0 +1,21 @@
+{
+  "task": "add-injection-guard",
+  "retries": 0,
+  "needs_human": false,
+  "blocking_issues": [],
+  "stages": [
+    "scope",
+    "design(skip?)",
+    "code",
+    "review",
+    "fix?",
+    "test"
+  ],
+  "artifacts": {
+    "scope": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-injection-guard\\scope.md",
+    "design": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-injection-guard\\design.md",
+    "code": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-injection-guard\\code.diff",
+    "review": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-injection-guard\\review.md",
+    "tests": "E:\\workspace\\shop-agent\\.codebuddy\\run\\add-injection-guard\\tests.py"
+  }
+}

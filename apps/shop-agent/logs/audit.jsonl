@@ -1,0 +1,84 @@
+{"ts": 1790736807.6862664, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736807.6892655, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736807.69127, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736807.8760746, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736807.8780758, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736807.8830857, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0371695, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0391674, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0401683, "event": "mlops.transition", "principal": "bob", "action": "reviewing->rejected", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0421684, "event": "mlops.transition", "principal": "bob", "action": "rejected->training_confirmed", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "非法跃迁: rejected -> training_confirmed"}}
+{"ts": 1790736812.061183, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0631816, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0651817, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0662286, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.068233, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736812.0722344, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.157032, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.1600296, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.163124, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.326478, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.3292077, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.3322325, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8287654, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8297653, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.831771, "event": "mlops.transition", "principal": "bob", "action": "reviewing->rejected", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.832778, "event": "mlops.transition", "principal": "bob", "action": "rejected->training_confirmed", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "非法跃迁: rejected -> training_confirmed"}}
+{"ts": 1790736839.852742, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.855197, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8562026, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8582146, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8592005, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736839.8632019, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.254944, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.2569482, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.2589486, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.4192052, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.4212096, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.4267333, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9119759, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.912963, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9152575, "event": "mlops.transition", "principal": "bob", "action": "reviewing->rejected", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9166763, "event": "mlops.transition", "principal": "bob", "action": "rejected->training_confirmed", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "非法跃迁: rejected -> training_confirmed"}}
+{"ts": 1790736848.9351902, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9362028, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.938214, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9397724, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.940785, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736848.9452128, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.6373494, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.6401546, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.6417499, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.8071163, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.8091125, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.8129115, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.9337006, "event": "mlops.transition", "principal": "bob", "action": "evaluated->published", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.9604661, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.963084, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.964846, "event": "mlops.transition", "principal": "bob", "action": "reviewing->rejected", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.968384, "event": "mlops.transition", "principal": "bob", "action": "rejected->training_confirmed", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "非法跃迁: rejected -> training_confirmed"}}
+{"ts": 1790736862.990071, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.992103, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.995008, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.9974492, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736862.998426, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736863.0034227, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736863.119088, "event": "mlops.transition", "principal": "bob", "action": "evaluated->published", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "发布被拒绝：评测未通过 (eval_pass != True)"}}
+{"ts": 1790736871.09319, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.0951858, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.0973907, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.2733803, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.274885, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.2789013, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4078367, "event": "mlops.transition", "principal": "bob", "action": "evaluated->published", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4288611, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4298491, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4318635, "event": "mlops.transition", "principal": "bob", "action": "reviewing->rejected", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4338493, "event": "mlops.transition", "principal": "bob", "action": "rejected->training_confirmed", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "非法跃迁: rejected -> training_confirmed"}}
+{"ts": 1790736871.4548836, "event": "mlops.transition", "principal": "alice", "action": "create->pending_review", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4568884, "event": "mlops.transition", "principal": "bob", "action": "pending_review->reviewing", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.4589002, "event": "mlops.transition", "principal": "bob", "action": "reviewing->labeled", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.459887, "event": "mlops.transition", "principal": "bob", "action": "labeled->training_confirmed", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.461888, "event": "mlops.transition", "principal": "bob", "action": "training_confirmed->training", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.464901, "event": "mlops.transition", "principal": "bob", "action": "training->evaluated", "resource": "mlops_task:1", "decision": "allow", "detail": {}}
+{"ts": 1790736871.5940928, "event": "mlops.transition", "principal": "bob", "action": "evaluated->published", "resource": "mlops_task:1", "decision": "deny", "detail": {"reason": "发布被拒绝：评测未通过 (eval_pass != True)"}}

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from src.modules.chat.config import chat_config
 from src.modules.monitoring.langchain_callback import get_prometheus_callback
+from src.ports import metrics
 from src.shared.logger import APILogger
 
 logger = APILogger("llm_service")
@@ -589,6 +590,15 @@ class LLMService:
 
             if actual <= 0:
                 return
+
+            # G 维度：上报独立成本指标（token 计数器，不依赖 Langfuse/SkyWalking）。
+            # 金额缺单价时传 0，仅累计 token 用量；端口 stub 进程内聚合，可换 Prometheus/OTel。
+            model_val = meta.get("model") if isinstance(meta, dict) else None
+            model = model_val if isinstance(model_val, str) else "unknown"
+            try:
+                metrics.record_cost(model=str(model), tokens=actual)
+            except Exception:
+                pass
 
             from src.core.rate_limiter import get_rate_limiter
 

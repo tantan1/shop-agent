@@ -1,10 +1,12 @@
 ---
-description: Java 代码规范 - Spring Boot分层、命名、统一响应、异常处理
+description: Java 代码规范 - Spring Boot分层、命名、统一响应、异常处理（通用库参考，本项目无 Java 服务）
 globs: "**/*.java"
 alwaysApply: false
 ---
 
 # Java Spring Boot 企业级规范
+
+> 说明：本仓库当前无 `.java` 服务（主栈 Python/FastAPI + 局部 Rust）。此规则作为**通用库/外部 Java 组件参考**保留；若项目引入 Java 服务再启用。
 
 ## 分层结构
 ```

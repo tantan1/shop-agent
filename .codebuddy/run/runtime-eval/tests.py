@@ -1,0 +1,1 @@
+test 阶段产出：tests_eval.py（20 用例覆盖 scope #1-#9：考题集、validate_trace、采集响应、工具正确性、PII 检测/脱敏、延迟 SLO、无降级、summarize、报告落盘；含 B1/B2 回归）；tests_static.py（#10 零侵入断言）。运行全过：unittest 20/20 OK，tests_static 退出 0。
