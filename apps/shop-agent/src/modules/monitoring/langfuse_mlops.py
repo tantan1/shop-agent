@@ -20,6 +20,7 @@ import json
 import logging
 import structlog
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,18 @@ from src.core.config import config
 from src.modules.chat.agent.react_agent import ToolPlan  # 仅类型注解
 from src.modules.monitoring.langfuse_callback import get_langfuse_client
 
+# 脱离当前请求的 OTel 上下文,使复核 span 成为独立 trace 的根(否则会挂到
+# FastAPI/OTel 自动埋点创建的父 trace 下,导致 trace 名/metadata 错位,标注台按 trace 级过滤/读取失败)。
+try:
+    from opentelemetry.context import Context, attach, detach as _otel_detach
+
+    _HAS_OTEL_CONTEXT = True
+except Exception:  # noqa: BLE001
+    _HAS_OTEL_CONTEXT = False
+    Context = None
+    attach = None
+    _otel_detach = None
+
 logger = structlog.get_logger("mlops.langfuse")
 
 
@@ -42,6 +55,10 @@ MONITOR_ALL = "MLOPS_TOOL_SELECT_MONITOR_ALL"
 
 # 设计 3：标注样本导出的 Langfuse Dataset 名称
 DATASET_NAME = "tool-select-gold"
+
+# 训练集默认版本号(供 export_and_train / export_and_train_from_sqlite / seed_gold_dataset 默认参数)
+# 须在使用它的函数定义之前声明,否则模块加载期求默认值时触发 NameError。
+DEFAULT_DATASET_VERSION = "v1.0"
 
 # 设计 5（选项 C）：多意图检测。query 命中 ≥2 组不同候选工具且已选未覆盖 → 判定多意图漏选，
 # 由 capture_tool_select 自动标出（category=tool_select_multi_intent）。
@@ -171,27 +188,35 @@ def _create_trace(content, category, metadata=None, session_id=None):
         # 除 metadata 外，同时把关键结论写进 input/output：metadata 在 UI 里需要展开查看，
         # 而 input/output 直接展示，排障时能一眼看到"选了什么、由哪层选出、置信度多少"。
         md_non_null = {k: v for k, v in md.items() if v is not None}
-        with client.start_as_current_observation(
-            as_type="span",
-            name="tool_select_review",
-            input={"query": content, "available_tools": md.get("available_tools")},
-            output={
-                k: md_non_null.get(k)
-                for k in (
-                    "category",
-                    "selected_tool",
-                    "selection_source",
-                    "per_tool_source",
-                    "confidence",
-                    "stop_condition",
-                    "candidate_tools",
-                    "original_tool",
-                )
-                if k in md_non_null
-            },
-            metadata=md,
-        ) as _obs:
-            return client.get_current_trace_id()
+        # 关键：脱离当前请求的 OTel 上下文,使本 span 成为独立 trace 的根
+        # (否则会挂到 FastAPI 自动埋点创建的父 trace 下,使 trace 名变成路由名、metadata 落在子 span,
+        #  标注台按 trace 级 name/metadata 过滤与读取会全部落空)。
+        otel_token = attach(Context()) if _HAS_OTEL_CONTEXT else None
+        try:
+            with client.start_as_current_observation(
+                as_type="span",
+                name="tool_select_review",
+                input={"query": content, "available_tools": md.get("available_tools")},
+                output={
+                    k: md_non_null.get(k)
+                    for k in (
+                        "category",
+                        "selected_tool",
+                        "selection_source",
+                        "per_tool_source",
+                        "confidence",
+                        "stop_condition",
+                        "candidate_tools",
+                        "original_tool",
+                    )
+                    if k in md_non_null
+                },
+                metadata=md,
+            ) as _obs:
+                return client.get_current_trace_id()
+        finally:
+            if otel_token is not None:
+                _otel_detach(otel_token)
     except Exception as e:  # noqa: BLE001
         logger.warning("langfuse trace 创建失败（已忽略）", error=str(e))
         return None
@@ -206,9 +231,24 @@ def capture_tool_select(user_query, all_tool_names, plan=None, error=None, sampl
     meta = {
         "candidate_tools": [a.name for a in (plan.actions or [])] if plan else [],
         "available_tools": list(all_tool_names or []),
+        "selected": (plan.actions[0].name if (plan and plan.actions) else None),  # top1 工具名(闸门提升目标 top1_tool)
+        # 全量候选 top-k 排名(含真实打分),键用 "tool" 对齐标注台解析,供 §5.3 边际闸门计算 margin。
+        # 优先用 plan.candidate_ranking(各层 scored_candidates 聚合出的全量排序);退化为仅 plan.actions。
+        "top_tools": (
+            [{"tool": r["tool"], "confidence": r.get("confidence"), "source": r.get("source")}
+             for r in (plan.candidate_ranking or [])[:5]]
+            if (plan and plan.candidate_ranking) else
+            [{"tool": a.name, "confidence": a.confidence} for a in (plan.actions or [])[:5]]
+        ),
         "confidence": (max([a.confidence for a in plan.actions if a.confidence is not None]) if (plan and plan.actions and any(a.confidence is not None for a in plan.actions)) else None),
         "selection_source": (plan.source if plan else "none"),
         "per_tool_source": {a.name: (a.source or (plan.source if plan else "none")) for a in (plan.actions or [])},
+        # 标量标志：是否产出过真实全量候选排序(>=2 候选)。供标注台 pull_traces 用 metadata 过滤
+        # 直接跳过 error / 单动作退化的捕获(它们 top_tools 退化为仅 1 项、margin=None,无标注价值),
+        # 海量数据下避免把这些无关 trace 也拉进同步扫描。用整数(1/0)而非 bool,
+        # 因 Langfuse 的 metadata 嵌套键仅支持 stringObject/numberObject/categoryOptions 过滤类型,
+        # boolean 类型不支持 key 参数,无法对 metadata 布尔键做过滤。
+        "has_top_tools": 1 if (plan and plan.candidate_ranking) else 0,
     }
     detected = _detect_multi_intent(user_query, all_tool_names, plan)
     if detected:
@@ -357,6 +397,11 @@ def record_correction(
             _write_score(target_trace, "rejected_tools", str(rejected_tools[0]))
     except Exception:  # noqa: BLE001
         pass
+    # Option A:同时落 SQLite 真值库(§2.5);训练主路径改读此处
+    _bridge_correction_to_sqlite(
+        trace_id=target_trace, conversation_id=conversation_id, original_tool=original_tool,
+        correct_tool=correct_tool, rejected_tools=rejected_tools, correction_type=type,
+    )
     return target_trace
 
 
@@ -380,6 +425,198 @@ def label_tool_select(
     )
 
 
+# ── 标注 Web 薄层 SQLite 真值桥接(设计:Option A / §2.3 / §7) ──
+# 标注真值(gold_tool)改落独立 SQLite,不再写 Langfuse score。下列函数供
+# record_correction(写)与 export_and_train(读)复用,与 apps/tool-select-annotator 共享同一 DB 文件。
+def _gold_db_path() -> Optional[str]:
+    p = (getattr(config, "MLOPS_TOOL_SELECT_GOLD_DB", "") or "").strip()
+    return p or None
+
+
+def _bridge_correction_to_sqlite(
+    trace_id=None, conversation_id=None, original_tool=None,
+    correct_tool=None, rejected_tools=None, correction_type="chat_correction",
+):
+    """把纠正同时落 SQLite 真值库(幂等 upsert;canonical_tid = trace_id or conversation_id)。
+
+    双写策略:Option A 迁移期保留 Langfuse score 写入以兼容旧导出路径;
+    当 MLOPS_TOOL_SELECT_GOLD_DB 配置后,训练主路径改读此处(见 export_and_train_from_sqlite)。
+    """
+    db = _gold_db_path()
+    if not db:
+        return
+    try:
+        canonical_tid = trace_id or conversation_id
+        if not canonical_tid:
+            return
+        os.makedirs(os.path.dirname(db) or ".", exist_ok=True)
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        try:
+            existing = conn.execute(
+                "SELECT gold_tool FROM seen_queries WHERE canonical_tid=?", (canonical_tid,)
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """INSERT INTO seen_queries(canonical_tid, trace_id, conversation_id, category,
+                       llm_suggested_tool, gold_tool, rejected_tools, review_status, label_source,
+                       first_seen, last_seen, updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        canonical_tid, trace_id, conversation_id, "user_correct", original_tool,
+                        correct_tool, json.dumps(rejected_tools or [], ensure_ascii=False),
+                        "correct" if correct_tool else "rejected", "full",
+                        _now_iso(), _now_iso(), _now_iso(),
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE seen_queries SET gold_tool=?, rejected_tools=?,
+                       review_status=?, label_source='full', exported=0, updated_at=?
+                       WHERE canonical_tid=?""",
+                    (
+                        correct_tool, json.dumps(rejected_tools or [], ensure_ascii=False),
+                        "correct" if correct_tool else "rejected", _now_iso(), canonical_tid,
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("纠正落 SQLite 失败(已忽略)", error=str(e)[:200])
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def export_and_train_from_sqlite(train_script: str = "", version: str = DEFAULT_DATASET_VERSION):
+    """从 SQLite 真值库导出已标样本 → 版本化 train.json → 校验 → 训练(§7)。
+
+    训练集 = 全量 gold_tool NOT NULL(含 Relabel 修订;exported 脏标记不参与排除,只用于增量拉取原料)。
+    Langfuse 仅作 trace 原料源,此处不再读 Langfuse score。
+    """
+    db = _gold_db_path()
+    if not db or not os.path.exists(db):
+        logger.warning("MLOPS_TOOL_SELECT_GOLD_DB 未配置或不存在,跳过 SQLite 导出")
+        return None
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT * FROM seen_queries WHERE gold_tool IS NOT NULL").fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        logger.info("SQLite 真值库无已标样本,跳过训练")
+        return {"status": "ok", "trained": False, "exported": 0}
+
+    items = []
+    for r in rows:
+        cand = json.loads(r["candidate_tools"]) if r["candidate_tools"] else []
+        avail = json.loads(r["available_tools"]) if r["available_tools"] else []
+        rej = json.loads(r["rejected_tools"]) if r["rejected_tools"] else []
+        q = (r["query_text"] or "").strip() or _fallback_query_from_content(r["sample_content"])
+        if not q:
+            continue
+        # gold_tool 现为 JSON 列表(支持多意图多工具);单工具即长度 1
+        gold_list = json.loads(r["gold_tool"]) if r["gold_tool"] else []
+        items.append({
+            "conversations": [
+                {"role": "system", "content": "你是工具选择助手。"},
+                {"role": "user", "content": q},
+                {"role": "assistant", "content": json.dumps({"names": gold_list}, ensure_ascii=False)},
+            ],
+            "correct_tool": gold_list,
+            "scale": "M",
+            "selection_source": r["category"],
+            "candidate_tools": cand,
+            "available_tools": avail,
+            "rejected_tools": rej,
+            "label_source": r["label_source"],
+        })
+
+    # 稳定留出集(同 query 哈希,§7)
+    version_dir = _dataset_dir(version)
+    os.makedirs(version_dir, exist_ok=True)
+    train_items = [it for it in items if not _in_holdout(_sample_query(it))]
+    holdout_items = [it for it in items if _in_holdout(_sample_query(it))]
+    if items and not holdout_items:
+        holdout_items = [items[-1]]
+        train_items = items[:-1]
+    if not train_items:
+        train_items = items
+
+    train_path = os.path.join(version_dir, "train.json")
+    holdout_path = os.path.join(version_dir, "holdout.json")
+    manifest_path = os.path.join(version_dir, "manifest.json")
+    _write_json(train_path, train_items)
+    _write_json(holdout_path, holdout_items)
+    manifest = {
+        "version": version, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+        "dataset_name": DATASET_NAME, "n_total": len(items),
+        "n_train": len(train_items), "n_holdout": len(holdout_items),
+        "holdout_ratio": HOLDOUT_RATIO,
+        "label_distribution": _label_dist(items),
+        "selection_source_distribution": _src_dist(items),
+        "source": "sqlite_gold", "files": {"train": "train.json", "holdout": "holdout.json"},
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    _maybe_create_dataset(_client(), DATASET_NAME, items)
+
+    # 清旧脏标记(本批已纳入训练)
+    try:
+        c2 = sqlite3.connect(db)
+        c2.execute("UPDATE seen_queries SET exported=1 WHERE gold_tool IS NOT NULL")
+        c2.commit()
+        c2.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 校验(只校验训练集)
+    validate = os.path.join(ROOT, "scripts", "train", "sft", "validate_tool_select_data.py")
+    vr = subprocess.run([sys.executable, validate, "--in", train_path], capture_output=True, text=True)
+    if vr.returncode != 0:
+        print("[WARN] 校验未通过,已中止训练：")
+        print(vr.stdout); print(vr.stderr)
+        return {"status": "validation_failed", "exported": len(items), "path": train_path}
+
+    # 训练
+    train = os.path.join(ROOT, "scripts", "train", "sft", "train_tool_select_sft.py")
+    tr = subprocess.run([sys.executable, train, "--data", train_path], capture_output=True, text=True)
+    print(tr.stdout); print(tr.stderr)
+    return {"status": "ok", "trained": True, "exported": len(items),
+            "train": len(train_items), "holdout": len(holdout_items), "path": train_path}
+
+
+def _label_dist(items):
+    d = {}
+    for it in items:
+        k = str(it.get("correct_tool") or "unknown")
+        d[k] = d.get(k, 0) + 1
+    return d
+
+
+def _src_dist(items):
+    d = {}
+    for it in items:
+        k = str(it.get("selection_source") or "unknown")
+        d[k] = d.get(k, 0) + 1
+    return d
+
+
+def _fallback_query_from_content(sample_content):
+    if not sample_content:
+        return ""
+    for line in str(sample_content).splitlines():
+        if line.startswith("【用户】"):
+            return line[len("【用户】"):].strip()
+    return ""
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 EXPORT_PATH = os.path.join(ROOT, "scripts", "data", "langfuse_tool_select_export.json")
 
@@ -397,7 +634,6 @@ DATA_ROOT = (
     (getattr(config, "MLOPS_DATASET_DIR", "") or "").strip()
     or os.path.join(ROOT, "scripts", "data", "tool_select")
 )
-DEFAULT_DATASET_VERSION = "v1.0"
 # 留出集比例：holdout 永不进训练，且划分必须对同一 query 稳定，
 # 否则新增标注会让旧 holdout 样本混入训练集，评估指标虚高。
 HOLDOUT_RATIO = 0.1
@@ -521,10 +757,16 @@ async def export_and_train(
 ):
     """一键触发（设计 3）：拉取已标 correct_tool 的 trace → Dataset → 导出 JSONL → validate → train。
 
-    取代原 `GET /mlops/tasks/export`：数据源从 PostgreSQL mlops_review_tasks 换成 Langfuse trace/score。
-    Langfuse v4：``fetch_traces`` 已移除，改用 ``client.api.trace.list(name=...)`` +
-    ``client.api.trace.get`` 取完整 details（含 scores 对象）。
+    Option A:若配置 MLOPS_TOOL_SELECT_GOLD_DB,训练主路径改读 SQLite 真值库
+    (export_and_train_from_sqlite),Langfuse 仅作 trace 原料源,不再依赖 Langfuse score。
     """
+    if _gold_db_path():
+        return export_and_train_from_sqlite(
+            train_script=os.environ.get("TOOL_SELECT_TRAIN_SCRIPT", ""),
+            version=version,
+        )
+
+    # 未配置 SQLite 真值库时,回退到原 Langfuse score 路径
     client = _client()
     if client is None:
         return {"status": "error", "reason": "langfuse 未配置"}

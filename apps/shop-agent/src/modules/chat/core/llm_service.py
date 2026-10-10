@@ -6,6 +6,7 @@ LLM 服务模块
 import asyncio
 import contextvars
 import os
+import re
 import time
 from typing import Dict, List, Optional, Type, TypeVar
 
@@ -188,9 +189,11 @@ class LLMService:
     _instance = None
     _qwen_llm: Optional[ChatOpenAI] = None
     _tool_selector_llm: Optional[ChatOpenAI] = None
+    _step1_rewrite_llm: Optional[ChatOpenAI] = None
     _gateway_healthy: bool = True
     _last_gateway_check: float = 0.0
     _gateway_check_interval: float = 30.0  # 秒
+    _llm_cache: dict = {}  # 按 model 缓存 ad-hoc ChatOpenAI（Phase 4 per-call 覆盖）
 
     def __new__(cls):
         if cls._instance is None:
@@ -262,14 +265,14 @@ class LLMService:
         try:
             result = await retry_decorator(llm.ainvoke)(messages, config=config)
             duration = _time.perf_counter() - t0
-            model_name = getattr(getattr(llm, "model_name", None), "model_name", "unknown")
+            model_name = getattr(llm, "model_name", "unknown")
             _llm_call_duration_seconds.labels(model=model_name, status="success").observe(duration)
             if retry_count > 0:
                 _llm_call_retries_total.labels(model=model_name).inc(retry_count)
             return result
         except Exception as e:
             duration = _time.perf_counter() - t0
-            model_name = getattr(getattr(llm, "model_name", None), "model_name", "unknown")
+            model_name = getattr(llm, "model_name", "unknown")
             status = "timeout" if "timeout" in str(e).lower() else "error"
             _llm_call_duration_seconds.labels(model=model_name, status=status).observe(duration)
             if retry_count > 0:
@@ -319,6 +322,44 @@ class LLMService:
             )
         return self._qwen_llm
 
+    def _resolve_llm(
+        self,
+        default_llm: ChatOpenAI,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 8096,
+    ) -> ChatOpenAI:
+        """返回本次调用应使用的 ChatOpenAI 实例（Phase 4 per-call 覆盖）。
+
+        - ``model`` 为 ``None``/空字符串 → 直接返回 ``default_llm``（原固定实例），
+          调用路径与原代码逐字一致，零行为变化。
+        - ``model`` 给定 → 返回一个基于 default_llm 同 ``base_url``/``api_key``/
+          ``extra_body``、但 ``model``/``temperature``/``max_tokens`` 覆盖的新实例；
+          同 ``model`` 缓存复用，避免每次调用重建（A/B 模型级实验用）。
+
+        注意：缓存键仅为 ``model``。同一 model 的实例按首次构建时的
+        temperature/max_tokens 复用；实验变体中同一 model 的参数应固定，
+        否则后续调用会沿用首次构建值。
+        """
+        if not model:
+            return default_llm
+        cached = type(self)._llm_cache.get(model)
+        if cached is not None:
+            return cached
+        # 复用 default_llm 的出口配置（网关 / 占位 key / 思考开关）
+        base = resolve_llm_base_url()
+        key = chat_config.tongyi_api_key or "gateway-managed"
+        llm = ChatOpenAI(
+            model=model,
+            api_key=key,
+            base_url=base,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_body={"enable_thinking": False},
+        )
+        type(self)._llm_cache[model] = llm
+        return llm
+
     @property
     def tool_selector_llm(self) -> ChatOpenAI:
         """获取工具选择器专用轻量 LLM（更快、更便宜）。
@@ -344,6 +385,30 @@ class LLMService:
             )
             logger.info(f"工具选择器模型初始化成功: {model}")
         return self._tool_selector_llm
+
+    @property
+    def step1_rewrite_llm(self) -> ChatOpenAI:
+        """step1 问题改写 / 检索 query 生成专用轻量 LLM（更快更便宜）。
+
+        默认 STEP1_REWRITE_MODEL（qwen3.8-flash）；未配置时回退 tool_selector_llm，再回退主模型。
+        """
+        if self._step1_rewrite_llm is None:
+            # 无 tongyi_api_key 时降级到工具选择器模型（本地 vLLM 由网关兜底，无需云端 key）
+            if not chat_config.tongyi_api_key:
+                return self.tool_selector_llm
+            model = getattr(chat_config, "step1_rewrite_model", None)
+            if not model:
+                return self.tool_selector_llm  # 未配置则回退工具选择器模型
+            self._step1_rewrite_llm = ChatOpenAI(
+                model=model,
+                api_key=chat_config.tongyi_api_key,
+                base_url=resolve_llm_base_url(),
+                temperature=0.0,  # 改写不需要创造性
+                max_tokens=8096,
+                extra_body={"enable_thinking": False},
+            )
+            logger.info(f"step1 改写模型初始化成功: {model}")
+        return self._step1_rewrite_llm
 
     async def _mock_simulate(self, messages: List[Dict[str, str]]) -> str:
         """Mock LLM 仿真：模拟延迟 + 错误率（压测 0 Token 消耗）。
@@ -372,6 +437,8 @@ class LLMService:
         temperature: float = 0.7,
         track_metrics: bool = True,
         langfuse_handler=None,
+        model: Optional[str] = None,
+        max_tokens: int = 8096,
         **kwargs,
     ) -> str:
         """
@@ -432,9 +499,81 @@ class LLMService:
                     callbacks.append(langfuse_handler)
                 config["callbacks"] = callbacks
 
-            response = await self._invoke_with_retry(self.qwen_llm, messages, config)
+            llm = self._resolve_llm(self.qwen_llm, model=model, temperature=temperature, max_tokens=max_tokens)
+            response = await self._invoke_with_retry(llm, messages, config)
 
             # ── Token 消耗上报 ──
+            if estimated_tokens > 0:
+                self._report_token_usage(response, estimated_tokens)
+
+            # 防御性剥离思考模型误吐出的 <think> 块（enable_thinking 已默认关闭，此为兜底）；
+            # 避免推理过程被当成正文返回，污染最终回复。
+            content = response.content or ""
+            if "<think>" in content:
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            return content
+        except TokenLimitExceeded:
+            raise
+        except Exception as e:
+            logger.error(f"通义千问调用失败: {str(e)}")
+            raise
+
+    async def chat_step1(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        track_metrics: bool = True,
+        langfuse_handler=None,
+        model: Optional[str] = None,
+        max_tokens: int = 8096,
+        **kwargs,
+    ) -> str:
+        """step1 问题改写 / 检索 query 生成专用调用（路由到 step1_rewrite_llm 便宜档）。
+
+        与 chat_qwen 同款重试 / Token 限流 / 指标上报，但底层走 step1_rewrite_llm。
+        """
+        try:
+            if getattr(chat_config, "LLM_ADAPTER_TYPE", "langchain") == "mock":
+                return await self._mock_simulate(messages)
+            estimated_tokens = 0
+            if _token_limit_enabled_ctx.get():
+                from src.core.config import config as core_config
+                from src.core.rate_limiter import get_rate_limiter
+                from src.core.token_estimator import get_token_estimator
+
+                rl_key = _rate_limit_key_ctx.get("")
+                estimator = get_token_estimator()
+                estimated_tokens = estimator.estimate_messages(messages)
+                limiter = get_rate_limiter()
+
+                max_tokens = getattr(core_config, "TOKEN_LIMIT_MAX_TOKENS", 100000)
+                window = getattr(core_config, "TOKEN_LIMIT_WINDOW_SECONDS", 60)
+                allowed, remaining, reset = limiter.check_tokens(
+                    rl_key, estimated_tokens, max_tokens=max_tokens, window_seconds=window
+                )
+                if not allowed:
+                    logger.warning(
+                        "Token 消耗超限 key=%s estimated=%d remaining=%d",
+                        rl_key,
+                        estimated_tokens,
+                        remaining,
+                    )
+                    raise TokenLimitExceeded(
+                        f"Token 消耗超限（预估 {estimated_tokens}，剩余 {remaining}）",
+                        remaining=remaining,
+                        reset_seconds=reset,
+                    )
+
+            config = {}
+            if track_metrics:
+                callbacks = [get_prometheus_callback()]
+                if langfuse_handler:
+                    callbacks.append(langfuse_handler)
+                config["callbacks"] = callbacks
+
+            llm = self._resolve_llm(self.step1_rewrite_llm, model=model, temperature=temperature, max_tokens=max_tokens)
+            response = await self._invoke_with_retry(llm, messages, config)
+
             if estimated_tokens > 0:
                 self._report_token_usage(response, estimated_tokens)
 
@@ -442,7 +581,7 @@ class LLMService:
         except TokenLimitExceeded:
             raise
         except Exception as e:
-            logger.error(f"通义千问调用失败: {str(e)}")
+            logger.error(f"step1 改写模型调用失败: {str(e)}")
             raise
 
     async def chat_qwen_structured(
@@ -453,6 +592,8 @@ class LLMService:
         track_metrics: bool = True,
         max_retries: int = 2,
         langfuse_handler=None,
+        model: Optional[str] = None,
+        max_tokens: int = 8096,
         **kwargs,
     ) -> BaseModel:
         """
@@ -521,7 +662,8 @@ class LLMService:
                     config["callbacks"] = callbacks
 
                 # 使用 with_structured_output 获取支持结构化输出的 LLM
-                structured_llm = self.qwen_llm.with_structured_output(output_schema)
+                base_llm = self._resolve_llm(self.qwen_llm, model=model, temperature=temperature, max_tokens=max_tokens)
+                structured_llm = base_llm.with_structured_output(output_schema)
 
                 response = await self._invoke_with_retry(structured_llm, messages, config)
 
@@ -637,4 +779,5 @@ class LLMService:
         """关闭服务"""
         self._qwen_llm = None
         self._tool_selector_llm = None
+        self._step1_rewrite_llm = None
         LLMService._instance = None

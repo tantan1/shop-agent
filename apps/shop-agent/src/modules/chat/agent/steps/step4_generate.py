@@ -61,7 +61,10 @@ class GenerateStep(BaseStep):
         start_time = time.time()
 
         try:
-            template = PromptTemplateManager.get(ctx.domain, step_config.prompt_template_key)
+            # GrowthBook 实验覆盖：prompt_template_key（实验级切换生成 prompt 模板）
+            template = PromptTemplateManager.get(
+                ctx.domain, ctx.get_override("prompt_template_key", step_config.prompt_template_key)
+            )
             chat_history_str = await self._prepare_chat_history(ctx, template)
 
             safety_reminder = self._build_safety_reminder(safety_result)
@@ -82,8 +85,22 @@ class GenerateStep(BaseStep):
             )
 
             messages = [{"role": "system", "content": prompt_content}]
+            # 实验覆盖（Phase 4）：llm_model / llm_temperature / llm_max_tokens。
+            # 仅当 override 非 None 才透传；None 沿用服务默认。
+            # 注：chat_qwen 的基础默认 temperature=0.3 保持（零回归），
+            #     llm_temperature 覆盖时再覆盖该值。
+            model = ctx.get_override("llm_model", None)
+            temperature = ctx.get_override("llm_temperature", None)
+            max_tokens = ctx.get_override("llm_max_tokens", None)
+            llm_kwargs: dict = {}
+            if model is not None:
+                llm_kwargs["model"] = model
+            if temperature is not None:
+                llm_kwargs["temperature"] = temperature
+            if max_tokens is not None:
+                llm_kwargs["max_tokens"] = max_tokens
             response = await ctx.llm_service.chat_qwen(
-                messages, temperature=0.3, langfuse_handler=ctx.langfuse_handler
+                messages, temperature=0.3, langfuse_handler=ctx.langfuse_handler, **llm_kwargs
             )
 
             response, quality_evaluation, output_filter_safe = self._filter_and_evaluate(ctx, response, rag_context)
@@ -214,6 +231,7 @@ class GenerateStep(BaseStep):
     ) -> Tuple[str, Dict[str, Any], bool]:
         """输出安全过滤 + 质量评估。"""
         output_filter_safe = True
+        # TODO(GB-SDK): PipelineOverrides.content_filter_enabled 待接入（实验级覆盖输出安全过滤开关）
         if ctx.config.content_filter_enabled:
             cf = ContentFilterService.get_instance()
             output_check = cf.filter_output(response, ctx.domain)
@@ -241,11 +259,13 @@ class GenerateStep(BaseStep):
         if not (ctx.redis_cache_service and ctx.redis_cache_service.is_available):
             return
         try:
-            await ctx.redis_cache_service.add_chat_message(
+            # add_chat_message 是同步方法（返回 bool），不能用 await，
+            # 否则抛 "object bool can't be used in 'await' expression"，导致对话历史静默丢失。
+            ctx.redis_cache_service.add_chat_message(
                 ctx.conversation_id, "user", request_message[:4096],
                 max_turns=ctx.config.max_history_turns, expire_days=1,
             )
-            await ctx.redis_cache_service.add_chat_message(
+            ctx.redis_cache_service.add_chat_message(
                 ctx.conversation_id, "assistant", response[:4096],
                 max_turns=ctx.config.max_history_turns, expire_days=1,
             )

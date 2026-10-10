@@ -115,20 +115,24 @@ async def mock_query_order(payload: dict):
 
 @router.post("/api/shipping/track", summary="[Mock] 查询物流")
 async def mock_check_shipping(payload: dict):
-    """模拟查询物流接口"""
-    tracking_number = payload.get("tracking_number", "")
+    """模拟查询物流接口。兼容单号被抽到 tracking_number / order_id / order_num 等不同字段的情况。"""
     order_id = payload.get("order_id", "")
+    tracking_number = (
+        payload.get("tracking_number")
+        or payload.get("tracking_no")
+        or payload.get("order_id")
+        or payload.get("order_num")
+        or ""
+    )
+    tracking_number = (tracking_number or "").strip()
 
-    if tracking_number:
-        matched = MOCK_TRACKING.get(tracking_number)
-        if not matched:
-            return success_response(
-                data={},
-                message=f"未查询到快递单号 {tracking_number} 的物流记录，请核对单号后重试",
-                code=404,
-            )
+    known = {k.upper(): k for k in MOCK_TRACKING}
+    real = known.get(tracking_number.upper()) if tracking_number else None
+
+    if real:
+        matched = MOCK_TRACKING[real]
         result = {
-            "tracking_number": tracking_number,
+            "tracking_number": real,
             "order_id": order_id or "WB202405270001",
             "current_status": matched[0]["status"],
             "details": matched,
@@ -138,8 +142,8 @@ async def mock_check_shipping(payload: dict):
 
     return success_response(
         data={},
-        message="请提供快递单号后查询物流",
-        code=400,
+        message=f"未查询到快递单号 {tracking_number} 的物流记录，请核对单号后重试",
+        code=404,
     )
 
 

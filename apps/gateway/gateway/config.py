@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     litellm_num_retries: int = 2
     # 单次上游调用超时（秒），兜底防悬挂。
     litellm_timeout_sec: float = 180.0
+    # 是否注册「当前环境不可达」的云端/占位后端（gpt-*/claude*/mock/default）。
+    # 这些后端在本环境为占位地址或 dummy key（api.openai.com 不可达、mock-llm 未启动）。
+    # 保留它们会形成一条危险路径：本地 vLLM 偶发失败 → Router 按 num_retries 做故障转移
+    # → 打到不可达上游 → 单次请求被拖到数十秒（观测到 30s 尖峰）。
+    # 关闭后 Router 仅保留本地 vLLM + 百炼，且 default 兜底改指本地 vLLM（快速失败而非悬挂）。
+    enable_unreachable_backends: bool = False
 
     # 处置边界（01 §5）
     gateway_fail_mode: str = "closed"  # fail-closed 默认
@@ -204,23 +210,27 @@ class Settings(BaseSettings):
         # 用容器内路径 /models/qwen3-unified 会被 vLLM 404 并触发 Router 冷却。
         for alias in (_V, "tool_select", "param", "local/*", "models/*"):
             _add(alias, "qwen3-unified", self.vllm_base_url, "openai")
-        # mock 上游：openai 兼容 mock 服务
-        _add("mock", "mock", self.mock_base_url, "openai")
-        _add("mock*", "mock", self.mock_base_url, "openai")
-        # gpt-*：Azure 主 + openai 同模型备选
-        _add("gpt-*", "gpt-4o", self.azure_openai_base_url, "azure")
-        _add("gpt-*", "gpt-4o", self.openai_base_url, "openai")
-        # claude*：Bedrock（未配回退 openai）
-        _add("claude*", "claude-3", self.bedrock_base_url or self.openai_base_url,
-             "bedrock" if self.bedrock_base_url else "openai")
         # qwen*（除 qwen3-unified）：百炼（openai 兼容），api_key 由网关统一持有
         _add("qwen*", "qwen3.7-plus-2026-05-26", self.bai_lian_base_url, "openai",
              api_key=self.tongyi_api_key)
         # 具体大模型名（云端百炼真实模型，避免 qwen* 通配被降级为 qwen3.7-plus-2026-05-26）
         _add("qwen3.7-plus-2026-05-26", "qwen3.7-plus-2026-05-26",
              self.bai_lian_base_url, "openai", api_key=self.tongyi_api_key)
-        # 默认兜底
-        _add("default", "gpt-4o", self.openai_base_url, "openai")
+
+        if self.enable_unreachable_backends:
+            # 以下后端在本环境不可达（占位地址 / dummy key / 容器未启动），
+            # 仅当显式开启时才注册（如接入真实 Azure、启动 mock-llm 后）。
+            _add("mock", "mock", self.mock_base_url, "openai")
+            _add("mock*", "mock", self.mock_base_url, "openai")
+            _add("gpt-*", "gpt-4o", self.azure_openai_base_url, "azure")
+            _add("gpt-*", "gpt-4o", self.openai_base_url, "openai")
+            _add("claude*", "claude-3", self.bedrock_base_url or self.openai_base_url,
+                 "bedrock" if self.bedrock_base_url else "openai")
+            _add("default", "gpt-4o", self.openai_base_url, "openai")
+        else:
+            # 兜底改指本地 vLLM：未匹配的模型名直接走本地，快速得到结果，
+            # 不会因 fallback 到不可达上游而悬挂数十秒。
+            _add("default", "qwen3-unified", self.vllm_base_url, "openai")
         return deployments
 
 

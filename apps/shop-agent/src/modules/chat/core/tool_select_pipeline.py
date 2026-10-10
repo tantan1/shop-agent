@@ -135,7 +135,7 @@ class ToolSelectPipeline:
             ):
                 plan = self._final_scope_plan(scope, result.source, observations)
                 self._record_exit(result.source, plan)
-                return self._complete(plan)
+                return self._complete(plan, observations)
 
             # 早停：本层足够置信 → 直接返回，不触发更贵层级（成本漏斗）
             # 防御项：① 失败层不得参与早停；② 工具名必须落在注册表（all_tools）内，
@@ -159,7 +159,7 @@ class ToolSelectPipeline:
                     stop_condition="plan_complete",
                 )
                 self._record_exit(stage.name, plan)
-                return self._complete(plan)
+                return self._complete(plan, observations)
 
         # 无层早停：不自行融合打分，按 fallback 策略降级（观测日志见下）
         logger.info(
@@ -177,11 +177,11 @@ class ToolSelectPipeline:
         if self._policy.emit_final_scope_as_plan and final_scope:
             plan = self._final_scope_plan(final_scope, last_source or "pipeline", observations)
             self._record_exit(last_source or "pipeline", plan)
-            return self._complete(plan)
+            return self._complete(plan, observations)
 
         plan = self._fallback_plan()
         self._record_exit("fallback", plan)
-        return self._complete(plan)
+        return self._complete(plan, observations)
 
     def _final_scope_plan(
         self, final_scope: List[str], source: str, observations: Optional[List[CandidateScore]] = None
@@ -314,8 +314,36 @@ class ToolSelectPipeline:
         return None
 
     @staticmethod
-    def _complete(plan: ToolPlan) -> ToolPlan:
-        """Pipeline 收尾日志（design §7.2）。"""
+    def _build_ranking(observations: Optional[List["CandidateScore"]]) -> List[Dict[str, Any]]:
+        """由各层 scored_candidates 去重聚合出全量候选排序(按真实 score 降序)。
+
+        多阶段可能对同一工具打分,取最高分;score=None(P3 LLM 等不产分路径)不计入排序,
+        避免 None 污染 margin。返回 [{tool, confidence, source}],供 MLOps 捕获 top_tools/margin。
+        """
+        best: Dict[str, Tuple[float, str]] = {}
+        for s in observations or []:
+            if s.score is None:
+                continue
+            prev = best.get(s.tool)
+            if prev is None or s.score > prev[0]:
+                best[s.tool] = (s.score, s.source)
+        ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
+        return [
+            {"tool": t, "confidence": round(sc, 4), "source": src}
+            for t, (sc, src) in ranked
+        ]
+
+    @staticmethod
+    def _complete(plan: ToolPlan, observations: Optional[List["CandidateScore"]] = None) -> ToolPlan:
+        """Pipeline 收尾日志（design §7.2）。
+
+        若 plan 尚未携带 candidate_ranking,则从全量观测(各层 scored_candidates)聚合,
+        透传真实打分供 MLOps 捕获 top_tools / margin(§5.3 自动银标闸门)。
+        """
+        if not plan.candidate_ranking and observations:
+            ranking = ToolSelectPipeline._build_ranking(observations)
+            if ranking:
+                plan = plan.model_copy(update={"candidate_ranking": ranking})
         logger.info(
             "tool_select_pipeline_complete",
             extra={

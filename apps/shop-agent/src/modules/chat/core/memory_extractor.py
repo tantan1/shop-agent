@@ -29,7 +29,7 @@ MEMORY_EXTRACTION_PROMPT = """\
 - label: 简短标签（如"尺码偏好"、"订单 12345"）
 - value: 记忆内容
 - importance: 1-5 分（5=必须记住，1=可遗忘）
-- metadata: 扩展字段（如 {"order_id": "12345"}）
+- metadata: 扩展字段（如 {{"order_id": "12345"}}）
 
 对话历史：
 {chat_history}

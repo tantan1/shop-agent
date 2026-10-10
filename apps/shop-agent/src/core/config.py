@@ -1,3 +1,4 @@
+import os
 from typing import Dict
 
 from pydantic import Field, model_validator
@@ -49,6 +50,13 @@ class Settings(BaseSettings):
     # P2 工具选择器专用模型（更轻量更快，qwen-turbo 延迟约为主模型 40%）
     TOOL_SELECTOR_MODEL: str = Field(default="")
 
+    # step1 问题改写 / 检索 query 生成专用模型（轻量便宜档）
+    # 默认 qwen3.8-flash；未配置时回退 TOOL_SELECTOR_MODEL → CHAT_MODEL
+    STEP1_REWRITE_MODEL: str = Field(default="qwen3.8-flash")
+
+    # 多轮融合：强实体 Redis 槽位 TTL（秒），默认 1800（30 分钟）滑动过期
+    ENTITY_SLOTS_TTL_SECONDS: int = Field(default=1800)
+
     # P2 工具选择器本地模型路径（设置后优先用本地模型替代云端 API）
     # 推荐: Qwen2.5-1.5B-Instruct（速度和准确度的最佳平衡点）
     TOOL_SELECTOR_LOCAL_MODEL: str = ""  # 如 ./models/Qwen2.5-1.5B-Instruct
@@ -82,6 +90,9 @@ class Settings(BaseSettings):
     VLLM_TOOL_SELECTOR_MODEL: str = "qwen3-unified"
     VLLM_TIMEOUT: int = 60
     AGENT_TIMEOUT: int = 120  # ReAct 主循环整体墙钟超时（秒），超时返回降级响应（防上游 hang 耗尽事件循环）
+    # 多轮融合（condensation）LLM 调用的墙钟超时（秒）。该调用在检索前同步阻塞，
+    # 网关抖动/503 时会把整轮拖到数秒；超时即放弃融合、用原句检索（设计允许 fallback）。
+    CONDENSE_TIMEOUT_S: float = float(os.getenv("CONDENSE_TIMEOUT_S", "2.0"))
 
     # P2 本地工具选择（小模型专项辅助层）开关与阈值。
     # 默认关闭：工具选择已由 P0 规则 + P1 意图加权软过滤完成，本地 1.7B 仅作补充确认。
@@ -354,6 +365,27 @@ class Settings(BaseSettings):
     # 版本化数据集落盘目录。留空则用默认可写路径（`scripts/data/tool_select`）。
     # 生产建议指向持久化卷：容器内文件系统会随重建丢失，数据集必须落卷。
     MLOPS_DATASET_DIR: str = ""
+
+    # ============ GrowthBook（实验/金丝雀/显著性分析，自托管，data 不出内网）============
+    # 全量禁用开关：false 时 GrowthBookClient 以安全默认（control / exp_mode=None）运行，
+    # 主流程零影响（scope §4.9 红线）。仅 profiles:["experiments"] 激活 GB 服务时设为 true。
+    GROWTHBOOK_ENABLED: bool = False
+    # 自托管 GB 后端地址（容器/compose 内为 http://growthbook:3100）
+    GROWTHBOOK_API_HOST: str = "http://growthbook:3100"
+    # SDK 只读评估 key（拉 features.json；进运行时，绝不暴露前端）
+    GROWTHBOOK_CLIENT_KEY: str = ""
+    # 解密 feature 定义（env/secret 注入，不落代码）
+    GROWTHBOOK_DECRYPTION_KEY: str = ""
+    # 服务端 REST key（建/暂停实验，绝不进前端或 client bundle）
+    GROWTHBOOK_API_KEY: str = ""
+    # SDK feature 缓存刷新秒（陈旧上限 TTL×3 触发告警）
+    GROWTHBOOK_CACHE_TTL: int = 30
+    # Data Source 连接串（同步 scheme postgresql://，复用现有 pgvector Postgres 的
+    # shop_agent 库；为空则回退由 config.database_url 改写同步 scheme）。
+    # 建议用只读角色 gb_ro 收敛权限（design.md §4.8 / §7）。
+    GROWTHBOOK_DATASOURCE_URL: str = ""
+    # 本地 features 快照落盘路径（缓存层1 回退；挂载持久卷避免重启撕裂）
+    GROWTHBOOK_CACHE_FILE: str = "/data/growthbook_features.json"
 
 
 config = Settings()

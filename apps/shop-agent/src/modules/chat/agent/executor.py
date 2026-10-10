@@ -88,6 +88,7 @@ class GeneralAgentExecutor:
 
     async def _query_graph_context(self, user_question: str) -> str:
         import os
+        # TODO(GB-SDK): PipelineOverrides.nebula_graph_enabled 待接入（实验级覆盖图查询开关）
         enabled = os.getenv("NEBULA_GRAPH_ENABLED", "true").lower() == "true"
         if not enabled:
             return ""
@@ -117,6 +118,7 @@ class GeneralAgentExecutor:
         request: ChatRequest,
         langfuse_handler=None,
         user_id: str = "",
+        experiment_assignment=None,
     ) -> ChatResponse:
         """执行完整的 Agent 流程（Langfuse → Pipeline → 缓存 → 响应构建）。"""
         callback = get_prometheus_callback()
@@ -148,6 +150,8 @@ class GeneralAgentExecutor:
         try:
             # 预计算向量（供 step3 和记忆召回复用）
             if self.embedding_service:
+                # TODO(GB-SDK): embedding_model override 需 EmbeddingService.embed_query 支持 model 参数
+                #               （当前签名 embed_query(text, instruction=None)，不接受 model，无法热切换向量模型）
                 question_embedding = await self.embedding_service.embed_query(request.message)
 
             # 构建 Pipeline 上下文并执行
@@ -163,6 +167,15 @@ class GeneralAgentExecutor:
                 conversation_id=conversation_id,
                 user_id=user_id,
                 question_embedding=question_embedding,
+            )
+
+            # GrowthBook 实验注入：仅当确有变体命中（exp_mode 非 None）时把 pipeline_overrides
+            # 挂到 ctx；未命中/降级/control 时为 None，steps 走原配置，主链路零回归。
+            # TODO(GB-SDK): PipelineOverrides.domain_overrides 待接入（AgentConfig 字段级覆盖，需通用映射）
+            ctx.experiment_overrides = (
+                experiment_assignment.pipeline_overrides
+                if experiment_assignment and getattr(experiment_assignment, "exp_mode", None)
+                else None
             )
 
             # MRAG：记忆召回（仅 RAG 路径）

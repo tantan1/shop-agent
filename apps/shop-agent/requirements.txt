@@ -18,6 +18,8 @@ python-dotenv>=1.0.0
 pymilvus==2.6.12
 pgvector==0.4.2
 psycopg2-binary>=2.9
+# GrowthBook 自托管实验后端 SDK（与 GB server v3.x 匹配；API 已按 3.2.0 校验）
+growthbook>=3.2.0
 dashscope
 httpx
 redis>=4.5.0

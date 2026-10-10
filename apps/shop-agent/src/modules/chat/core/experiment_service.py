@@ -39,17 +39,27 @@
   6. SafetyGuard 监控关键指标，超阈值自动暂停实验
 """
 
+import asyncio
 import json
 import math
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import redis
 
 from src.shared.logger import APILogger
+
+# 类型标注专用导入（仅类型检查阶段生效，运行时不实际导入）。
+# 注意：GrowthBookClient / GrowthBookDataSource 的实际导入必须放在函数体内（懒加载），
+# 否则会与 growthbook_client（其顶层已 import 本模块的 Assignment 等）形成顶层循环导入。
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.growthbook_client import GrowthBookClient
+    from src.core.growthbook_datasource import GrowthBookDataSource
 
 logger = APILogger("experiment_service")
 
@@ -198,6 +208,14 @@ class ExperimentDef:
     created_at: str = ""
     updated_at: str = ""
     owner: str = ""
+    # 实验模式（GrowthBook 接入新增；design.md §4/§5）：
+    #   "experiment" → A/B 实验（建 GB Feature + Experiment，写 Data Source 算显著性）
+    #   "canary"    → 金丝雀/功能开关（建 GB Feature-only，用 rolloutPercentage 渐进开量）
+    kind: str = "experiment"
+    # 计划结束日期（scope §9.2 生命周期治理，ISO 日期 YYYY-MM-DD）。
+    # 创建 GB Feature 时写为 feature tag `expected_end_date:<date>`，审计脚本据此判超时。
+    # 仅 exp_/canary_ 类 flag 强制；switch_/perm_ 为长期开关可不填。
+    expected_end: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -211,6 +229,8 @@ class ExperimentDef:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "owner": self.owner,
+            "kind": self.kind,
+            "expected_end": self.expected_end,
         }
 
     @classmethod
@@ -226,12 +246,22 @@ class ExperimentDef:
             created_at=d.get("created_at", ""),
             updated_at=d.get("updated_at", ""),
             owner=d.get("owner", ""),
+            kind=d.get("kind", "experiment"),
+            expected_end=d.get("expected_end", ""),
         )
 
 
 @dataclass
 class Assignment:
-    """用户分配结果"""
+    """用户分配结果
+
+    exp_mode 字段（GrowthBook 接入阶段新增，见 design.md §3.2）：
+      - "experiment"：命中 GB Experiment（A/B 显著性模式）
+      - "canary"    ：命中 GB Feature rollout（金丝雀/开关模式）
+      - None        ：control / 降级 / 无实验命中
+    to_tags / to_metadata 以 exp_mode 为守卫：None 时不写任何 Langfuse tag，
+    保证 GB 禁用或降级时主链路零影响（scope §6 回归项）。
+    """
 
     user_id: str
     experiment_id: str
@@ -239,29 +269,49 @@ class Assignment:
     variant_type: VariantType
     pipeline_overrides: PipelineOverrides
     traffic_percent: float
-    bucket: int  # 哈希桶号 (0-99)
+    bucket: int  # 哈希桶号 (0-99)；GB 无桶号概念，固定 -1 兼容旧契约
+    exp_mode: Optional[str] = None  # "experiment" | "canary"；None = control/降级/无实验
 
     def to_tags(self) -> List[str]:
-        """生成 Langfuse 标签"""
+        """生成 Langfuse 标签（exp_mode 守卫：None 时不写 tag，降级对主链路零影响）"""
+        if not self.exp_mode:
+            return []
         return [
             f"exp:{self.experiment_id}",
             f"variant:{self.variant_name}",
-            f"exp_type:{self.variant_type.value}",
+            f"exp_type:{self.exp_mode}",
         ]
 
     def to_metadata(self) -> Dict[str, Any]:
-        """生成 Langfuse metadata"""
+        """生成 Langfuse metadata（exp_mode 守卫：None 时返回空，不污染 trace）"""
+        if not self.exp_mode:
+            return {}
         return {
             "experiment_id": self.experiment_id,
             "variant": self.variant_name,
             "variant_type": self.variant_type.value,
+            "exp_mode": self.exp_mode,
             "traffic_percent": self.traffic_percent,
-            "bucket": self.bucket,
         }
 
 
 # =============================================================================
 # 哈希分流引擎
+# =============================================================================
+
+
+# =============================================================================
+# 历史遗留类（LEGACY / VALIDATION-ONLY）
+# -----------------------------------------------------------------------------
+# 显式偏差说明（scope §4.4 原要求删除这些类，但为保障现有 validate_distribution
+# 与潜在测试不红，本阶段（Phase 2）仅保留其定义、不再用于实时分配）：
+#   - TrafficRouter           : 仅 TrafficRouter.validate_distribution 在校验接口用，
+#                              实时分配已委托 GrowthBook eval_variant。
+#   - ExperimentStore         : 不再实例化；本地 sidecar（self._active）替代 Redis store。
+#   - _ExperimentMetricsCollector / SampleSizeCalculator / StatisticalTest :
+#                               保留定义，仅供 validate / 离线分析参考，运行时护栏
+#                               改走 SafetyGuardScheduler（实时查 Langfuse/Prometheus）。
+# 真正的删除留待后续清理 phase。请勿在实时分配链路中再引用这些类。
 # =============================================================================
 
 
@@ -502,6 +552,18 @@ class SafetyGuardEvaluator:
         """设置告警回调（如发送钉钉/企微通知）"""
         self._alert_callback = callback
 
+    def fire_alert(self, triggered: List["SafetyGuard"]) -> None:
+        """触发告警回调（best-effort，吞异常）。无回调则仅 logger.warning。"""
+        if not triggered:
+            return
+        names = [g.metric.value for g in triggered]
+        logger.warning(f"[SAFETY-GUARD] 实验护栏触发: {names}（action={[g.action for g in triggered]}）")
+        if self._alert_callback is not None:
+            try:
+                self._alert_callback(triggered)
+            except Exception:  # noqa: BLE001
+                pass
+
     def evaluate(self, experiment: ExperimentDef, metrics: Dict[str, float]) -> List[SafetyGuard]:
         """
         评估实验的安全护栏。
@@ -546,7 +608,22 @@ class SafetyGuardEvaluator:
 
 
 class ExperimentService:
-    """A/B 实验服务（单例）"""
+    """A/B 实验服务（单例）— Phase 2 GrowthBook 代理 + 安全护栏调度。
+
+    职责变更（design.md §3.5 / scope §4.4）：
+      - 实时分配不再走自研 Redis 引擎（ExperimentStore/TrafficRouter），
+        改为委托 GrowthBookClient.eval_variant（本地 eval，命中即返回 Assignment）。
+      - CRUD 改为 best-effort 代理 GrowthBook REST（self._gb.create_experiment 等），
+        本地 sidecar（self._active）作为实时分配与护栏调度的数据源（替代 Redis store）。
+      - 安全护栏由 SafetyGuardScheduler 后台 asyncio 任务周期性触发评估/暂停。
+      - GB 任何不可用（无服务/无网络）时：本服务仍可初始化、assign 返回
+        exp_mode=None 的安全默认 control，主流程零影响（scope §4.9 红线）。
+
+    显式偏差（scope §4.4 原要求删除 TrafficRouter/ExperimentStore/
+    _ExperimentMetricsCollector/SampleSizeCalculator/StatisticalTest）：为保障
+    validate_distribution 与现有测试不红，本阶段仅保留这些类定义、不用于实时分配，
+    并标注 "LEGACY / VALIDATION-ONLY"。真正删除留待后续清理 phase。
+    """
 
     _instance: Optional["ExperimentService"] = None
     _initialized: bool = False
@@ -554,10 +631,13 @@ class ExperimentService:
     def __new__(cls) -> "ExperimentService":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._store = None
-            cls._instance._router = None
+            cls._instance._gb = None
+            cls._instance._ds = None
+            cls._instance._active: Dict[str, ExperimentDef] = {}
             cls._instance._safety_guard = None
             cls._instance._metrics_collector = None
+            cls._instance._scheduler = None
+            cls._instance._scheduler_task = None
             cls._instance._initialized = False
         return cls._instance
 
@@ -574,117 +654,265 @@ class ExperimentService:
     def initialize(
         self, redis_client: Optional[redis.Redis] = None, refresh_seconds: int = 30
     ) -> "ExperimentService":
-        """初始化实验服务"""
+        """初始化实验服务（Phase 2：GrowthBook 代理 + 护栏调度）。
+
+        - 获取 GrowthBookClient 单例（phase1 已在 lifespan 中 await 初始化；此处取引用，
+          若尚未初始化则 best-effort 触发其 initialize()——但 GB.initialize 为异步，
+          正常编排中由 main.py 先 await 它，故此处通常已就绪；GB 禁用/不可达时
+          GrowthBookClient 自身以安全默认模式运行，不影响本服务初始化）。
+        - DataSource best-effort（GB 不可用时也允许本地 PG 曝光表存在）。
+        - 保留 SafetyGuardEvaluator（带默认告警回调）+ _ExperimentMetricsCollector
+          （仅用于 validate，不用于 assign）。
+        - 本地 sidecar self._active 替代 Redis store。
+        - 启动 SafetyGuardScheduler 后台 asyncio 任务（无运行 loop 时延后）。
+        """
         if self._initialized:
             return self
 
-        if redis_client is None:
-            try:
-                redis_client = redis.Redis(
-                    host="localhost",
-                    port=6379,
-                    db=0,
-                    decode_responses=True,
-                    socket_connect_timeout=2,
-                )
-                redis_client.ping()
-            except Exception:
-                logger.warning("Redis 不可用，实验服务将以空配置启动")
-                redis_client = None
+        # ── GrowthBookClient 单例（分配后端）──
+        try:
+            from src.core.growthbook_client import GrowthBookClient
 
-        self._store = ExperimentStore(redis_client, refresh_seconds=refresh_seconds)
-        self._router = TrafficRouter()
+            self._gb = GrowthBookClient.get_instance()
+            if not getattr(self._gb, "is_initialized", False):
+                # 极少数情况下（如直接调用本方法而未经 main.py 编排），
+                # 幂等触发 GB 初始化（异步；此处仅尝试，失败由 GB 自降级）。
+                try:
+                    import asyncio
+
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._gb.initialize())  # type: ignore[union-attr]
+                except RuntimeError:
+                    logger.warning("GrowthBookClient 尚未初始化且无运行 loop，留待首个请求前就绪")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"GrowthBookClient 单例获取失败（degraded，安全默认模式）: {e}")
+            self._gb = None
+
+        # ── DataSource（曝光/指标写入）best-effort ──
+        try:
+            from src.core.growthbook_datasource import GrowthBookDataSource
+
+            self._ds = GrowthBookDataSource.get_instance()
+        except Exception:  # noqa: BLE001
+            self._ds = None
+
+        # ── 安全护栏评估器（保留，带默认告警回调）──
         self._safety_guard = SafetyGuardEvaluator(redis_client)
-        self._metrics_collector = _ExperimentMetricsCollector()
-        self._initialized = True
+        self._safety_guard.set_alert_callback(self._default_alert_callback)
 
-        logger.info("ExperimentService 初始化完成")
+        # ── 指标收集器：仅 validate 用途（保留类定义，不在 assign 使用）──
+        self._metrics_collector = _ExperimentMetricsCollector()
+
+        # ── 本地 sidecar：替代 Redis store，实时分配 + 护栏调度数据源 ──
+        self._active: Dict[str, ExperimentDef] = {}
+
+        self._initialized = True
+        logger.info("ExperimentService 初始化完成（GrowthBook 代理 + 护栏调度）")
+
+        # ── 启动护栏调度（后台 asyncio 任务）──
+        self._start_scheduler()
         return self
 
-    # ---- 核心 API：用户分配 ----
+    @staticmethod
+    def _default_alert_callback(triggered: List["SafetyGuard"]) -> None:
+        """默认告警回调（logging 兜底；生产可替换为钉钉/企微）。"""
+        names = [g.metric.value for g in triggered]
+        logger.warning(f"[SAFETY-GUARD-ALERT] 触发护栏: {names}")
 
-    def assign(self, user_id: str, domain: str = "ecommerce") -> Optional[Assignment]:
+    # ---- 核心 API：用户分配（绝不可返回 None）----
+
+    def assign(
+        self,
+        user_id: str,
+        domain: str = "ecommerce",
+        forced_group: Optional[str] = None,
+    ) -> Assignment:
         """
         为用户分配实验变体（主入口）。
 
-        Router 在收到请求后调用，返回的 Assignment 将沿管道传递到 Orchestrator
-        和所有子组件。
+        遍历本地 sidecar (self._active) 各实验，逐个调 GrowthBookClient.eval_variant；
+        首个 exp_mode 非 None 的 Assignment 直接返回（design.md §3.5）。
+        GB 不可用 / 全未命中 → 返回 exp_mode=None 的安全默认 control Assignment
+        （绝不 None、绝不 raise，主流程零影响，scope §4.9 红线）。
 
         Args:
             user_id: 用户 ID（建议用 conversation_id）
             domain: 业务领域
+            forced_group: 可选，强制实验组（variant name，如 "control"/"treatment_A"）。
+                用于测试/灰度验证：跳过 hash 分桶直接落指定 variant。若指定组在
+                任一活动实验中不存在，则回退到自动分桶（不静默丢弃请求）。
 
         Returns:
-            Assignment 或 None（该用户不在任何实验组中）
+            Assignment（命中实验 / 或安全默认 control）
         """
-        if not self._initialized or self._store is None:
-            return None
+        if not self._initialized or self._gb is None:
+            return self._safe_control(user_id)
 
-        try:
-            active_experiments = self._store.get_active_experiments()
-        except Exception:
-            return None
+        # ── 强制分组（测试/验证用）：跳过 hash 直接落指定 variant ──
+        if forced_group:
+            for exp_id, exp_def in self._active.items():
+                for v in exp_def.variants:
+                    if v.name == forced_group:
+                        assignment = Assignment(
+                            user_id=user_id,
+                            experiment_id=exp_id,
+                            variant_name=v.name,
+                            variant_type=v.variant_type,
+                            pipeline_overrides=v.pipeline_overrides,
+                            traffic_percent=v.traffic_percent or 0.0,
+                            bucket=-1,
+                            exp_mode=exp_def.kind,
+                        )
+                        if assignment.exp_mode == "experiment":
+                            try:
+                                self._gb.track_exposure(exp_id, user_id, v.name, domain)
+                            except Exception:  # noqa: BLE001
+                                pass
+                        logger.info(
+                            f"[forced] 用户强制分组: user={user_id[:12]}..., "
+                            f"experiment={exp_id}, variant={v.name}, mode={assignment.exp_mode}"
+                        )
+                        return assignment
+            logger.warning(
+                f"[forced] 指定分组 '{forced_group}' 在活动实验中未找到，回退自动分桶"
+            )
 
-        for experiment in active_experiments:
-            assignment = self._router.assign(experiment, user_id, domain)
-            if assignment is not None:
+        for exp_id in self._active:
+            try:
+                assignment = self._gb.eval_variant(exp_id, user_id, {"domain": domain})
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"assign: GB eval_variant({exp_id}) 失败（跳过）: {e}")
+                continue
+            if assignment is not None and assignment.exp_mode is not None:
+                # experiment 模式命中 → 触发曝光上报（best-effort，不影响返回）
+                if assignment.exp_mode == "experiment":
+                    try:
+                        self._gb.track_exposure(
+                            assignment.experiment_id or exp_id,
+                            user_id,
+                            assignment.variant_name,
+                            domain,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                 logger.info(
                     f"用户分配实验: user={user_id[:12]}..., "
                     f"experiment={assignment.experiment_id}, "
                     f"variant={assignment.variant_name}, "
-                    f"bucket={assignment.bucket}"
+                    f"mode={assignment.exp_mode}"
                 )
                 return assignment
-        return None
 
-    # ---- 管理 API ----
+        # 全未命中 / GB 不可用 → 安全默认（exp_mode=None，不写 Langfuse tag）
+        return self._safe_control(user_id)
+
+    def _safe_control(self, user_id: str) -> Assignment:
+        """安全默认 control Assignment（exp_mode=None → 不写 Langfuse tag）。"""
+        return Assignment(
+            user_id=user_id,
+            experiment_id="",
+            variant_name="control",
+            variant_type=VariantType.CONTROL,
+            pipeline_overrides=PipelineOverrides(),
+            traffic_percent=0.0,
+            bucket=-1,
+            exp_mode=None,
+        )
+
+    # ---- 管理 API（维护本地 sidecar + best-effort 代理 GB REST）----
 
     def create_experiment(self, experiment: ExperimentDef) -> bool:
-        """创建/更新实验配置"""
-        if not self._store:
-            return False
-        return self._store.save_experiment(experiment)
+        """创建/更新实验：写入本地 sidecar，best-effort 代理 GB REST 建 feature(/experiment)。"""
+        # 本地 sidecar（实时分配 + 护栏调度数据源）
+        self._active[experiment.id] = experiment
+        ok = False
+        if self._gb is not None:
+            try:
+                ok = self._gb.create_experiment(experiment, experiment.kind)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"create_experiment: GB REST 创建失败（sidecar 仍记录）: {e}")
+                ok = False
+        return ok
 
     def get_experiment(self, experiment_id: str) -> Optional[ExperimentDef]:
-        """获取实验定义"""
-        if not self._store:
-            return None
-        return self._store.get_experiment(experiment_id)
+        """获取实验定义（本地 sidecar 优先，best-effort 代理 GB）。"""
+        if experiment_id in self._active:
+            return self._active[experiment_id]
+        if self._gb is not None:
+            try:
+                raw = self._gb.get_experiment(experiment_id)
+                if raw:
+                    return self._gb_feature_to_def(raw)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"get_experiment: 从 GB 获取失败: {e}")
+        return None
 
     def list_experiments(self) -> List[ExperimentDef]:
-        """列出所有实验"""
-        if not self._store:
-            return []
-        return list(self._store.get_active_experiments())
+        """列出所有实验（本地 sidecar 为主，best-effort 补充 GB 列表）。"""
+        experiments = list(self._active.values())
+        if self._gb is not None:
+            try:
+                for raw in self._gb.list_experiments():
+                    gid = (raw.get("key") or raw.get("id")) if isinstance(raw, dict) else None
+                    if gid and gid not in self._active:
+                        conv = self._gb_feature_to_def(raw)
+                        if conv is not None:
+                            experiments.append(conv)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"list_experiments: 从 GB 列举失败: {e}")
+        return experiments
 
     def delete_experiment(self, experiment_id: str) -> bool:
-        """删除实验"""
-        if not self._store:
+        """删除实验：从本地 sidecar 移除，best-effort 代理 GB 删除 feature。"""
+        self._active.pop(experiment_id, None)
+        ok = False
+        if self._gb is not None:
+            try:
+                ok = self._gb.delete_experiment(experiment_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"delete_experiment: GB REST 删除失败（sidecar 已移除）: {e}")
+                ok = False
+        return ok
+
+    def update_experiment_status(self, experiment_id: str, status: str) -> bool:
+        """更新实验状态：同步本地 sidecar 状态，best-effort 代理 GB REST 置 rollout/archive。"""
+        exp = self._active.get(experiment_id)
+        if exp is None:
+            exp = self.get_experiment(experiment_id)
+        if exp is None:
             return False
-        return self._store.delete_experiment(experiment_id)
+        exp.status = ExperimentStatus(status)
+        self._active[experiment_id] = exp
+        ok = False
+        if self._gb is not None:
+            try:
+                ok = self._gb.update_experiment_status(experiment_id, status)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"update_experiment_status: GB REST 失败（sidecar 已更新）: {e}")
+                ok = False
+        return ok
 
     def pause_experiment(self, experiment_id: str) -> bool:
-        """暂停实验"""
-        exp = self.get_experiment(experiment_id)
-        if not exp:
-            return False
-        exp.status = ExperimentStatus.PAUSED
-        return self._store.save_experiment(exp)
+        """暂停实验（保留配置，所有用户退出实验）。"""
+        return self.update_experiment_status(experiment_id, ExperimentStatus.PAUSED.value)
 
     def stop_experiment(self, experiment_id: str) -> bool:
-        """停止实验"""
-        exp = self.get_experiment(experiment_id)
-        if not exp:
-            return False
-        exp.status = ExperimentStatus.STOPPED
-        return self._store.save_experiment(exp)
+        """停止实验。"""
+        return self.update_experiment_status(experiment_id, ExperimentStatus.STOPPED.value)
 
-    def force_refresh(self):
-        """强制刷新配置缓存"""
-        if self._store:
-            self._store.force_refresh()
+    def force_refresh(self) -> None:
+        """强制刷新配置缓存（代理 GB SDK 重新 loadFeatures；best-effort）。"""
+        if self._gb is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._gb.refresh())  # type: ignore[union-attr]
+        except RuntimeError:
+            # 无运行中的事件循环（如离线测试直接调用）：降级为不即时刷新，
+            # SDK 在 cache_ttl 过期后自动重载 features。
+            logger.info("force_refresh: 当前无运行事件循环，跳过即时刷新")
 
-    # ---- 安全护栏 ----
+    # ---- 安全护栏（保留不变）----
 
     def evaluate_safety(self, experiment_id: str, metrics: Dict[str, float]) -> List[SafetyGuard]:
         """评估实验安全护栏"""
@@ -693,16 +921,284 @@ class ExperimentService:
             return []
         return self._safety_guard.evaluate(exp, metrics)
 
-    # ---- 验证工具 ----
+    # ---- 验证工具（仍委托 TrafficRouter.validate_distribution，保留用于兼容）----
 
     def validate_distribution(self, experiment_id: str, sample_users: List[str]) -> Dict[str, Any]:
-        """验证流量分配均匀性（用于面试追问）"""
+        """验证流量分配均匀性（LEGACY/VALIDATION-ONLY：仅校验用途，不参与实时分配）。"""
         exp = self.get_experiment(experiment_id)
         if not exp:
             return {"error": f"实验 {experiment_id} 不存在"}
+        return TrafficRouter.validate_distribution(exp, sample_users)
 
-        assignment = self._router
-        return assignment.validate_distribution(exp, sample_users)
+    # ---- 内部：GB feature 字典 → ExperimentDef 转译（best-effort）----
+
+    def _gb_feature_to_def(self, raw: Dict[str, Any]) -> Optional[ExperimentDef]:
+        """best-effort 将 GB feature 字典转译为本服务 ExperimentDef。
+
+        TODO(GB-SDK): GB feature/variation 的实际字段结构待与官方 API 对齐，
+        此处仅做最小映射（id/name/status/kind），variations/safety_guards 缺省。
+        """
+        if not isinstance(raw, dict):
+            return None
+        try:
+            feature_id = raw.get("key") or raw.get("id") or ""
+            if not feature_id:
+                return None
+            tags = raw.get("tags", []) or []
+            kind = "experiment"
+            expected_end = ""
+            for t in tags:
+                if isinstance(t, str) and t.startswith("exp_type:"):
+                    kind = t.split(":", 1)[1]
+                elif isinstance(t, str) and t.startswith("expected_end_date:"):
+                    expected_end = t.split(":", 1)[1]
+            return ExperimentDef(
+                id=feature_id,
+                name=raw.get("name", feature_id),
+                description=raw.get("description", ""),
+                status=ExperimentStatus.RUNNING,
+                kind=kind,
+                expected_end=expected_end,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"_gb_feature_to_def 转译失败: {e}")
+            return None
+
+    # ---- 内部：护栏调度器启停 ----
+
+    def _start_scheduler(self) -> None:
+        """启动安全护栏调度器后台任务（需运行中的事件循环）。"""
+        try:
+            self._scheduler = SafetyGuardScheduler(self)
+            loop = asyncio.get_running_loop()
+            self._scheduler_task = loop.create_task(self._scheduler.run_loop())
+            logger.info("安全护栏调度器已启动")
+        except RuntimeError:
+            # 当前无运行中的事件循环（如测试/离线直接调用 initialize）：
+            # 调度器延后启动；GB 分配与护栏评估能力在首个有 loop 的上下文再激活。
+            logger.info("当前无运行事件循环，安全护栏调度器延后启动")
+
+
+# =============================================================================
+# 安全护栏调度器（后台 asyncio 任务）
+# =============================================================================
+
+# =============================================================================
+# 安全护栏指标源（Phase 5：SafetyMetricsProvider + Prometheus 实现）
+# =============================================================================
+
+
+class SafetyMetricsProvider(Protocol):
+    """安全护栏指标源协议。
+
+    实现须返回 ``dict[str, float | None]``：
+      - 能取到的指标   → ``float``
+      - 取不到/不覆盖   → ``None``（护栏 evaluator 对缺失键跳过，不误触发）
+
+    ``exp_id`` / ``window_seconds`` 为语义占位：本地 Prometheus 为进程级累积量，
+    无历史窗口能力；基于窗口的精确速率需后续接入 Prometheus 查询 / Langfuse。
+    """
+
+    def collect(self, exp_id: str, window_seconds: int) -> Dict[str, Optional[float]]:
+        ...
+
+
+def _metric_samples(metric: Any) -> List[Tuple[Dict[str, str], float]]:
+    """从 prometheus_client 指标对象抽取 ``(labels_dict, value)`` 列表。
+
+    任意异常（指标未注册 / 采集失败）均返回空列表，由调用方保守降级。
+    """
+    out: List[Tuple[Dict[str, str], float]] = []
+    try:
+        for family in metric.collect():
+            for sample in family.samples:
+                out.append((dict(sample.labels), float(sample.value)))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _histogram_p99(metric: Any) -> Optional[float]:
+    """从 Histogram 的 bucket 累积估算 P99（近似分位，单位同 Histogram）。
+
+    原理：Histogram 暴露 ``*_bucket{le=...}`` 累积计数与 ``*_count``/``*_sum``。
+    遍历 ``le`` 升序定位 99% 秩所在 bucket，桶内线性插值。
+    若 99% 秩落到 ``+Inf`` 桶（绝大多数样本超过最大有限 bucket 上界），
+    回退为该最大有限 bucket 上界（下界近似），避免返回 ``+Inf``。
+    无样本 / 不可解析时返回 ``None``（护栏跳过该指标，不误触发）。
+    """
+    try:
+        total: Optional[float] = None
+        buckets: List[Tuple[float, float]] = []  # (le_upper, cumulative_count)
+        for family in metric.collect():
+            for sample in family.samples:
+                name = sample.name
+                if name.endswith("_count"):
+                    total = float(sample.value)
+                elif name.endswith("_bucket"):
+                    le = sample.labels.get("le", "+Inf")
+                    upper = float("inf") if le == "+Inf" else float(le)
+                    buckets.append((upper, float(sample.value)))
+        if total is None or total <= 0:
+            return None
+        buckets.sort(key=lambda x: x[0])
+        target = 0.99 * total
+        prev_upper = 0.0
+        prev_count = 0.0
+        for upper, count in buckets:
+            if count >= target:
+                if upper == float("inf"):
+                    # 99% 秩落在 +Inf 桶：用上一个有限 bucket 上界做下界近似
+                    return prev_upper if prev_upper > 0 else None
+                if count > prev_count:
+                    ratio = (target - prev_count) / (count - prev_count)
+                    return prev_upper + ratio * (upper - prev_upper)
+                return upper
+            prev_upper = upper
+            prev_count = count
+        return prev_upper if prev_upper > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+class PrometheusSafetyProvider:
+    """基于本地 prometheus_client 的指标源（零外部依赖，立即可用）。
+
+    能覆盖：
+      - ``error_rate``     : ``agent_chat_counter{status=error} / total(success+error)``
+      - ``p99_latency_ms`` : ``agent_chat_duration_ms`` 的 P99 近似分位（毫秒）
+
+    无法覆盖（需 Langfuse score 聚合，留待 ``LangfuseSafetyProvider`` 实现）：
+      - ``escalation_rate``    转人工率
+      - ``sentiment_negative`` 负面情绪比例
+      - ``safety_failed_rate`` 安全检查失败率
+    上述三类返回 ``None``，护栏 evaluator 对缺失键跳过（不误触发）。
+
+    注：error_rate / p99 为进程级累积量（Prometheus counter/histogram 自带），
+    非 window 内速率；window 仅作语义占位。窗口级精确值需后续接入 Prometheus 查询。
+    """
+
+    def collect(self, exp_id: str, window_seconds: int) -> Dict[str, Optional[float]]:
+        from src.modules.monitoring.metrics import (
+            agent_chat_counter,
+            agent_chat_duration_ms,
+        )
+
+        result: Dict[str, Optional[float]] = {
+            # TODO(Langfuse): escalation/sentiment/safety_failed 需 Langfuse score
+            # 聚合，后续由 LangfuseSafetyProvider 实现，本阶段返回 None（护栏跳过）。
+            "escalation_rate": None,
+            "sentiment_negative": None,
+            "safety_failed_rate": None,
+            "error_rate": None,
+            "p99_latency_ms": None,
+        }
+        try:
+            # error_rate：本地 Prometheus 计数器比率（进程级累积）
+            total = 0.0
+            err = 0.0
+            for labels, value in _metric_samples(agent_chat_counter):
+                status = labels.get("status")
+                if status in ("success", "error"):
+                    total += value
+                    if status == "error":
+                        err += value
+            if total > 0:
+                result["error_rate"] = err / total
+            # p99_latency_ms：从 Histogram bucket 累积估算近似分位
+            result["p99_latency_ms"] = _histogram_p99(agent_chat_duration_ms)
+        except Exception:  # noqa: BLE001
+            # 采集失败：保持 None，护栏跳过（保守，不误触发）
+            pass
+        return result
+
+
+class SafetyGuardScheduler:
+    """安全护栏后台调度器（asyncio 任务）。
+
+    Phase 2 新增（design.md §3.6 / scope §4.4 护栏调度补位）：周期性遍历本地 sidecar
+    中 RUNNING 实验，best-effort 从指标源（Langfuse/Prometheus/Redis）取指标快照，
+    调 SafetyGuardEvaluator 评估；触发护栏则暂停/停止实验（代理 GB REST）+ 告警回调。
+
+    全程 try/except 包裹，任何异常仅 logger.warning，绝不中断事件循环。
+    """
+
+    def __init__(self, service: "ExperimentService", poll_interval: int = 60) -> None:
+        self._service = service
+        # 指标源（Phase 5）：默认 Prometheus 本地指标；Langfuse 源后续接入。
+        self._provider: SafetyMetricsProvider = PrometheusSafetyProvider()
+        # 轮询间隔下限 60s（避免过频）；运行时取护栏最小 window_seconds
+        self._poll_interval = max(60, int(poll_interval))
+        self._task: Optional[asyncio.Task] = None
+
+    def _resolve_poll_interval(self) -> int:
+        """取所有 RUNNING 实验护栏最小 window_seconds 作为轮询间隔（下限 60s）。"""
+        min_window = 60
+        try:
+            for exp in self._service._active.values():
+                if exp.status != ExperimentStatus.RUNNING:
+                    continue
+                for g in exp.safety_guards:
+                    min_window = min(min_window, g.window_seconds)
+        except Exception:  # noqa: BLE001
+            pass
+        return max(60, min_window)
+
+    async def run_loop(self) -> None:
+        try:
+            while True:
+                interval = self._resolve_poll_interval()
+                await asyncio.sleep(interval)
+                await self._poll_once()
+        except asyncio.CancelledError:
+            logger.info("安全护栏调度器已取消")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"安全护栏调度器异常退出（不影响主流程）: {e}")
+
+    async def _poll_once(self) -> None:
+        try:
+            running = [
+                e for e in self._service._active.values()
+                if e.status == ExperimentStatus.RUNNING
+            ]
+        except Exception:  # noqa: BLE001
+            return
+        for exp in running:
+            try:
+                metrics = self._collect_metrics(exp)
+                if not metrics:
+                    continue  # 取不到指标 → 跳过该实验（保守，不误触发）
+                triggered = self._service.evaluate_safety(exp.id, metrics)
+                if triggered:
+                    actions = {g.action for g in triggered}
+                    if "stop" in actions:
+                        self._service.stop_experiment(exp.id)
+                    else:
+                        self._service.pause_experiment(exp.id)
+                    self._service._safety_guard.fire_alert(triggered)
+                    logger.warning(
+                        f"护栏触发，实验 {exp.id} 已"
+                        f"{'停止' if 'stop' in actions else '暂停'}: "
+                        f"{[g.metric.value for g in triggered]}"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"护栏评估实验 {exp.id} 失败（跳过）: {e}")
+
+    def _collect_metrics(self, exp: "ExperimentDef") -> Dict[str, float]:
+        """best-effort 指标快照（接入 SafetyMetricsProvider，Phase 5）。
+
+        通过 ``PrometheusSafetyProvider`` 取 ``error_rate`` / ``p99_latency_ms`` 两类真实指标；
+        ``escalation_rate`` / ``sentiment_negative`` / ``safety_failed_rate`` 暂无 Prometheus
+        数据源（需 Langfuse score 聚合，留待 LangfuseSafetyProvider），返回 ``None`` → 护栏跳过。
+
+        只保留非 ``None`` 的指标（evaluator 仅对存在值做比较；``None`` 视为无数据→跳过该指标）。
+        无任何可用指标（如无 Prometheus 数据）时返回 ``{}`` → scheduler 跳过、不误触发。
+        """
+        window = 300
+        if exp.safety_guards:
+            window = max(g.window_seconds for g in exp.safety_guards)
+        raw = self._provider.collect(exp.id, window)
+        return {k: v for k, v in raw.items() if v is not None}
 
 
 # =============================================================================

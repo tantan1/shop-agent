@@ -1,0 +1,7 @@
+[
+  {"name": "query-order", "description": "查询订单"},
+  {"name": "check-shipping", "description": "查询物流"},
+  {"name": "request-return", "description": "申请退货退款"},
+  {"name": "check-balance", "description": "查询余额/积分"},
+  {"name": "coupon-inquiry", "description": "查询优惠券"}
+]

@@ -147,7 +147,9 @@ class ToolService:
         if config.REMOTE_API_BASE_URL:
             return await ToolService._call_remote_api("query-order", params)
         if order_id:
-            if order_id not in KNOWN_ORDER_IDS:
+            known = {x.upper(): x for x in KNOWN_ORDER_IDS}
+            real_id = known.get(order_id.upper())
+            if not real_id:
                 return json.dumps(
                     {
                         "order": None,
@@ -158,9 +160,9 @@ class ToolService:
                 )
             return json.dumps(
                 {
-                    "order": {"id": order_id, "status": "派送中", "total": 299.00},
+                    "order": {"id": real_id, "status": "派送中", "total": 299.00},
                     "found": True,
-                    "note": f"已按 order_id={order_id} 查询",
+                    "note": f"已按 order_id={real_id} 查询",
                 },
                 ensure_ascii=False,
             )
@@ -180,11 +182,20 @@ class ToolService:
     async def _tool_check_shipping(params: Optional[Dict[str, Any]] = None) -> str:
         """查询物流"""
         params = params or {}
-        tracking = params.get("tracking_number")
+        # 兼容不同意图抽取把单号填到 order_id/order_num 等字段的情况
+        tracking = (
+            params.get("tracking_number")
+            or params.get("tracking_no")
+            or params.get("order_id")
+            or params.get("order_num")
+            or params.get("order_number")
+        )
         if config.REMOTE_API_BASE_URL:
             return await ToolService._call_remote_api("check-shipping", params)
         if tracking:
-            if tracking not in KNOWN_TRACKING_NUMBERS:
+            known = {x.upper(): x for x in KNOWN_TRACKING_NUMBERS}
+            real_tracking = known.get(tracking.upper())
+            if not real_tracking:
                 return json.dumps(
                     {
                         "tracking_number": tracking,
@@ -195,7 +206,7 @@ class ToolService:
                 )
             return json.dumps(
                 {
-                    "tracking_number": tracking,
+                    "tracking_number": real_tracking,
                     "found": True,
                     "tracking": [
                         {"time": "05-27 10:30", "status": "到达分拣中心"},
@@ -233,6 +244,16 @@ class ToolService:
         params = params or {}
         order_id = params.get("order_id", "未指定")
         reason = params.get("reason", "未说明")
+        # 本地 mock 分支：订单不存在则提示查无（与 query-order 的 KNOWN_ORDER_IDS 一致，忽略大小写）
+        if order_id != "未指定" and order_id.upper() not in {x.upper() for x in KNOWN_ORDER_IDS}:
+            return json.dumps(
+                {
+                    "order_id": order_id,
+                    "found": False,
+                    "note": f"未查询到订单 {order_id}，请核对订单号后重试",
+                },
+                ensure_ascii=False,
+            )
         return json.dumps(
             {
                 "return_id": f"RT{str(order_id)[-6:]}",
@@ -602,34 +623,26 @@ class ToolService:
 
     @staticmethod
     def _format_remote_api_response(action: str, data: Dict[str, Any]) -> str:
-        """将远程API响应格式化为自然语言"""
+        """将远程API响应格式化为自然语言。
+
+        远程 API 统一用 success_response 包装为 {success, code, message, data}，
+        真实业务数据在 data.data 内。此前误把外层 message（如『账户查询成功』）当作结果返回，
+        导致余额等数据被丢弃。这里先展开到内层 payload，再由编排层 _format_tool_result 转成用户友好文本。
+        """
         if action == "coupon-inquiry":
             return ToolService._format_coupon_list(data)
 
+        # 展开 success_response 包装，取真实业务数据
         if isinstance(data, dict):
-            if "message" in data:
-                return data["message"]
-            if "data" in data and isinstance(data["data"], str):
-                return data["data"]
+            if isinstance(data.get("data"), dict):
+                payload = data["data"]
+            else:
+                payload = data
+        else:
+            payload = data
 
-        formatters = {
-            "query-order": lambda d: (
-                f"您的订单信息如下：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
-            ),
-            "check-shipping": lambda d: (
-                f"物流进度：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
-            ),
-            "request-return": lambda d: (
-                f"退货申请：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
-            ),
-            "check-balance": lambda d: (
-                f"账户信息：\n{d.get('message', json.dumps(d, ensure_ascii=False))}"
-            ),
-        }
-        if action in formatters:
-            return formatters[action](data)
-
-        return json.dumps(data, ensure_ascii=False, indent=2)
+        # 统一产出结构化 JSON 串，最终由编排层 _format_tool_result 转成用户友好文本
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
     @staticmethod
     def _format_coupon_list(data: Dict[str, Any]) -> str:

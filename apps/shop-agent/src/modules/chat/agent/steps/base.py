@@ -26,6 +26,18 @@ class AgentContext:
     question_embedding: Optional[List[float]] = None
     graph_context: str = ""
     memory_context: str = ""  # MRAG 记忆检索结果
+    retrieval_query: Optional[str] = None  # 多轮融合后的检索 query；为空则回退 request.message
+    experiment_overrides: Any = None  # GrowthBook 实验变体 pipeline_overrides（注入载体；守卫式 get_override 读取）
+
+    def get_override(self, name: str, default: Any) -> Any:
+        """实验 override 优先；无 override 或该字段为 None 时回退 default。
+
+        用显式 None 判断（非 `or`），避免 False/0 被误覆盖导致实验无法关闭开关。
+        """
+        if self.experiment_overrides is None:
+            return default
+        v = getattr(self.experiment_overrides, name, None)
+        return default if v is None else v
 
 
 class BaseStep(ABC):

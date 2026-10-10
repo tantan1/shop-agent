@@ -13,6 +13,7 @@ from src.modules.chat.agent.steps.step1_understand import UnderstandStep
 from src.modules.chat.agent.steps.step2_review import ReviewStep
 from src.modules.chat.agent.steps.step3_retrieve import RetrieveStep
 from src.modules.chat.agent.steps.step4_generate import GenerateStep
+from src.modules.chat.agent.conversation_condenser import condense_question
 from src.shared.logger import APILogger
 
 logger = APILogger("agent_pipeline")
@@ -39,6 +40,15 @@ class Pipeline:
         step1_result = await self.steps[0].execute(self.ctx)
         steps_results.append(step1_result)
         queries = step1_result.output_data.get("rewritten_queries", []) if step1_result.output_data else []
+
+        # 多轮融合：step1 未设置 retrieval_query（step1 关闭，如 ecommerce）时 gated 补算
+        if not getattr(self.ctx, "retrieval_query", None):
+            cond = await condense_question(
+                self.ctx.request.message, self.ctx.conversation_id,
+                llm_service=self.ctx.llm_service, redis_cache_service=self.ctx.redis_cache_service,
+            )
+            if not cond.get("ambiguous"):
+                self.ctx.retrieval_query = cond["standalone_query"]
 
         # 检测元描述并回退
         _META_DESCRIPTION_PREFIXES = (

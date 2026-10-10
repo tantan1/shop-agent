@@ -63,13 +63,20 @@ class RetrieveStep(BaseStep):
         all_documents: List[Dict[str, Any]] = []
 
         try:
-            queries = [ctx.request.message]
+            # 多轮融合：优先用融合后的 retrieval_query，回退原文（红线 §4：检索 query 可被改写，原文不动）
+            queries = [getattr(ctx, "retrieval_query", None) or ctx.request.message]
             seen_content = set()
-            rerank_enabled = getattr(ctx.config, "rerank_enabled", False)
+            # GrowthBook 实验覆盖：rerank_enabled / rerank_initial_top_k / retrieval_top_k
+            # （get_override 守卫式回退 default；未命中实验时与改动前完全一致）
+            rerank_enabled = ctx.get_override("rerank_enabled", getattr(ctx.config, "rerank_enabled", False))
             top_k = getattr(ctx.config, "top_k", 5)
-            milvus_top_k = (
-                getattr(ctx.config, "rerank_initial_top_k", top_k * 4) if rerank_enabled else top_k
+            rerank_initial_top_k = ctx.get_override(
+                "rerank_initial_top_k", getattr(ctx.config, "rerank_initial_top_k", top_k * 4)
             )
+            milvus_top_k = rerank_initial_top_k if rerank_enabled else top_k
+            retrieval_top_k = ctx.get_override("retrieval_top_k", None)
+            if retrieval_top_k is not None:
+                milvus_top_k = retrieval_top_k
 
             for i, query in enumerate(queries[: getattr(ctx.config, "max_retrieval_queries", 3)]):
                 await self._retrieve_single_query(
@@ -129,22 +136,30 @@ class RetrieveStep(BaseStep):
 
         docs = []
         hybrid_failed = False
-        try:
-            docs = rq_ctx.ctx.milvus_service.hybrid_search(
-                query_embedding=query_embedding,
-                query_text=rq_ctx.query,
-                top_k=rq_ctx.milvus_top_k,
-                rrf_k=getattr(rq_ctx.ctx.config, "rrf_k", 60),
-            )
-        except Exception as hybrid_err:
-            hybrid_failed = True
-            logger.warning(
-                f"[{rq_ctx.ctx.domain}] 混合检索异常，回退到纯向量检索",
-                error=str(hybrid_err)[:120],
-            )
+        # GrowthBook 实验覆盖：retrieval_strategy（"dense_only" 跳过混合检索 → 纯 Dense 召回）
+        retrieval_strategy = rq_ctx.ctx.get_override("retrieval_strategy", "hybrid")
+        if retrieval_strategy == "dense_only":
+            docs = []
+        else:
+            try:
+                docs = rq_ctx.ctx.milvus_service.hybrid_search(
+                    query_embedding=query_embedding,
+                    query_text=rq_ctx.query,
+                    top_k=rq_ctx.milvus_top_k,
+                    rrf_k=rq_ctx.ctx.get_override(
+                        "retrieval_rrf_k", getattr(rq_ctx.ctx.config, "rrf_k", 60)
+                    ),
+                )
+            except Exception as hybrid_err:
+                hybrid_failed = True
+                logger.warning(
+                    f"[{rq_ctx.ctx.domain}] 混合检索异常，回退到纯向量检索",
+                    error=str(hybrid_err)[:120],
+                )
 
         if (not docs) or hybrid_failed:
-            if hybrid_failed or rq_ctx.query_index == 0:
+            # dense_only 策略下，每个 query 均走纯 Dense 召回（不依赖 hybrid_failed / 首 query）
+            if hybrid_failed or rq_ctx.query_index == 0 or retrieval_strategy == "dense_only":
                 try:
                     docs = rq_ctx.ctx.milvus_service.search_similar(query_embedding, top_k=rq_ctx.milvus_top_k)
                     if not hybrid_failed:
@@ -181,8 +196,8 @@ class RetrieveStep(BaseStep):
     ) -> List[Dict[str, Any]]:
         """使用 BGE-Reranker 重排序。"""
         try:
-            rerank_threshold = getattr(ctx.config, "rerank_threshold", 0.3)
-            rerank_top_k = getattr(ctx.config, "rerank_top_k", top_k)
+            rerank_threshold = ctx.get_override("rerank_threshold", getattr(ctx.config, "rerank_threshold", 0.3))
+            rerank_top_k = ctx.get_override("rerank_top_k", getattr(ctx.config, "rerank_top_k", top_k))
 
             doc_contents = [doc["content"] for doc in all_documents]
             reranker = RerankerService.get_instance()
@@ -249,10 +264,14 @@ class RetrieveStep(BaseStep):
                     "documents_found": len(success_ctx.all_documents),
                     "hybrid_search_enabled": True,
                     "hybrid_search_type": "milvus_native_sparse_bm25",
-                    "rerank_enabled": getattr(success_ctx.ctx.config, "rerank_enabled", False),
+                    "rerank_enabled": success_ctx.ctx.get_override(
+                        "rerank_enabled", getattr(success_ctx.ctx.config, "rerank_enabled", False)
+                    ),
                     "rerank_model": (
                         "BAAI/bge-reranker-base"
-                        if getattr(success_ctx.ctx.config, "rerank_enabled", False)
+                        if success_ctx.ctx.get_override(
+                            "rerank_enabled", getattr(success_ctx.ctx.config, "rerank_enabled", False)
+                        )
                         else None
                     ),
                 },
@@ -303,7 +322,7 @@ class RetrieveStep(BaseStep):
 
         prompt = f"""你是信息相关性判断助手。请判断以下文档是否与用户问题相关。
 
-用户问题：{ctx.request.message}
+用户问题：{getattr(ctx, "retrieval_query", None) or ctx.request.message}
 
 判断标准：
 - 相关：文档内容能直接帮助回答问题

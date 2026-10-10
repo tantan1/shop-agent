@@ -92,6 +92,9 @@ def _check_ready() -> tuple[bool, str]:
 
     未显式配置 Redis（默认 localhost）时视为可选依赖，不阻塞就绪——
     与业务一致（Redis 不可用时应用走内存降级，仍能接新流量）。
+
+    GrowthBook 为可选实验后端（GROWTHBOOK_ENABLED 默认 false），其 degraded 状态
+    不阻塞就绪（设计红线：GB 不可用时进程仍能起来，仅以安全默认/缓存快照上岗）。
     """
     target = _redis_target()
     if target is None:
@@ -103,6 +106,16 @@ def _check_ready() -> tuple[bool, str]:
         return bool(client.ping()), "redis ok"
     except Exception as e:  # noqa: BLE001
         return False, str(e)[:120]
+
+
+def _gb_health_snapshot() -> dict | None:
+    """GrowthBook 健康快照（非阻塞；GB 禁用/未安装时返回 None）。"""
+    try:
+        from src.core.growthbook_client import GrowthBookClient
+
+        return GrowthBookClient.get_instance().health()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -128,9 +141,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/readyz":
             ok, detail = _check_ready()
-            self._reply(
-                200 if ok else 503, {"status": "ok" if ok else "unhealthy", "detail": detail}
-            )
+            payload = {"status": "ok" if ok else "unhealthy", "detail": detail}
+            # GrowthBook 健康（非阻塞：degraded 不影响就绪，仅作观测）
+            gb = _gb_health_snapshot()
+            if gb is not None:
+                payload["growthbook"] = gb
+            self._reply(200 if ok else 503, payload)
             return
         self._reply(404, {"status": "not found"})
 

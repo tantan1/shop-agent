@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 
 from src.core.config import config  # noqa: E402
+from src.core.growthbook_client import GrowthBookClient  # noqa: E402
 from src.core.probe import start_probe_server, stop_probe_server  # noqa: E402
 from src.core.rate_limiter import get_rate_limiter  # noqa: E402
 from src.modules.auth.routers import router as auth_router  # noqa: E402
@@ -229,6 +230,24 @@ async def lifespan(app_instance: FastAPI):
     except Exception:
         pass
 
+    # ── GrowthBook 客户端初始化（启动门禁；GB 不可达时 degraded 上岗，绝不阻塞进程）──
+    try:
+        await GrowthBookClient.get_instance().initialize()
+    except Exception as e:
+        print(f"[startup] GrowthBook 初始化跳过（degraded 安全默认）: {e}")
+
+    # ── ExperimentService 初始化（GrowthBook 实验代理 + 安全护栏调度）──
+    # GB 已在上方 await 初始化；此处同步取单例引用、建本地 sidecar 并启动护栏调度任务。
+    # GB 禁用/不可达时 ExperimentService 以安全默认模式运行，assign 返回 exp_mode=None
+    # （scope §4.9 红线：主流程零影响）。
+    try:
+        from src.modules.chat.core.experiment_service import ExperimentService  # noqa: E402
+
+        ExperimentService.get_instance().initialize()
+        print("[startup] ExperimentService 初始化完成（GrowthBook 代理 + 护栏调度）")
+    except Exception as e:
+        print(f"[startup] ExperimentService 初始化跳过（degraded 安全默认）: {e}")
+
     # ── MCP Server 挂载（如果 MCP_ENABLED=true） ──
     try:
         from src.core.config import config as _cfg  # noqa: E402
@@ -259,6 +278,13 @@ async def lifespan(app_instance: FastAPI):
 
     # 关闭时清理
     # 先停探针服务
+    # 关闭 GrowthBook 客户端（best-effort，失败忽略）
+    try:
+        await GrowthBookClient.get_instance().close()
+        print("[shutdown] GrowthBook 客户端已关闭")
+    except Exception as e:
+        print(f"[shutdown] GrowthBook 关闭跳过: {e}")
+
     if probe_started:
         try:
             stop_probe_server()
@@ -389,6 +415,13 @@ async def health_check():
         except Exception:
             pass
 
+    # GrowthBook 健康（GB 禁用/不可达时为 degraded，不影响主流程；见 scope §4.9）
+    gb_health = None
+    try:
+        gb_health = GrowthBookClient.get_instance().health()
+    except Exception:
+        gb_health = None
+
     return success_response(
         data={
             "server_status": "running",
@@ -396,6 +429,7 @@ async def health_check():
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "debug_mode": config.DEBUG_MODE,
             "mcp": mcp_health,
+            "growthbook": gb_health,
         },
         message="服务运行正常",
     )

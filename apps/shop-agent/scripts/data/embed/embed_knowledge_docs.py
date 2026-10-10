@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 
 from src.modules.chat.core.embedding_service import EmbeddingService
-from src.modules.chat.core.milvus_service import MilvusService
+from src.modules.chat.services import _create_vector_service
 from src.shared.logger import APILogger
 
 logger = APILogger("embed_knowledge")
@@ -175,9 +175,12 @@ async def main():
     logger.info("初始化 Embedding 服务...")
     emb_svc = EmbeddingService.get_instance()
     
-    logger.info("初始化 Milvus 服务...")
-    milvus_svc = MilvusService.get_instance()
-    milvus_svc.initialize()
+    # 按 VECTOR_STORE_PROVIDER 选择向量库，必须与在线检索侧一致，
+    # 否则会出现「灌进 A 库、检索读 B 库」导致查不到数据的错位。
+    logger.info("初始化向量库服务（跟随 VECTOR_STORE_PROVIDER）...")
+    milvus_svc = _create_vector_service()
+    if hasattr(milvus_svc, "initialize"):
+        milvus_svc.initialize()
     
     # 批量嵌入 + 插入
     total = len(all_chunks)

@@ -101,6 +101,7 @@ class AgentOrchestrator:
         return self._llm_service
 
     def _get_normalize_enabled(self) -> bool:
+        # TODO(GB-SDK): PipelineOverrides.synonym_normalize_enabled 待接入（实验级覆盖同义词归一化开关）
         return getattr(chat_config, "synonym_normalize_enabled", True)
 
     async def _normalize_input(self, message: str, domain: str) -> str:
@@ -209,6 +210,8 @@ class AgentOrchestrator:
             )
             return intent_result, intent_steps
 
+        # TODO(GB-SDK): PipelineOverrides.intent_recognition_mode 待接入
+        #               （当前 _intent_recognizer.recognize 不接收 mode 参数，无 local/llm 显式分流入口）
         intent_result = await self._intent_recognizer.recognize(
             request.message,
             langfuse_handler=getattr(self, "_langfuse_handler", None),
@@ -253,7 +256,7 @@ class AgentOrchestrator:
         }
 
 
-    async def _route_intent(self, ctx: AgentRoutingContext) -> ChatResponse:
+    async def _route_intent(self, ctx: AgentRoutingContext, experiment_assignment=None) -> ChatResponse:
         # 路由只读 plan.mode（对齐 yaml_flow node.type），不再读 deprecated 的
         # intent / complexity。rag_pipeline → RAG；direct_tool / react → 远程 API
         # 链路（其内部再按 mode 分流到 Tool 调用或 ReAct）。
@@ -263,6 +266,7 @@ class AgentOrchestrator:
             ctx.request, ctx.domain, ctx.user_id,
             langfuse_handler=ctx.langfuse_handler,
             input_truncated=ctx.input_truncated,
+            experiment_assignment=experiment_assignment,
         )
 
     def _inject_response_metadata(
@@ -341,95 +345,112 @@ class AgentOrchestrator:
         if result:
             langfuse_handler, langfuse_ctx = result
 
-        with self._langfuse_span(langfuse_handler, langfuse_ctx):
-            # Langfuse OTEL 语义约定：根 span 上的 input.value / output.value 会被
-            # 映射为 trace 顶层 input/output。FastAPI 自动根 span 只带 http.* 属性，
-            # 不补这两个属性时 Langfuse 显示 "didn't receive an input or output"。
-            # 内容会在导出前经 PiiRedactionSpanProcessor 自动脱敏。
-            from opentelemetry import trace as _otel_trace
+        chat_status = "error"
+        try:
+            with self._langfuse_span(langfuse_handler, langfuse_ctx):
+                # Langfuse OTEL 语义约定：根 span 上的 input.value / output.value 会被
+                # 映射为 trace 顶层 input/output。FastAPI 自动根 span 只带 http.* 属性，
+                # 不补这两个属性时 Langfuse 显示 "didn't receive an input or output"。
+                # 内容会在导出前经 PiiRedactionSpanProcessor 自动脱敏。
+                from opentelemetry import trace as _otel_trace
 
-            _root_span = _otel_trace.get_current_span()
-            _root_span.set_attribute("input.value", request.message or "")
-            _root_span.set_attribute("input.mime_type", "text/plain")
+                _root_span = _otel_trace.get_current_span()
+                _root_span.set_attribute("input.value", request.message or "")
+                _root_span.set_attribute("input.mime_type", "text/plain")
 
-            preprocess_result = await self._preprocess_request(request, domain)
-            if preprocess_result.get("escalated"):
+                preprocess_result = await self._preprocess_request(request, domain)
+                if preprocess_result.get("escalated"):
+                    _root_span.set_attribute(
+                        "output.value",
+                        getattr(preprocess_result["response"], "message", "") or "",
+                    )
+                    _root_span.set_attribute("output.mime_type", "text/plain")
+                    chat_status = "success"
+                    return preprocess_result["response"]
+
+                intent_result = preprocess_result["intent_result"]
+                _was_truncated = preprocess_result["truncated"]
+                orig_tokens = preprocess_result["orig_tokens"]
+                trunc_tokens = preprocess_result["trunc_tokens"]
+                emotion_result = preprocess_result["emotion_result"]
+
+                t0 = _time.perf_counter()
+                routing_ctx = AgentRoutingContext(
+                    request=request,
+                    intent_result=intent_result,
+                    domain=domain,
+                    user_id=user_id,
+                    langfuse_handler=langfuse_handler,
+                    emotion_result=emotion_result,
+                    input_truncated=_was_truncated,
+                    intent_steps=preprocess_result.get("intent_steps", []),
+                )
+                response = await self._route_intent(routing_ctx, experiment_assignment=experiment_assignment)
+                t_intent = (_time.perf_counter() - t0) * 1000
+
+                response = self._inject_response_metadata(
+                    response, _was_truncated, orig_tokens, trunc_tokens, experiment_assignment
+                )
+
+                # 异步触发 L3 记忆提取（不阻塞响应）
+                try:
+                    from src.modules.chat.core.memory_extraction_trigger import ExtractionContext, MemoryExtractionTrigger
+                    trigger = MemoryExtractionTrigger(self._llm_service)
+                    import asyncio
+                    task = trigger.try_extract(
+                        ExtractionContext(
+                            user_id=user_id,
+                            conversation_id=conversation_id,
+                            chat_history=[],
+                            user_message=request.message,
+                            last_intent=intent_result.action,
+                            is_ended=True,
+                            turn_number=getattr(request, "turn_number", 0),
+                        )
+                    )
+
+                    async def _safe_memory_extract(coro):
+                        try:
+                            # 后台 L3 记忆提取：超时与异常均隔离，不阻塞/拖垮主请求
+                            await asyncio.wait_for(coro, timeout=config.AGENT_TIMEOUT)
+                        except Exception as ex:  # noqa: BLE001
+                            logger.warning("L3 记忆提取失败（已忽略）", error=str(ex))
+
+                    asyncio.create_task(_safe_memory_extract(task))
+                except Exception:
+                    pass
+
+                t_overall = (_time.perf_counter() - t_overall_start) * 1000
+                logger.debug(
+                    "Agent编排耗时统计 [整体]",
+                    duration_total_ms=round(t_overall, 1),
+                    duration_norm_ms=round(preprocess_result.get("t_norm", 0), 1),
+                    duration_intent_ms=round(t_intent, 1),
+                    path=preprocess_result.get("path", "unknown"),
+                )
                 _root_span.set_attribute(
-                    "output.value",
-                    getattr(preprocess_result["response"], "message", "") or "",
+                    "output.value", getattr(response, "message", "") or ""
                 )
                 _root_span.set_attribute("output.mime_type", "text/plain")
-                return preprocess_result["response"]
-
-            intent_result = preprocess_result["intent_result"]
-            _was_truncated = preprocess_result["truncated"]
-            orig_tokens = preprocess_result["orig_tokens"]
-            trunc_tokens = preprocess_result["trunc_tokens"]
-            emotion_result = preprocess_result["emotion_result"]
-
-            t0 = _time.perf_counter()
-            routing_ctx = AgentRoutingContext(
-                request=request,
-                intent_result=intent_result,
-                domain=domain,
-                user_id=user_id,
-                langfuse_handler=langfuse_handler,
-                emotion_result=emotion_result,
-                input_truncated=_was_truncated,
-                intent_steps=preprocess_result.get("intent_steps", []),
-            )
-            response = await self._route_intent(routing_ctx)
-            t_intent = (_time.perf_counter() - t0) * 1000
-
-            response = self._inject_response_metadata(
-                response, _was_truncated, orig_tokens, trunc_tokens, experiment_assignment
-            )
-
-            # 异步触发 L3 记忆提取（不阻塞响应）
+                chat_status = "success"
+                return response
+        finally:
+            # 无论 success / error / escalated 都计时并计数（Phase 5 护栏数据源）。
+            elapsed_ms = (_time.perf_counter() - t_overall_start) * 1000
             try:
-                from src.modules.chat.core.memory_extraction_trigger import ExtractionContext, MemoryExtractionTrigger
-                trigger = MemoryExtractionTrigger(self._llm_service)
-                import asyncio
-                task = trigger.try_extract(
-                    ExtractionContext(
-                        user_id=user_id,
-                        conversation_id=conversation_id,
-                        chat_history=[],
-                        user_message=request.message,
-                        last_intent=intent_result.action,
-                        is_ended=True,
-                        turn_number=getattr(request, "turn_number", 0),
-                    )
+                from src.modules.monitoring.metrics import (
+                    agent_chat_counter,
+                    agent_chat_duration_ms,
                 )
-
-                async def _safe_memory_extract(coro):
-                    try:
-                        # 后台 L3 记忆提取：超时与异常均隔离，不阻塞/拖垮主请求
-                        await asyncio.wait_for(coro, timeout=config.AGENT_TIMEOUT)
-                    except Exception as ex:  # noqa: BLE001
-                        logger.warning("L3 记忆提取失败（已忽略）", error=str(ex))
-
-                asyncio.create_task(_safe_memory_extract(task))
-            except Exception:
+                agent_chat_duration_ms.observe(elapsed_ms)
+                agent_chat_counter.labels(status=chat_status).inc()
+            except Exception:  # noqa: BLE001
                 pass
-
-            t_overall = (_time.perf_counter() - t_overall_start) * 1000
-            logger.debug(
-                "Agent编排耗时统计 [整体]",
-                duration_total_ms=round(t_overall, 1),
-                duration_norm_ms=round(preprocess_result.get("t_norm", 0), 1),
-                duration_intent_ms=round(t_intent, 1),
-                path=preprocess_result.get("path", "unknown"),
-            )
-            _root_span.set_attribute(
-                "output.value", getattr(response, "message", "") or ""
-            )
-            _root_span.set_attribute("output.mime_type", "text/plain")
-            return response
 
     async def _chat_with_rag_agent(
         self, request: ChatRequest, domain: str, user_id: str = "",
         langfuse_handler=None, input_truncated: bool = False,
+        experiment_assignment=None,
     ) -> ChatResponse:
         from src.modules.chat.agent.executor import GeneralAgentExecutor
 
@@ -450,7 +471,10 @@ class AgentOrchestrator:
                     )
                 }
             )
-        response = await executor.execute(request, langfuse_handler=langfuse_handler, user_id=user_id)
+        response = await executor.execute(
+            request, langfuse_handler=langfuse_handler, user_id=user_id,
+            experiment_assignment=experiment_assignment,
+        )
         response.domain = domain
         logger.log_business_event(
             f"{executor.agent_name}对话",

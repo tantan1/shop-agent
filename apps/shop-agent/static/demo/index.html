@@ -47,6 +47,29 @@
   .suggest { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 12px; }
   .suggest button { background: #fff; border: 1px solid #1a73e8; color: #1a73e8; border-radius: 16px; padding: 6px 14px; font-size: 12px; cursor: pointer; }
   .suggest button:hover { background: #e3f2fd; }
+  /* ── 左侧回答：JSON 卡片 & 物流时间线 ── */
+  .bubble .json-card { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 10px 12px; margin-top: 6px; white-space: normal; }
+  .bubble .json-card .kv-row { display: flex; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef1f4; }
+  .bubble .json-card .kv-row:last-child { border-bottom: none; }
+  .bubble .json-card .kv-key { color: #1565c0; font-weight: 600; min-width: 90px; flex-shrink: 0; }
+  .bubble .json-card .kv-val { color: #333; word-break: break-all; flex: 1; }
+  .bubble .json-card .sub-card { margin-top: 4px; margin-left: 12px; border-left: 2px solid #e3f2fd; padding-left: 8px; }
+  .bubble .json-card .badge { display: inline-block; background: #f1f5f9; color: #475569; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-right: 4px; }
+  .bubble .timeline-wrap { margin-top: 4px; white-space: normal; }
+  .bubble .tl-head { font-size: 13px; color: #333; margin-bottom: 8px; }
+  .bubble .tl-empty { font-size: 13px; color: #c62828; padding: 6px 0; }
+  .bubble .timeline { position: relative; padding-left: 22px; }
+  .bubble .tl-item { position: relative; padding: 0 0 14px 0; }
+  .bubble .tl-item:last-child { padding-bottom: 0; }
+  .bubble .tl-item::before { content: ''; position: absolute; left: -16px; top: 6px; bottom: -6px; width: 2px; background: #d8e3f0; }
+  .bubble .tl-item:last-child::before { display: none; }
+  .bubble .tl-dot { position: absolute; left: -22px; top: 3px; width: 11px; height: 11px; border-radius: 50%; background: #c5d6ea; border: 2px solid #fff; box-shadow: 0 0 0 1px #c5d6ea; }
+  .bubble .tl-item.latest .tl-dot { background: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+  .bubble .tl-item.latest .tl-status { color: #1a73e8; font-weight: 700; }
+  .bubble .tl-status { font-size: 13px; color: #333; }
+  .bubble .tl-time { font-size: 12px; color: #999; margin-top: 2px; }
+  .bubble .tl-loc { font-size: 12px; color: #777; margin-top: 1px; }
+  .bubble .tl-idx { position: absolute; right: 0; top: 2px; font-size: 11px; color: #bbb; }
 </style>
 </head>
 <body>
@@ -63,10 +86,11 @@
     <div class="suggest" id="suggestBar">
       <button onclick="sendSuggestion('我的订单 WB202405270001 到哪了？')">查订单</button>
       <button onclick="sendSuggestion('快递 SF1234567890 到哪了？')">查物流</button>
-      <button onclick="sendSuggestion('我要退货，订单号 WB202405270001')">申请退货</button>
       <button onclick="sendSuggestion('我账户里还有多少余额？')">查余额</button>
       <button onclick="sendSuggestion('有什么优惠券可以用？')">查优惠券</button>
       <button onclick="sendSuggestion('这个电冰箱有什么功能？')">商品咨询</button>
+      <!-- 申请退货（request-return）为敏感工具，需第二角色人工审批（HITL）；
+           审批链路未接入前，界面上屏蔽该入口，避免走到无法完成的审批流程。 -->
     </div>
     <div class="messages" id="messages">
       <div class="empty" id="emptyHint">👋 你好！我是 Shop-Agent 智能客服。<br>试试上面的快捷问题，或直接输入你的问题。</div>
@@ -98,13 +122,12 @@ const emptyHint = document.getElementById('emptyHint');
 
 let conversationId = null;
 let pendingImages = [];
-let pendingApprove = null;
 
 // 恢复 API Key
 apiKeyEl.value = localStorage.getItem('shop_agent_api_key') || '';
 apiKeyEl.addEventListener('change', () => localStorage.setItem('shop_agent_api_key', apiKeyEl.value));
 
-function addMessage(role, text, meta = {}) {
+function addMessage(role, content, meta = {}, opts = {}) {
   emptyHint.style.display = 'none';
   const div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -113,14 +136,181 @@ function addMessage(role, text, meta = {}) {
   if (meta.status === 'escalated') tags += '<span class="tag escalated">已升级</span>';
   if (meta.status === 'waiting_for_confirmation') tags += '<span class="tag waiting">待审批</span>';
   if (meta.steps_count) tags += `<span class="tag steps">${meta.steps_count} 步</span>`;
-  div.innerHTML = `<div class="bubble">${escapeHtml(text)}${tags ? '<div style="margin-top:8px">' + tags + '</div>' : ''}</div>`;
+  // content 默认按文本转义；opts.html=true 时视为已生成的安全 HTML
+  const body = opts.html ? content : escapeHtml(content);
+  div.innerHTML = `<div class="bubble">${body}${tags ? '<div style="margin-top:8px">' + tags + '</div>' : ''}</div>`;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return div;
 }
 
+// ── 左侧会话回答渲染 ────────────────────────────────────────────────────────
+// 规则：
+//   1) 回答本身是 JSON → 渲染为卡片；其中含物流轨迹(tracking/details) → 时间线
+//   2) 回答是普通文本 → 正常显示文本；若本次对话的步骤里带有物流轨迹，则在文本后补一条时间线
+function stripThink(text) {
+  if (typeof text !== 'string') return '';
+  // 防御性剥离模型误吐出的 <think>...</think> 思考块（覆盖所有后端回复路径）
+  let s = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  const open = s.search(/<think>/i);
+  if (open >= 0) s = s.slice(0, open);
+  return s.trim();
+}
+
+function renderBubbleContent(text, steps) {
+  text = stripThink(text);
+  const parsed = tryParseJson(text);
+  if (parsed !== undefined) {
+    if (isTracking(parsed)) return renderTimeline(parsed);
+    return `<div class="json-card">${renderJson(parsed)}</div>`;
+  }
+  const tracking = extractTrackingFromSteps(steps);
+  if (tracking) {
+    return (text ? escapeHtml(text) : '') + renderTimeline(tracking);
+  }
+  return text ? escapeHtml(text) : '<span style="color:#999">（暂无回答内容）</span>';
+}
+
+function tryParseJson(text) {
+  if (typeof text !== 'string') return undefined;
+  let s = text.trim();
+  const fence = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fence) s = fence[1].trim();
+  if (!s || !(s[0] === '{' || s[0] === '[')) return undefined;
+  try { return JSON.parse(s); } catch (e) { return undefined; }
+}
+
+// 判断是否物流轨迹结构：含 tracking 或 details 数组，且元素有 status/location
+function isTracking(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  const list = Array.isArray(obj) ? obj : (obj.tracking || obj.details);
+  if (!Array.isArray(list) || !list.length) return false;
+  return list.some(it => it && typeof it === 'object' && ('status' in it || 'location' in it));
+}
+
+// 判断数组是否为物流轨迹：元素需含 status 且含 time/location（避免把工具结果 results
+// 里 {action, status:'success', output} 这类包装误判为轨迹）
+function isTrackingArray(arr) {
+  return (
+    Array.isArray(arr) &&
+    arr.length > 0 &&
+    arr.every(
+      i =>
+        i && typeof i === 'object' &&
+        'status' in i && ('time' in i || 'location' in i)
+    )
+  );
+}
+
+// 从处理链 steps 中递归查找物流轨迹数组（兼容多种结构与 JSON 字符串嵌套）
+function findTracking(obj) {
+  if (obj == null) return null;
+  if (typeof obj === 'string') {
+    try {
+      return findTracking(JSON.parse(obj));
+    } catch (e) {
+      return null;
+    }
+  }
+  if (Array.isArray(obj)) {
+    if (isTrackingArray(obj)) return obj;
+    for (const it of obj) {
+      const r = findTracking(it);
+      if (r) return r;
+    }
+    return null;
+  }
+  if (typeof obj === 'object') {
+    if (isTrackingArray(obj.tracking)) return obj.tracking;
+    if (isTrackingArray(obj.details)) return obj.details;
+    for (const k of Object.keys(obj)) {
+      const r = findTracking(obj[k]);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+function extractTrackingFromSteps(steps) {
+  if (!steps || !steps.length) return null;
+  for (const s of steps) {
+    if (!s) continue;
+    const candidates = [s.output_data, s.result, s.observation];
+    for (let od of candidates) {
+      if (typeof od === 'string') {
+        try { od = JSON.parse(od); } catch (e) { od = null; }
+      }
+      if (!od) continue;
+      const found = findTracking(od);
+      if (found && found.length) return found;
+    }
+  }
+  return null;
+}
+
+function renderTimeline(data) {
+  const list = Array.isArray(data) ? data : (data.tracking || data.details || []);
+  const num = (!Array.isArray(data) && (data.tracking_number || data.order_id)) ? (data.tracking_number || data.order_id) : '';
+  const found = Array.isArray(data) ? true : (data.found !== false);
+  const note = (!Array.isArray(data) && data.note) ? data.note : '';
+  let html = '<div class="timeline-wrap">';
+  if (num) html += `<div class="tl-head">运单号：<b>${escapeHtml(num)}</b></div>`;
+  if (!found) {
+    html += `<div class="tl-empty">${escapeHtml(note || '未查询到该运单的物流信息')}</div></div>`;
+    return html;
+  }
+  if (!list.length) {
+    html += `<div class="tl-empty">${escapeHtml(note || '暂无物流轨迹')}</div></div>`;
+    return html;
+  }
+  html += '<div class="timeline">';
+  list.forEach((it, i) => {
+    const status = it && it.status != null ? String(it.status) : '';
+    const time = it && it.time != null ? String(it.time) : '';
+    const loc = it && it.location != null ? String(it.location) : '';
+    html += `<div class="tl-item ${i === 0 ? 'latest' : ''}">
+      <div class="tl-dot"></div>
+      <div class="tl-body">
+        <div class="tl-status">${escapeHtml(status)}</div>
+        ${time ? `<div class="tl-time">${escapeHtml(time)}</div>` : ''}
+        ${loc ? `<div class="tl-loc">${escapeHtml(loc)}</div>` : ''}
+      </div>
+      <div class="tl-idx">${i + 1}</div>
+    </div>`;
+  });
+  html += '</div></div>';
+  return html;
+}
+
 function escapeHtml(s) {
-  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// 把任意 JSON 值渲染成键值卡片（递归：对象→kv 行，数组→子卡片列表）
+function renderJson(value, depth = 0) {
+  if (value === null || value === undefined) return '<span class="kv-val">—</span>';
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '<span class="kv-val">[]</span>';
+      return value.map(v => `<div class="sub-card">${renderJson(v, depth + 1)}</div>`).join('');
+    }
+    const keys = Object.keys(value);
+    if (keys.length === 0) return '<span class="kv-val">{}</span>';
+    return keys.map(k => {
+      const v = value[k];
+      if (v !== null && typeof v === 'object') {
+        return `<div class="kv-row"><span class="kv-key">${escapeHtml(k)}</span><div class="kv-val">${renderJson(v, depth + 1)}</div></div>`;
+      }
+      const valStr = (typeof v === 'boolean' || typeof v === 'number') ? String(v) : escapeHtml(String(v));
+      return `<div class="kv-row"><span class="kv-key">${escapeHtml(k)}</span><span class="kv-val">${valStr}</span></div>`;
+    }).join('');
+  }
+  return `<span class="kv-val">${escapeHtml(String(value))}</span>`;
 }
 
 function renderSteps(steps) {
@@ -132,42 +322,22 @@ function renderSteps(steps) {
   steps.forEach(s => {
     const item = document.createElement('div');
     item.className = 'step-item';
-    const out = s.output_data ? JSON.stringify(s.output_data, null, 2) : '';
-    item.innerHTML = `<div><span class="name">${s.step_order}. ${escapeHtml(s.step_name)}</span> <span class="status">[${escapeHtml(s.status)}]</span></div>${out ? `<pre>${escapeHtml(out)}</pre>` : ''}`;
+    const od = s.output_data;
+    const hasOut = od && (Array.isArray(od) ? od.length : Object.keys(od).length);
+    const outText = hasOut ? (typeof od === 'string' ? od : JSON.stringify(od, null, 2)) : '';
+    item.innerHTML = `<div><span class="name">${s.step_order}. ${escapeHtml(s.step_name)}</span> <span class="status">[${escapeHtml(s.status)}]</span></div>${hasOut ? `<pre>${escapeHtml(outText)}</pre>` : ''}`;
     stepsEl.appendChild(item);
   });
 }
 
-function showApproveBar(conversationId) {
-  pendingApprove = conversationId;
-  const div = document.createElement('div');
-  div.className = 'approve-bar';
-  div.id = 'approveBar';
-  div.innerHTML = '⚠️ 退款申请待人工审批：<br><button class="yes" onclick="approve(true)">✅ 批准</button><button class="no" onclick="approve(false)">❌ 拒绝</button>';
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-async function approve(confirm) {
-  const bar = document.getElementById('approveBar');
-  if (bar) bar.remove();
-  if (!pendingApprove) return;
-  const apiKey = apiKeyEl.value.trim();
-  if (!apiKey) { alert('请先填写 API Key'); return; }
-  try {
-    const resp = await fetch('/agent/api/v1/chatagent/agent/refund/confirm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({ conversation_id: pendingApprove, confirm })
-    });
-    const json = await resp.json();
-    const data = json.data || {};
-    addMessage('agent', data.message || (confirm ? '已批准退款' : '已拒绝退款'), { status: data.status });
-    if (data.steps) renderSteps(data.steps);
-  } catch (e) {
-    addMessage('agent', '审批失败：' + e.message);
-  }
-  pendingApprove = null;
+// 审批（HITL）UI 已屏蔽：退款等敏感工具需第二角色人工审批，审批链路未接入前
+// 不在界面暴露批准/拒绝入口，改为给出说明性提示。
+function notifyApprovalPending() {
+  addMessage(
+    'agent',
+    '该操作属于敏感操作，需要另一位有审批权限的人来处理，当前演示环境暂不支持。',
+    { status: 'waiting_for_confirmation' }
+  );
 }
 
 async function sendMessage(text) {
@@ -204,13 +374,14 @@ async function sendMessage(text) {
     }
     const data = json.data || {};
     conversationId = data.conversation_id || conversationId;
-    addMessage('agent', data.message, {
+    addMessage('agent', renderBubbleContent(data.message, data.steps), {
       cache_hit: data.cache_hit,
       status: data.status,
       steps_count: data.steps ? data.steps.length : 0
-    });
+    }, { html: true });
     if (data.steps) renderSteps(data.steps);
-    if (data.status === 'waiting_for_confirmation') showApproveBar(data.conversation_id);
+    // 审批 UI 已屏蔽：不再弹出批准/拒绝条，改为给出说明性提示
+    if (data.status === 'waiting_for_confirmation') notifyApprovalPending();
   } catch (e) {
     addMessage('agent', '❌ 请求失败：' + e.message);
   } finally {

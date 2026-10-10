@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json as _json
 import time as _time
 
 from src.modules.chat.agent.dispute_coordinator import should_use_dispute_coordinator
@@ -271,9 +272,14 @@ async def execute_direct_tool_flow(orchestrator, ctx, t_handler_start: float, t_
         )
         tool_response = output_check.filtered_text or "抱歉，当前无法处理您的请求，请稍后重试。"
 
+    action = ctx.intent_result.action
+    params = ctx.intent_result.params or {}
+    # 将工具原始输出转为面向用户的友好文本（直调链路此前未格式化，会直接甩 JSON）
+    display_message = _format_tool_result(action, params, tool_response)
+
     step_index = len(ctx.intent_steps)
     response = ChatResponse(
-        message=tool_response,
+        message=display_message,
         conversation_id=ctx.request.conversation_id or "",
         steps=ctx.intent_steps
         + [
@@ -281,7 +287,8 @@ async def execute_direct_tool_flow(orchestrator, ctx, t_handler_start: float, t_
                 "step_name": "Tool调用(直接)",
                 "step_order": step_index,
                 "status": "success",
-                "output_data": {"action": ctx.intent_result.action, "params": ctx.intent_result.params},
+                # result 保留原始工具响应，供前端按需渲染（卡片 / 物流时间线）
+                "output_data": {"action": action, "params": params, "result": tool_response},
             }
         ],
         documents_used=[],
@@ -309,3 +316,73 @@ async def execute_direct_tool_flow(orchestrator, ctx, t_handler_start: float, t_
         response_length=len(tool_response),
     )
     return response
+
+
+def _format_tool_result(action: str, params: dict, tool_response: str) -> str:
+    """将工具原始输出转换为面向用户的友好文本（直调链路的兜底格式化）。
+
+    背景：此前直调链路直接把工具原始响应（裸 JSON / 外层 success_response 的 message）
+    当作最终回答，导致「订单 order:null/found:false」「余额仅显示『账户查询成功』」等
+    不合理的展示。这里统一处理：查无 → 友好提示；有数据 → 摘要；其余 → 原样（可能被前端卡片化）。
+    """
+    from src.modules.chat.agent.react_agent_reply import strip_thinking
+
+    raw = strip_thinking(tool_response or "")
+    if not raw:
+        return tool_response or ""
+
+    obj = None
+    try:
+        obj = _json.loads(raw)
+    except Exception:
+        obj = None
+
+    if isinstance(obj, dict):
+        note = str(obj.get("note") or obj.get("message") or "")
+
+        # 查无 / 未找到 → 友好化，避免把 order:null / found:false 直接呈现给用户
+        if obj.get("found") is False or any(
+            k in note for k in ("未查询到", "未找到", "查无", "不存在", "请核对")
+        ):
+            if note:
+                return f"抱歉，{note}"
+            ident = (
+                params.get("order_id")
+                or params.get("tracking_number")
+                or params.get("order_num")
+                or ""
+            )
+            if action == "query-order":
+                return f"抱歉，未查询到订单号「{ident}」的订单信息，请核对订单号后重试。"
+            if action == "check-shipping":
+                return f"抱歉，未查询到快递单号「{ident}」的物流信息，请核对后重试。"
+            return "抱歉，暂时未查询到相关信息，请核对后重试。"
+
+        # 有数据的结构化结果 → 友好摘要
+        if action == "check-balance" and obj.get("balance") is not None:
+            return (
+                f"您的账户余额为 {obj.get('balance')} 元，"
+                f"积分 {obj.get('points', 0)}，"
+                f"可用优惠券 {obj.get('coupons_count', 0)} 张。"
+            )
+        if action == "query-order" and isinstance(obj.get("order"), dict):
+            o = obj["order"]
+            return (
+                f"订单号 {o.get('id', '')} 当前状态：{o.get('status', '')}，"
+                f"支付金额 {o.get('total', '')} 元。"
+            )
+        if action == "query-order" and obj.get("order") is None:
+            ident = params.get("order_id") or params.get("tracking_number") or ""
+            return f"抱歉，未查询到订单号「{ident}」的订单信息，请核对订单号后重试。"
+        if action == "check-shipping" and (obj.get("tracking") or obj.get("details")):
+            tracks = obj.get("tracking") or obj.get("details") or []
+            lines = [
+                f"- {t.get('time', '')} {t.get('status', '')}"
+                for t in tracks
+                if isinstance(t, dict) and (t.get("time") or t.get("status"))
+            ]
+            tn = obj.get("tracking_number") or params.get("tracking_number") or ""
+            head = f"快递{(' ' + tn) if tn else ''}的物流进度如下："
+            return head + ("\n" + "\n".join(lines) if lines else "（暂无轨迹）")
+
+    return raw

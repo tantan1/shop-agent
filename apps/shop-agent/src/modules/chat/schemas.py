@@ -389,6 +389,11 @@ class ToolPlan(BaseModel):
     stop_condition: str = Field(
         default="need_llm", description="确定性终止信号: plan_complete | need_llm"
     )
+    # 全量候选排序(含真实打分),供 MLOps 捕获 trace metadata 的 top_tools / margin(§5.3 自动银标闸门)
+    candidate_ranking: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="全量候选工具排序(降序,含 confidence/source);用于 trace metadata 的 top_tools 与 margin 计算,空则退化为仅 plan.actions",
+    )
 
     # ── 兼容消费：旧下游按「工具名集合」过滤 LangChain tool 对象 ──
     def to_tool_names(self) -> Set[str]:
@@ -516,15 +521,31 @@ class SafetyGuardSchema(BaseModel):
 
 
 class ExperimentCreateRequest(BaseModel):
-    """创建/更新实验请求"""
+    """创建/更新实验请求
+
+    kind 字段（GrowthBook 接入新增，已拍板，默认 "experiment"）：
+      - "experiment"：A/B 实验模式 —— 建 GB Feature + Experiment（control/treatment，
+        写 Data Source 算显著性），eval_variant 命中时 exp_mode="experiment"。
+      - "canary"    ：金丝雀/功能开关模式 —— 建 GB Feature-only（用 rolloutPercentage
+        渐进开量），无原生显著性，eval_variant 命中时 exp_mode="canary"。
+    两种模式不可混用（design.md §2.1 / §5）；create_experiment 据 kind 决定 GB 建模。
+    """
 
     id: str = Field(..., min_length=3, max_length=64, description="实验唯一ID，如 exp_reranker_001")
     name: str = Field(..., description="实验名称")
     description: str = Field(default="", description="实验描述")
+    kind: str = Field(default="experiment", description="实验模式: experiment (A/B) | canary (金丝雀/开关)")
     variants: List[VariantSchema] = Field(..., min_length=2, description="至少包含对照组+实验组")
     safety_guards: List[SafetyGuardSchema] = Field(default_factory=list, description="安全护栏配置")
     domains: List[str] = Field(default_factory=lambda: ["ecommerce"], description="生效领域")
     owner: str = Field(default="", description="实验负责人")
+    expected_end: str = Field(
+        default="",
+        description=(
+            "计划结束日期 (scope §9.2 生命周期治理, ISO 日期 YYYY-MM-DD)。"
+            "exp_/canary_ 类 flag 建议填写；创建 GB Feature 时写为 tag `expected_end_date:<date>`。"
+        ),
+    )
 
 
 class ExperimentPauseRequest(BaseModel):

@@ -29,7 +29,6 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    # etcd ?CPU/ Milvus
     deploy:
       resources:
         limits:
@@ -49,7 +48,6 @@ services:
       - "19001:9001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
-    # ?langfuse bucketinIO  bucket?
     entrypoint: sh
     command: >
       -c 'mkdir -p /minio_data/langfuse && minio server /minio_data --console-address ":9001"'
@@ -91,14 +89,10 @@ services:
     container_name: shop-agent-redis
     image: redis/redis-stack-server:7.2.0-v14
     ports:
-      #  6379  Docker Desktop ?6379 ?6390?
-      # ?redis:6379hop-agent/gateway ?
-      # smoke_e2e.py / run_e2e.ps1 REDIS_PORT=6390 ?
       - "6390:6379"
       - "18001:8001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/redis:/data
-    # angfuse ?REDIS_AUTH
     command: >
       redis-stack-server
       ${REDIS_AUTH:+--requirepass ${REDIS_AUTH}}
@@ -128,14 +122,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-  # ============ SkyWalking APM?===========
-  # BanyanDB kyWalking 10.x ?
   banyandb:
     container_name: shop-agent-banyandb
     image: apache/skywalking-banyandb:0.8.0
     command: standalone
     restart: unless-stopped
-    profiles: ["disabled"]   # ?APM/Staging ?--profile full (masked: focus on Langfuse)
+    profiles: ["disabled"]
     ports:
       - "17912:17912"   # gRPCAP
       - "2121:2121"     # HTTP (metrics)
@@ -153,7 +145,7 @@ services:
     container_name: shop-agent-skywalking-oap
     image: apache/skywalking-oap-server:10.2.0
     restart: unless-stopped
-    profiles: ["disabled"]   # ?APM? (masked: focus on Langfuse)
+    profiles: ["disabled"] 
     depends_on:
       banyandb:
         condition: service_healthy
@@ -163,8 +155,8 @@ services:
       SW_HEALTH_CHECKER: default
       TZ: Asia/Shanghai
     ports:
-      - "11800:11800"   # gRPCgent ?
-      - "12800:12800"   # HTTPEST API UI ?
+      - "11800:11800" 
+      - "12800:12800" 
     healthcheck:
       test: ["CMD-SHELL", "curl -f -s http://localhost:12800/healthcheck || exit 1"]
       interval: 10s
@@ -179,7 +171,7 @@ services:
     container_name: shop-agent-skywalking-ui
     image: apache/skywalking-ui:10.2.0
     restart: unless-stopped
-    profiles: ["disabled"]   # ?APM? (masked: focus on Langfuse)
+    profiles: ["disabled"] 
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
       TZ: Asia/Shanghai
@@ -198,23 +190,19 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/prometheus:/prometheus
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
-      # ?
-      # - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'  #  30 ?
+      - '--storage.tsdb.retention.time=30d'
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'              # ?
+      - '--web.enable-lifecycle'
       - '--web.enable-admin-api'             #  Admin API
       - '--log.level=info'
     restart: unless-stopped
     depends_on:
       - standalone
   # ============ Alertmanager  ============
-  # RCA/?Prometheus rules ?Alertmanager
-  # ?Slack/?monitoring/alertmanager/alertmanager.yml?
   alertmanager:
      container_name: shop-agent-alertmanager
      image: prom/alertmanager:v0.27.0
@@ -228,11 +216,9 @@ services:
        - '--log.level=info'
      restart: unless-stopped
      environment:
-       # ?monitoring-agent ?MONITORING_WEBHOOK_TOKEN ?
        ALERTMANAGER_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN:-monitoring-agent-secret}
      depends_on:
        - prometheus
-  # ============ Grafana ?============
   grafana:
     container_name: shop-agent-grafana
     image: grafana/grafana:11.3.0
@@ -242,31 +228,20 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      #  - ?
-      #
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme_in_production}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_USERS_ALLOW_ORG_CREATE=false
-      # ?
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
       - GF_SERVER_HTTP_PORT=3000
-      # ?( SQLite MySQL/PostgreSQL)
       - GF_DATABASE_TYPE=sqlite3
       - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
-      #
       - GF_LOG_MODE=console file
       - GF_LOG_LEVEL=info
-      #  (?
       - GF_AUTH_ANONYMOUS_ENABLED=false
-      # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-      # ?unified alertingrafana ?
       - GF_UNIFIED_ALERTING_ENABLED=true
       - GF_ALERTING_ENABLED=false
-      # ?Grafana ?Alertmanager schema
-      # ?alertmanager.yml ?receiver ?monitoring-agent / ?
       - GF_UNIFIED_ALERTING_ALERTMANAGER_CONFIG=default
-      #  Grafana ?Alertmanager  Alertmanager
       - GF_ALERTING_ALERTMANAGER_WEAK_TLS_VERIFICATION=true
     restart: unless-stopped
     depends_on:
@@ -278,12 +253,9 @@ services:
       retries: 3
       start_period: 60s
   # ============ Loki  ============
-  # OTel Collector Gateway Grafana ?Loki ?
   loki:
     container_name: shop-agent-loki
     image: grafana/loki:2.9.8
-    # Loki ?root  bind mount ?./volumes/loki ?
-    # ?"mkdir uploader: permission denied" root ?
     user: "1000"
     ports:
       - "3100:3100"
@@ -297,9 +269,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-  # ============ Promtail ?============
-  #  Docker  ?Loki + PII ?
-  #  Docker socket ?docker_sd ?
   promtail:
     container_name: shop-agent-promtail
     image: grafana/promtail:2.9.8
@@ -382,8 +351,9 @@ services:
     profiles: ["full"]   #  UI
     depends_on: *langfuse-depends-on
     ports:
-      # ost 3000 ?Docker Desktop backend  3100?
-      - "3100:3000"
+      # 宿主 3100 让位给 GrowthBook API（见 growthbook 服务）；Langfuse Web UI 改挂 3105。
+      # 内部 3000 不变，NEXTAUTH_URL/LANGFUSE_HOST 走 docker 网络，不受影响。
+      - "3105:3000"
     environment:
       <<: *langfuse-worker-env
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-mysecret} # CHANGEME
@@ -442,7 +412,7 @@ services:
     container_name: shop-agent-nebula-metad
     image: vesoft/nebula-metad:v3.8.0
     restart: unless-stopped
-    profiles: ["disabled"]   # ? +init (masked: focus on Langfuse)
+    profiles: ["disabled"] 
     environment:
       USER: root
       TZ: Asia/Shanghai
@@ -464,7 +434,7 @@ services:
     container_name: shop-agent-nebula-storaged
     image: vesoft/nebula-storaged:v3.8.0
     restart: unless-stopped
-    profiles: ["disabled"]   # ? (masked: focus on Langfuse)
+    profiles: ["disabled"]
     depends_on:
       nebula-metad:
         condition: service_healthy
@@ -488,7 +458,7 @@ services:
     container_name: shop-agent-nebula-graphd
     image: vesoft/nebula-graphd:v3.8.0
     restart: unless-stopped
-    profiles: ["disabled"]   # ? (masked: focus on Langfuse)
+    profiles: ["disabled"]
     depends_on:
       nebula-storaged:
         condition: service_healthy
@@ -506,7 +476,6 @@ services:
       retries: 10
     ports:
       - "9669:9669"
-  # NebulaGraph  storage host +
   nebula-init:
     container_name: shop-agent-nebula-init
     image: vesoft/nebula-console:v3.8.0
@@ -523,7 +492,6 @@ services:
         nebula-console -addr nebula-graphd -port 9669 -u root -p nebula -e 'SHOW HOSTS' &&
         echo "NebulaGraph cluster is ready"
     restart: "no"
-  # ============  docs/oracle-cloud-deploy.md 5?===========
   shop-agent:
     build:
       context: ./apps/shop-agent
@@ -541,37 +509,36 @@ services:
               count: 1
               capabilities: ["gpu"]
     ports: ["8000:8000"]
-    # ?.env ?FIXED_API_KEY environment ?
     env_file:
       - .env
     environment:
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_AUTH:-}
-      # ?PostgreSQLonfig.database_url  .env ?DATABASE_URL?PG?
-      #  DB_HOSTnv_file ?DATABASE_URL ?
       POSTGRES_HOST: postgres
       PG_DATABASE: shop_agent
-      VECTOR_STORE_PROVIDER: pgvector
+      # 向量库选择：默认 milvus（知识库数据已灌入 Milvus 的 chat_embeddings）。
+      # 若改用 pgvector，需重新灌库（入库脚本会按此项选择目标库），否则检索会命中空表。
+      VECTOR_STORE_PROVIDER: ${VECTOR_STORE_PROVIDER:-milvus}
+      # step1 改写 / 多轮融合专用模型。默认 qwen3.8-flash 会被网关路由到云端百炼
+      # （规则：qwen* → 百炼），云端不可达时该调用耗时数秒甚至 30s 超时并 503，
+      # 直接拖慢整轮响应。指定为 qwen3-unified 可走本地 vLLM（毫秒级、稳定）。
+      STEP1_REWRITE_MODEL: ${STEP1_REWRITE_MODEL:-qwen3-unified}
       BNB_CUDA_VERSION: "128"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@pgvector:5432/shop_agent
       GLOBAL_RATE_LIMIT: 1000
       CHAT_RATE_LIMIT: 1000
       MILVUS_HOST: standalone
-      # ?LLM ?Gatewayail-closed LLM_GATEWAY_URL
       LLM_GATEWAY_URL: http://gateway:8001/v1
-      #  Ollama/vLLM?Gateway
       LOCAL_MODEL_BACKEND: gateway
       # bge-small-zh-v1.5：vLLM 直连（EMBEDDING_PROVIDER=vllm）
       EMBEDDING_PROVIDER: vllm
       EMBEDDING_MODEL: BAAI/bge-small-zh-v1.5
       VLLM_EMBEDDING_BASE_URL: http://vllm-bge-small-zh:8000
       VLLM_EMBEDDING_MODEL: BAAI/bge-small-zh-v1.5
-      # P2  embedding entence-transformers
       EMBEDDING_MODEL_LOCAL_PATH: /models/bge-small-zh-v1.5
       P2_HEAD_EMBED_MODEL: BAAI/bge-small-zh-v1.5
       P2_HEAD_MODEL_PATH: /code/src/modules/chat/agent/assets/p2_linear_head.onnx
       P2_HEAD_CLASSES_SOURCE: /code/data/lscale_prod.json
-      # bge-reranker  vLLMERANKER_PROVIDER=vllm?
       RERANKER_PROVIDER: vllm
       VLLM_RERANK_BASE_URL: http://vllm-bge-reranker:8000
       VLLM_RERANK_MODEL: bge-reranker-base
@@ -585,10 +552,25 @@ services:
       MLOPS_TRAINER_URL: http://mlops-trainer:8002
       # 版本化标注数据集落点（持久化：绑定挂载宿主机 data/tool_select，容器重建不丢）
       MLOPS_DATASET_DIR: /code/mlops_datasets
+      # 标注薄层 SQLite 真值库(Option A):配置后 record_correction 双写、export_and_train 改读此处
+      MLOPS_TOOL_SELECT_GOLD_DB: /data/annotations_idx.db
+      # ============ GrowthBook（experiments profile 下启用；GROWTHBOOK_ENABLED=false 可整体关闭）============
+      GROWTHBOOK_ENABLED: "${GROWTHBOOK_ENABLED:-true}"
+      GROWTHBOOK_API_HOST: "http://growthbook:3100"
+      GROWTHBOOK_CLIENT_KEY: "${GROWTHBOOK_CLIENT_KEY}"          # 只读 SDK key（拉 features.json）
+      GROWTHBOOK_DECRYPTION_KEY: "${GROWTHBOOK_DECRYPTION_KEY}"  # 解密 feature 定义（secret 注入）
+      GROWTHBOOK_API_KEY: "${GROWTHBOOK_API_KEY}"                # 服务端 REST（建/暂停实验），绝不进前端
+      GROWTHBOOK_CACHE_TTL: "30"
+      # Data Source 复用现有 pgvector Postgres（shop_agent 库，建议只读角色 gb_ro）
+      GROWTHBOOK_DATASOURCE_URL: "postgresql://gb_ro:${POSTGRES_PASSWORD}@pgvector:5432/shop_agent"
+      GROWTHBOOK_CACHE_FILE: "/data/growthbook_features.json"
     depends_on:
       redis: { condition: service_healthy }
       pgvector: { condition: service_healthy }
       gateway: { condition: service_started }
+      # 仅 experiments profile 激活时 growthbook 存在于编排图；否则被 compose 忽略（见 design §8.4）。
+      # 即便依赖未满足，启动门禁的 stale 上岗兜底保证进程仍能起来（degraded）。
+      growthbook: { condition: service_healthy }
     volumes:
       - E:/workspace/shop-agent/models/BAAI/bge-small-zh-v1.5:/models/bge-small-zh-v1.5:ro
       - E:/workspace/shop-agent/models/BAAI/bge-reranker-base:/models/bge-reranker-base:ro
@@ -600,6 +582,69 @@ services:
       # 版本化标注数据集（train/holdout/manifest）：必须持久化，容器重建后仍需可复现训练。
       # 绑定挂载到宿主机 data/tool_select，便于审阅、提交与接入 DVC；路径与 MLOPS_DATASET_DIR 一致。
       - ./data/tool_select:/code/mlops_datasets
+      # 标注薄层 SQLite 真值库(Option A 共享):与 tool-select-annotator 同卷,
+      # 使 /agent/correction 双写、export_and_train 改读同一 gold 真值源。
+      - annotator_db:/data
+
+  # ============ GrowthBook 自托管（实验分配后端 + 分析看板，opt-in） ============
+  growthbook:
+    image: growthbook/growthbook:${GROWTHBOOK_VERSION:-v3.4.0}   # 稳定 tag；实现时取最新 v3 稳定版
+    container_name: growthbook
+    profiles: ["experiments"]
+    ports:
+      # API 仅对宿主直连暴露（供 scripts/calibrate_growthbook.py 等直接联调）；
+      # 浏览器 UI 一律走同源代理 growthbook-proxy:3200（见下方 growthbook-proxy 服务），
+      # 避免跨域 CORS 与 "custom domain" 误判。
+      - "3100:3100"
+    environment:
+      # 浏览器经同源代理访问（nginx: host 3200 -> growthbook:3100/3000），故 API_HOST/APP_ORIGIN
+      # 必须是代理对外地址 http://127.0.0.1:3200（与浏览器打开的 origin 完全一致）。
+      # 该值写回 API 根 / 的 api_host 字段，前端运行时据此发请求 -> 同域、无 CORS、无 "custom domain" 误判。
+      API_HOST: http://127.0.0.1:3200
+      APP_ORIGIN: http://127.0.0.1:3200
+      NEXT_PUBLIC_API_HOST: http://127.0.0.1:3200
+      # 加密 key（解密 feature 定义）：通过 .env / secret 注入，不落代码
+      GB_ENCRYPTION_KEY: ${GB_ENCRYPTION_KEY}
+      JWT_SECRET: ${GB_JWT_SECRET}
+      MONGODB_URI: mongodb://mongo:27017/growthbook
+    depends_on:
+      mongo: { condition: service_healthy }
+    healthcheck:
+      # 该镜像为精简 node 镜像，无 curl/sh，故用 node 直接探活（design §8.4 启动门禁配套）
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3100/healthcheck',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - growthbook_data:/home/node/app/data
+
+  mongo:
+    image: mongo:${MONGO_VERSION:-7}
+    container_name: growthbook-mongo
+    profiles: ["experiments"]
+    environment:
+      MONGO_INITDB_DATABASE: growthbook
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # GrowthBook 同源反向代理：浏览器只与 127.0.0.1:3200 单 origin 交互（UI+API 同域），
+  # 彻底规避 GB 自托管镜像 CORS 硬编码 `*` + credentials 被浏览器拦截的 "Failed to fetch"，
+  # 以及非 localhost origin 触发的 "custom domain" 误判。详见 deploy/growthbook-nginx.conf。
+  growthbook-proxy:
+    image: nginx:latest
+    container_name: growthbook-proxy
+    profiles: ["experiments"]
+    depends_on:
+      growthbook: { condition: service_healthy }
+    ports:
+      - "3200:80"
+    volumes:
+      - ./deploy/growthbook-nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
   mlops-trainer:
     build:
@@ -641,14 +686,9 @@ services:
       - .env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      # outer.py ?param/tool_select/local*/qwen3-unified ?
-      # GPU  vllm-qwen3ull profile?mock-llm
       VLLM_BASE_URL: http://vllm-qwen3:8000/v1
-      # mock outer.py ?mock* ?
       MOCK_BASE_URL: http://mock-llm:8080/v1
-      # 1= API ?mock ?
       MOCK_CLOUD_OVERRIDE: 0
-      #  vLLM / mock ?OpenAI ?key ?LiteLLM openai provider
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-not-needed}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
@@ -668,26 +708,18 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pg_password}
-      #  Alertmanager webhook receiver  token?
-      #  agent ?401 efault-deny?
-      MONITORING_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN}  # ?
-      # ? monitoring ?+ remediation
+      MONITORING_WEBHOOK_TOKEN: ${MONITORING_WEBHOOK_TOKEN} 
       MONITORING_DB_NAME: ${MONITORING_DB_NAME:-monitoring}
       MONITORING_DB_DSN: ${MONITORING_DB_DSN:-}
       MONITORING_DB_APP_USER: ${MONITORING_DB_APP_USER:-monitoring}
       MONITORING_DB_APP_PASS: ${MONITORING_DB_APP_PASS:-monitoring_pass}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      #  AISCOVER_ENABLED=0 ?
-      # STATIC_TARGETS ?k8s ?/  Prometheus name=url
       DISCOVER_ENABLED: ${DISCOVER_ENABLED:-1}
       DISCOVER_CACHE_TTL_S: ${DISCOVER_CACHE_TTL_S:-60}
       STATIC_TARGETS: ${STATIC_TARGETS:-}
-      #  CkyWalking AP ?
-      # STATIC_DEPENDENCIES ?k8s ?/  agent source=target
       SKYWALKING_URL: ${SKYWALKING_URL:-http://skywalking-oap:12800}
       SKYWALKING_ENABLED: "0"   # masked: SkyWalking disabled (focus on Langfuse)
       STATIC_DEPENDENCIES: ${STATIC_DEPENDENCIES:-}
-      # Docker ?0.6 monitoring-agent  Docker socket
       SANDBOX_ENABLED: ${SANDBOX_ENABLED:-0}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.11-slim}
       SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
@@ -698,10 +730,6 @@ services:
     depends_on:
       shop-agent: { condition: service_started }
       gateway: { condition: service_started }
-  # ============ Nightingale (n9e)  redis/postgres/prometheus/alertmanager?===========
-  # n9e ?Prometheus ???Alertmanager
-  # ?monitoring-agent /ingest/alert ?RCA?Grafana ML ?
-  # ? redis/postgres?
   n9e-db-init:
     image: postgres:${POSTGRES_VERSION:-17}
     container_name: n9e-db-init
@@ -722,7 +750,6 @@ services:
         echo "n9e database ready"
     networks:
       - default
-  # / monitoring ?+ remediation ?
   monitoring-db-init:
     image: postgres:${POSTGRES_VERSION:-17}
     container_name: monitoring-db-init
@@ -742,8 +769,6 @@ services:
     networks:
       - default
   n9e:
-    # v9  /app/etc/config.tomlOML v7 ?n9e.yml(YAML) ?
-    #  latest=v9.x?NIGHTINGALE_IMAGE=flashcatcloud/nightingale:latest
     image: ${NIGHTINGALE_IMAGE:-flashcatcloud/nightingale:latest}
     container_name: shop-agent-n9e
     restart: unless-stopped
@@ -839,7 +864,6 @@ services:
       - --kv-cache-dtype=fp8
       - --max-model-len=16384
       - --max-num-seqs=8
-      #  4096  33h
       - --max-num-batched-tokens=8192
       - --gpu-memory-utilization=0.55
       - --served-model-name=qwen3-unified
@@ -870,7 +894,6 @@ services:
     restart: unless-stopped
     ports:
       - "18080:8080"
-    # ?env  apps/mock-llm/main.go ?
     environment:
       MODEL_NAME: ${MOCK_MODEL_NAME:-mock-llm}
       LATENCY_MS: ${MOCK_LATENCY_MS:-0}
@@ -880,7 +903,6 @@ services:
       ERROR_STATUS: ${MOCK_ERROR_STATUS:-500}
       COMPLETION_TOKENS: ${MOCK_COMPLETION_TOKENS:-32}
       EMBEDDING_DIM: ${MOCK_EMBEDDING_DIM:-512}
-  # ============ ust +  pgvector hop-agent ============
   order-service:
     build: ./apps/order-service
     container_name: order-service
@@ -892,8 +914,46 @@ services:
     depends_on:
       pgvector:
         condition: service_healthy
+  # ============ 工具选择标注 Web 薄层 (tool-select-annotator) ============
+  tool-select-annotator:
+    build:
+      context: ./apps/tool-select-annotator
+    container_name: tool-select-annotator
+    ports:
+      - "8137:8137"   # 标注后端 API(可选调试用)
+    env_file:
+      - .env
+    environment:
+      # 容器内必须用服务名访问 Langfuse(不能用 .env 的 localhost:3100,那是宿主机映射端口)
+      LANGFUSE_HOST: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      ANNOTATOR_SQLITE_DB: /data/annotations_idx.db   # 与 UI / shop-agent 共享卷
+      SHOP_AGENT_TOOLS_URL: http://shop-agent:8000/agent/tools   # 工具清单(名称+说明),供标注台展示候选与描述
+      AUTO_PASS_MARGIN: ${AUTO_PASS_MARGIN:-0.15}
+      AUTO_SPOTCHECK_RATE: ${AUTO_SPOTCHECK_RATE:-0.08}
+      SPOTCHECK_PRECISION_FLOOR: ${SPOTCHECK_PRECISION_FLOOR:-0.95}
+    volumes:
+      - annotator_db:/data
+    restart: unless-stopped
+  tool-select-annotator-ui:
+    build:
+      context: ./apps/tool-select-annotator
+    container_name: tool-select-annotator-ui
+    command: ["streamlit", "run", "frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "8501:8501"   # 前端连接地址: http://localhost:8501
+    environment:
+      ANNOTATOR_BASE_URL: http://tool-select-annotator:8137   # 容器内向后端服务名调用
+    depends_on:
+      - tool-select-annotator
+    volumes:
+      - annotator_db:/data
+    restart: unless-stopped
 volumes:
   mlops_artifacts:
+    driver: local
+  annotator_db:
     driver: local
   vllm-bge-reranker:
     name: vllm-bge-reranker
@@ -909,3 +969,6 @@ volumes:
     driver: local
   langfuse_clickhouse_logs:
     driver: local
+  # GrowthBook 自托管持久化（experiments profile）
+  growthbook_data:
+  mongo_data:

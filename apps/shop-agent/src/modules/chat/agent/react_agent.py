@@ -59,6 +59,11 @@ from src.modules.chat.agent.skill_loader import (
     SkillRegistry,
     get_skill_registry,
 )
+from src.modules.chat.agent.conversation_condenser import (
+    condense_question,
+    _load_entity_slots,
+    _save_entity_slots,
+)
 from src.core.config import config as app_settings
 from src.modules.chat.core.content_filter import ContentFilterService
 from src.modules.chat.core.sentiment_service import (
@@ -286,15 +291,6 @@ async def _mlops_capture_exec_failed(
 # 按 conversation_id 记忆上一轮工具选择计划；下一轮若该计划与本轮不相交且用户语料
 # 含否定词，则判定为「推翻上一轮选择」，归一化记录为纠正（rephrase）。
 _PREV_PLAN_BY_CONV: dict = {}
-_NEGATION_TOKENS = (
-    "不对", "错了", "不是", "应该是", "应该", "其实是",
-    "重新", "改", "纠正", "说反", "弄错", "我意思是", "搞错了",
-)
-
-
-def _has_negation(text: str) -> bool:
-    t = text or ""
-    return any(tok in t for tok in _NEGATION_TOKENS)
 
 
 class ReActAgent:
@@ -512,7 +508,7 @@ class ReActAgent:
 
         return knowledge_search
 
-    async def _select_tools_for_intent(self, actions: List[str], user_query: str) -> list:
+    async def _select_tools_for_intent(self, actions: List[str], user_query: str, raw_query: str | None = None) -> list:
         """四级工具精选流水线（新 Pipeline）：P0 规则 → P1 FAISS → P2 线性头 → P3 LLM 兜底。
 
         T5 think/act 解耦：四层规划只负责「选工具」（thinking），由 ``ToolSelectPipeline``
@@ -599,7 +595,7 @@ class ReActAgent:
         except Exception as _e:
             logger.error("工具选择流水线执行失败", query=user_query[:80], error=str(_e))
             # 监控：流水线本身报错 → 记录为错误类复核任务（best-effort，不影响主流程）
-            _mlops_capture_tool_select(user_query, all_tool_names, plan=None, error=str(_e)[:500])
+            _mlops_capture_tool_select(raw_query or user_query, all_tool_names, plan=None, error=str(_e)[:500])
             raise
         self._last_tool_plan = plan
 
@@ -607,7 +603,7 @@ class ReActAgent:
         # 同步调用（在 @observe 请求上下文内执行，确保 observation 随主 trace 落盘；
         # 原先 asyncio.create_task 会在响应返回、上下文拆除后才运行，导致 start_as_current_observation
         # 挂到已关闭的父 observation 上被丢弃，监控静默失效）。
-        _mlops_capture_tool_select(user_query, all_tool_names, plan=plan)
+        _mlops_capture_tool_select(raw_query or user_query, all_tool_names, plan=plan)
 
         # ── 兼容消费：将 ToolPlan 还原为 LangChain tool 对象列表 ──
         selected_names = plan.to_tool_names()
@@ -817,7 +813,12 @@ class ReActAgent:
                 logger.warning(f"ToolPlan 结果润色失败，回退原始拼接: {str(e)[:120]}")
                 final_output = combined
 
-            final_output = apply_scenario_reply(final_output, tool_outputs)
+            # apply_scenario_reply 期待 (tool_name, tool_input, observation) 三元组列表；
+            # tool_outputs 是 dict 列表，直接传入会被解包成字典的 key，导致场景化概要失效。
+            final_output = apply_scenario_reply(
+                final_output,
+                [(o["action"], preset_params, o["output"]) for o in tool_outputs],
+            )
         finally:
             if langfuse_ctx:
                 langfuse_ctx.__exit__(None, None, None)
@@ -855,6 +856,15 @@ class ReActAgent:
                         "mode": "plan_complete_direct",
                         "source": plan.source,
                         "actions": [o["action"] for o in tool_outputs],
+                        # 保留每个工具的原始返回，供前端提取结构化数据（如物流 tracking 时间线）
+                        "results": [
+                            {
+                                "action": o["action"],
+                                "status": o["status"],
+                                **({"output": o["output"]} if o["status"] == "success" else {}),
+                            }
+                            for o in tool_outputs
+                        ],
                     },
                 }
             ],
@@ -877,8 +887,20 @@ class ReActAgent:
         self._current_conversation_id = ctx.conversation_id
         self._current_domain = ctx.domain
 
+        # ── 多轮融合（指代消解 / 实体消歧）设计 §3/§5 ──
+        # 1) 加载强实体槽位，合并进 intent_result.params（覆盖两路参数注入，红线 §4）
+        entity_slots = _load_entity_slots(ctx.conversation_id)
+        if entity_slots:
+            ctx.intent_result.params = {**entity_slots, **(ctx.intent_result.params or {})}
+        # 2) gated condensation：拿到消歧 query + 纠正信号（LLM 走便宜档 chat_step1）
+        cond_result = await condense_question(ctx.request.message, ctx.conversation_id)
+        standalone_query = cond_result["standalone_query"]
+        correction = cond_result["correction"]
+        # 3) 持久化当前轮强实体槽位，供下一轮确定性回填（best-effort）
+        _save_entity_slots(ctx.conversation_id, ctx.intent_result.params or {})
+
         selected_tools = await self._select_tools_for_intent(
-            ctx.intent_result.actions, user_query=ctx.request.message
+            ctx.intent_result.actions, user_query=standalone_query, raw_query=ctx.request.message
         )
 
         blocked = self._check_input_safety(ctx.request, ctx.domain, ctx.intent_steps, ctx.conversation_id)
@@ -888,7 +910,9 @@ class ReActAgent:
         # ── 执行侧解耦：高置信规划 → 确定性直接执行，绕过 ReAct 循环 ──
         plan = self._last_tool_plan
         # 设计 4 C1：跨轮纠正检测（在覆盖 _last_tool_plan 前先读上一轮快照）
-        self._capture_cross_turn_correction(ctx.conversation_id, ctx.request.message, plan)
+        self._capture_cross_turn_correction(
+            ctx.conversation_id, ctx.request.message, plan, correction=correction
+        )
         if ctx.conversation_id:
             _PREV_PLAN_BY_CONV[ctx.conversation_id] = plan
             if len(_PREV_PLAN_BY_CONV) > 5000:  # 防内存无限增长
@@ -966,23 +990,26 @@ class ReActAgent:
         )
 
     def _capture_cross_turn_correction(
-        self, conversation_id: str, message: str, plan: "ToolPlan | None"
+        self, conversation_id: str, message: str, plan: "ToolPlan | None",
+        correction: dict | None = None,
     ) -> None:
         """设计 4 C1：检测用户跨轮推翻上一轮工具选择，并归一化记录（best-effort）。
 
-        判定：上一轮计划与本轮计划工具集不相交（推翻）或相同（同一工具被否定），
-        且本轮用户语料含否定词 → 记录为 rephrase 纠正。负样本仅记 rejected_tools。
+        纠正判定改由 condensation LLM 产出 correction.is_correction（否定词表已移除）。
+        supersedes_prev 在此补算：prev plan 与 current plan 工具集不相交 且 用户确为纠正 → 推翻上一轮。
+        content 锚定原话（红线 §4）。
         """
         if not conversation_id or plan is None:
             return
         prev = _PREV_PLAN_BY_CONV.get(conversation_id)
         if prev is None or not prev.actions:
             return
+        is_correction = bool((correction or {}).get("is_correction", False))
+        if not is_correction:
+            return
         new_tools = plan.to_tool_names()
         prev_tools = prev.to_tool_names()
         if not new_tools:
-            return
-        if not _has_negation(message):
             return
         try:
             from src.modules.monitoring.langfuse_mlops import record_correction

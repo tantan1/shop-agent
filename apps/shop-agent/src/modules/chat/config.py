@@ -12,6 +12,7 @@ class ChatConfig:
     tongyi_api_key: str = config.TONGYI_API_KEY
     chat_model: str = config.CHAT_MODEL
     tool_selector_model: str = config.TOOL_SELECTOR_MODEL  # P2 工具选择器专用轻量模型（更快更便宜）
+    step1_rewrite_model: str = config.STEP1_REWRITE_MODEL  # step1 改写专用便宜档（默认 qwen3.8-flash）
     # P2 本地模型（设置后优先用本地模型替代云端 API）
     tool_selector_local_model: str = config.TOOL_SELECTOR_LOCAL_MODEL
     tool_selector_local_device: str = config.TOOL_SELECTOR_LOCAL_DEVICE

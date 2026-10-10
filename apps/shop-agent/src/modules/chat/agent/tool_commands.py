@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -296,6 +297,21 @@ class RefundCommand(ToolCommand):
         order_id = ctx.params.get("order_id", "未指定")
         reason = ctx.params.get("reason", "未说明")
         refund_amount = ctx.params.get("refund_amount", 0.0)
+
+        # 订单存在性校验：查无此单则直接提示，不进入审批流（避免"查无却提示等待审批"）
+        if order_id != "未指定":
+            try:
+                from src.modules.chat.core.tool_registry import ToolService
+                q_res = await ToolService._tool_query_order({"order_id": order_id})
+                q_data = json.loads(q_res) if isinstance(q_res, str) else q_res
+                if q_data.get("found") is False or "未查询到" in str(q_data.get("note", "")):
+                    return ToolResult(
+                        status="not_found",
+                        message=f"未查询到订单 {order_id}，请核对订单号后重试",
+                        undo_data={"order_id": order_id},
+                    )
+            except Exception as e:
+                logger.warning(f"退款前订单校验失败，跳过校验继续提交: {e}")
 
         if not self._order_service_url:
             logger.warning("订单服务未配置，跳过退款确认记录")

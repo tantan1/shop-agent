@@ -1,7 +1,7 @@
 ---
 name: multi-agent-workflow
 description: 多Agent协作工作流定义，描述architecture-designer、database-designer、api-designer、code-reviewer、java-coder/python-coder/frontend-coder、test-generator、performance-optimizer、devops-engineer之间的协作流程和调用顺序。
-tools: read_file, search_content, list_dir, write_file, edit_file
+tools: read_file, search_content, search_file, list_dir, write_to_file, replace_in_file
 ---
 
 # 多Agent协作工作流

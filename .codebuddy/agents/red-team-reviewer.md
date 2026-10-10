@@ -1,7 +1,7 @@
 ---
 name: red-team-reviewer
 description: 对抗式审查 Agent。对代码做攻击性审查，只报告有可复现失败用例的 BLOCKING 问题。无复现用例不计入 BLOCKING。
-tools: read_file, search_content, list_dir, write_file, edit_file
+tools: read_file, search_content, list_dir, write_to_file, replace_in_file
 ---
 
 # 红队审查 Agent（对抗式审查）

@@ -90,17 +90,29 @@ def compute_model_version(model_name: str) -> str:
     return hashlib.md5(model_name.encode()).hexdigest()[:12]
 
 
-def save_head_with_version(model_path: str, embed_model: str, embed_version: str, **extra_meta):
-    """保存 head 权重时同时写入版本元数据（同目录下 .meta.json）。"""
+def save_head_with_version(
+    model_path: str,
+    embed_model: str,
+    embed_version: str,
+    train_cfg: dict | None = None,
+    **extra_meta,
+):
+    """保存 head 权重时同时写入版本元数据（同目录下 .meta.json）。
+
+    新增 ``train_cfg``：把训练得到的最优超参一并版本化，避免「权重在、
+    超参只在 stdout」的工程债——之前 p2_head 复盘赢值只能靠复跑，就是因为
+    超参没和权重一起落盘。
+    """
     meta = {
         "embed_model": embed_model,
         "embed_version": embed_version,
         "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "train_cfg": train_cfg or {},
         **extra_meta,
     }
     meta_path = Path(model_path).with_suffix(".meta.json")
     json.dump(meta, open(meta_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    print(f"[INFO] 元数据已写入 {meta_path}")
+    print(f"[INFO] 元数据已写入 {meta_path}（train_cfg={train_cfg}）")
 
 
 def load_head_with_version_check(model_path: str, current_embed_model: str, current_embed_version: str):
@@ -479,6 +491,44 @@ def infer_hidden_from_state(model_out: str, dim: int, n_classes: int) -> ToolHea
     return model
 
 
+def export_onnx(model_out: str, onnx_path: str, dim: int, n_classes: int,
+                classes: list, embed_model: str, embed_version: str, opset: int = 13):
+    """将训练得到的 .pt 导出为 ONNX，并回写 head_meta.json（保留 train_cfg）。
+
+    解决：部署产物是 ONNX，而旧导出步骤会丢弃训练超参。此处从 .pt 同目录的
+    .meta.json 读取 ``train_cfg`` 一并写入，使部署侧 head_meta 也能复盘最优超参。
+    """
+    model = infer_hidden_from_state(model_out, dim, n_classes)
+    model.load_state_dict(torch.load(model_out, map_location="cpu"))
+    model.eval()
+
+    dummy = torch.randn(1, dim, dtype=torch.float32)
+    Path(onnx_path).parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        model, (dummy,), onnx_path,
+        input_names=["input"], output_names=["logits"],
+        dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+        opset_version=opset,
+    )
+
+    src_meta = Path(model_out).with_suffix(".meta.json")
+    existing = json.load(open(src_meta, encoding="utf-8")) if src_meta.exists() else {}
+    meta = {
+        "embed_model": embed_model,
+        "embed_version": embed_version,
+        "dim": dim,
+        "n_classes": n_classes,
+        "classes": classes,
+        "exported_from": str(model_out),
+        "opset": opset,
+        "train_cfg": existing.get("train_cfg", {}),
+        "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    meta_path = Path(onnx_path).with_suffix(".meta.json")
+    json.dump(meta, open(meta_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"[OK] ONNX 导出 {onnx_path}（head_meta 已保留 train_cfg={meta['train_cfg']}）")
+
+
 # ================================================================
 # ⑥ 入口
 # ================================================================
@@ -504,7 +554,17 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3, help="直接训练学习率（--epochs>0 时生效）")
     ap.add_argument("--hidden", type=int, default=64, help="直接训练隐层维度（--epochs>0 时生效）")
     ap.add_argument("--dropout", type=float, default=0.0, help="直接训练 dropout（--epochs>0 时生效）")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="随机种子（切分/初始化可复现，便于复盘最优超参）")
+    ap.add_argument("--export-onnx", action="store_true",
+                    help="将已训 .pt 导出为 ONNX，并回写 head_meta.json（保留 train_cfg）")
+    ap.add_argument("--onnx-out",
+                    default=str(REPO_ROOT / "src" / "modules" / "chat" / "agent" / "assets" / "p2_linear_head.onnx"),
+                    help="--export-onnx 的 ONNX 输出路径")
     args = ap.parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
     if args.embed_endpoint:
         print(f"[INFO] embedding endpoint: {args.embed_endpoint} model={args.embed_model}")
@@ -526,6 +586,18 @@ def main():
     label2idx = build_label_index(tool_names)
     pool_by_name = {t["name"]: i for i, t in enumerate(tools)} if args.M and args.M > 0 else None
     print(f"[INFO] 工具数={len(tool_names)}，query 数={len(queries)}，emb_dim={tool_matrix.shape[1]}, M={args.M}")
+
+    if args.export_onnx:
+        export_onnx(
+            model_out=args.model_out,
+            onnx_path=args.onnx_out,
+            dim=tool_matrix.shape[1],
+            n_classes=len(tool_names),
+            classes=tool_names,
+            embed_model=args.embed_model,
+            embed_version=embed_version,
+        )
+        return
 
     if args.arm == "a":
         summary = run_arm_a(_EMBED_MODEL, tool_names, tool_matrix, queries, top_k=args.top_k,
@@ -580,7 +652,7 @@ def main():
                 args.model_out,
                 embed_model=args.embed_model,
                 embed_version=embed_version,
-                best_cfg=best_cfg,
+                train_cfg=best_cfg,
                 dim=dim,
                 n_classes=n_classes,
             )

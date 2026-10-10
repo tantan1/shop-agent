@@ -162,6 +162,32 @@ def apply_scenario_reply(final_output: str, intermediate_steps: list) -> str:
     return final_output
 
 
+_REASONING_START = _re.compile(
+    r"^(?:好的[，,]\s*)?"
+    r"(?:用户[要问].*?|首先[，,].*?|我需要确认.*?|应该调用.*?|根据(?:规则|流程|推荐原则).*?)"
+    r"(?=(?:您|您好|抱歉|订单号|您的|请问|快递|余额|优惠券|我们))",
+    _re.DOTALL,
+)
+
+
+def strip_thinking(text: str) -> str:
+    """剥离模型误混入最终回复的思考/推理过程。
+
+    - ``<think>...</think>`` 块（thinking 模式残留，ReAct 路径不经过 chat_qwen，此处兜底）
+    - 中文自言自语式前导推理（如「好的，用户要退货…首先我需要确认…」）
+    仅当能切到真实回复起点时才裁剪，避免把整段误删导致回复为空。
+    """
+    if not text:
+        return text
+    cleaned = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
+    m = _REASONING_START.match(cleaned)
+    if m:
+        rest = cleaned[m.end():].strip()
+        if rest:
+            cleaned = rest
+    return cleaned
+
+
 def parse_messages(messages: list) -> tuple[str, list]:
     """从 LangGraph messages 列表中提取最终回复和中间步骤。"""
     final_output = ""
@@ -190,7 +216,7 @@ def parse_messages(messages: list) -> tuple[str, list]:
                 tool_name = getattr(msg, "name", "unknown")
                 intermediate_steps.append((tool_name, {}, str(msg.content)))
 
-    return final_output, intermediate_steps
+    return strip_thinking(final_output), intermediate_steps
 
 
 def format_intermediate_steps(

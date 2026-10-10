@@ -132,6 +132,14 @@ agent_chat_counter = Counter(
     ["status"],  # success/error
 )
 
+# Agent Chat 请求耗时（护栏 P99 延迟数据源，Phase 5 接入）
+# 单位：毫秒(ms)。bucket 覆盖常规(<1s)到极端(<30s)场景，P99 由 bucket 累积估算。
+agent_chat_duration_ms = Histogram(
+    "shop_agent_agent_chat_duration_ms",
+    "Agent Chat 请求耗时(ms)",
+    buckets=(100, 250, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 30000),
+)
+
 # ============ L2 短期记忆指标 ============
 
 l2_save_triggered_total = Counter(

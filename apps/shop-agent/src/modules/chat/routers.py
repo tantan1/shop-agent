@@ -1,3 +1,4 @@
+import hashlib  # noqa: E402
 import uuid  # noqa: E402
 from typing import Optional  # noqa: E402
 
@@ -193,7 +194,12 @@ async def agent_chat(
     x_user_id = req.headers.get("X-User-ID")
     user_id = request.user_id or x_user_id
     if not user_id:
-        user_id = f"anon_{uuid.uuid4().hex[:8]}"
+        conv_id = getattr(request, "conversation_id", None) or ""
+        if conv_id:
+            # 基于 conversation_id 稳定派生，保证同一会话内多轮请求稳定落组（A/B 前提）
+            user_id = f"anon_{hashlib.md5(conv_id.encode()).hexdigest()[:8]}"
+        else:
+            user_id = f"anon_{uuid.uuid4().hex[:8]}"
 
     # ── 设置 Token 限流上下文 ──
     try:
@@ -216,7 +222,9 @@ async def agent_chat(
         exp_service = ExperimentService.get_instance()
         if exp_service.is_initialized:
             # 优先使用 user_id 进行实验分组
-            experiment_assignment = exp_service.assign(user_id, request.domain)
+            experiment_assignment = exp_service.assign(
+                user_id, request.domain, forced_group=request.experiment_group
+            )
     except Exception:
         pass  # 实验分配失败不影响主流程
 
@@ -496,6 +504,28 @@ async def agent_correction(
     return success_response(data={"trace_id": tid, "recorded": tid is not None})
 
 
+@router.get("/agent/tools", summary="工具清单(名称+说明),供标注台使用")
+async def list_tools():
+    """返回全部已注册工具的名称与一句话说明(docstring 首行),
+    供 tool-select-annotator 前端展示候选工具描述(§2.1 tools())。
+
+    仅暴露公开元数据(名称+说明),不暴露任何执行能力。
+    """
+    from src.modules.chat.core.tool_registry import ToolService
+
+    svc = ToolService()
+    svc._ensure_registry()
+    tools = [
+        {
+            "name": name,
+            "description": (fn.__doc__ or "").strip().splitlines()[0]
+            if fn.__doc__ else "",
+        }
+        for name, fn in svc._registry.items()
+    ]
+    return {"tools": tools}
+
+
 @router.post("/agent/test", summary="test")
 async def agent_test(
     request: ChatRequest,
@@ -570,7 +600,7 @@ async def create_experiment(
 
         return JSONResponse(
             status_code=503,
-            content={"code": 503, "message": "ExperimentService 未初始化（Redis 不可用？）"},
+            content={"code": 503, "message": "ExperimentService 未初始化（GrowthBook 不可用？）"},
         )
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -578,6 +608,7 @@ async def create_experiment(
         id=exp_request.id,
         name=exp_request.name,
         description=exp_request.description,
+        kind=exp_request.kind,
         status=ExperimentStatus.RUNNING,
         variants=[
             VariantDef(
@@ -603,6 +634,7 @@ async def create_experiment(
         ],
         domains=exp_request.domains,
         owner=exp_request.owner,
+        expected_end=exp_request.expected_end,
         created_at=now_str,
         updated_at=now_str,
     )
@@ -643,8 +675,7 @@ async def update_experiment_status(
         )
 
     new_status = ExperimentStatus(pause_request.status)
-    exp.status = new_status
-    exp_service.create_experiment(exp)
+    ok = exp_service.update_experiment_status(pause_request.id, new_status.value)
     return success_response(data={"status": new_status.value, "experiment_id": pause_request.id})
 
 
